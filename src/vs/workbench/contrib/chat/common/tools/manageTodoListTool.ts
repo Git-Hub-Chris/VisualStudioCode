@@ -20,6 +20,8 @@ import { ILogService } from '../../../../../platform/log/common/log.js';
 import { ITelemetryService } from '../../../../../platform/telemetry/common/telemetry.js';
 import { IChatTodo, IChatTodoListService } from '../chatTodoListService.js';
 import { ContextKeyExpr } from '../../../../../platform/contextkey/common/contextkey.js';
+import { IsSimulationContext } from '../../../../../platform/contextkey/common/contextkeys.js';
+import { localize } from '../../../../../nls.js';
 
 export const TodoListToolSettingId = 'chat.todoListTool.enabled';
 export const TodoListToolWriteOnlySettingId = 'chat.todoListTool.writeOnly';
@@ -59,7 +61,9 @@ export function createManageTodoListToolData(writeOnly: boolean): IToolData {
 		}
 	};
 
-	const requiredFields = ['todoList'];
+	// Only require the full todoList when operating in write-only mode.
+	// In read/write mode, the write path validates todoList at runtime, so it's not schema-required.
+	const requiredFields = writeOnly ? ['todoList'] : [] as string[];
 
 	if (!writeOnly) {
 		baseProperties.operation = {
@@ -73,11 +77,14 @@ export function createManageTodoListToolData(writeOnly: boolean): IToolData {
 	return {
 		id: ManageTodoListToolToolId,
 		toolReferenceName: 'todos',
-		when: ContextKeyExpr.equals(`config.${TodoListToolSettingId}`, true),
+		when: ContextKeyExpr.or(
+			ContextKeyExpr.equals(`config.${TodoListToolSettingId}`, true),
+			IsSimulationContext
+		),
 		canBeReferencedInPrompt: true,
 		icon: ThemeIcon.fromId(Codicon.checklist.id),
-		displayName: 'Update Todo List',
-		userDescription: 'Manage and track todo items for task planning',
+		displayName: localize('tool.manageTodoList.displayName', 'Manage and track todo items for task planning'),
+		userDescription: localize('tool.manageTodoList.userDescription', 'Tool for managing and tracking todo items for task planning'),
 		modelDescription: 'Manage a structured todo list to track progress and plan tasks throughout your coding session. Use this tool VERY frequently to ensure task visibility and proper planning.\n\nWhen to use this tool:\n- Complex multi-step work requiring planning and tracking\n- When user provides multiple tasks or requests (numbered/comma-separated)\n- After receiving new instructions that require multiple steps\n- BEFORE starting work on any todo (mark as in-progress)\n- IMMEDIATELY after completing each todo (mark completed individually)\n- When breaking down larger tasks into smaller actionable steps\n- To give users visibility into your progress and planning\n\nWhen NOT to use:\n- Single, trivial tasks that can be completed in one step\n- Purely conversational/informational requests\n- When just reading files or performing simple searches\n\nCRITICAL workflow:\n1. Plan tasks by writing todo list with specific, actionable items\n2. Mark ONE todo as in-progress before starting work\n3. Complete the work for that specific todo\n4. Mark that todo as completed IMMEDIATELY\n5. Move to next todo and repeat\n\nTodo states:\n- not-started: Todo not yet begun\n- in-progress: Currently working (limit ONE at a time)\n- completed: Finished successfully\n\nIMPORTANT: Mark todos completed as soon as they are done. Do not batch completions.',
 		source: ToolDataSource.Internal,
 		inputSchema: {
@@ -114,10 +121,9 @@ export class ManageTodoListTool extends Disposable implements IToolImpl {
 
 	async invoke(invocation: IToolInvocation, _countTokens: any, _progress: any, _token: CancellationToken): Promise<IToolResult> {
 		const args = invocation.parameters as IManageTodoListToolInputParams;
-		const chatSessionId = invocation.context?.sessionId ?? args.chatSessionId;
-		if (chatSessionId === undefined) {
-			throw new Error('A chat session ID is required for this tool');
-		}
+		// For: #263001 Use default sessionId
+		const DEFAULT_TODO_SESSION_ID = 'default';
+		const chatSessionId = invocation.context?.sessionId ?? args.chatSessionId ?? DEFAULT_TODO_SESSION_ID;
 
 		this.logService.debug(`ManageTodoListTool: Invoking with options ${JSON.stringify(args)}`);
 
@@ -160,17 +166,23 @@ export class ManageTodoListTool extends Disposable implements IToolImpl {
 
 	async prepareToolInvocation(context: IToolInvocationPreparationContext, _token: CancellationToken): Promise<IPreparedToolInvocation | undefined> {
 		const args = context.parameters as IManageTodoListToolInputParams;
-		const chatSessionId = context.chatSessionId ?? args.chatSessionId;
-		if (!chatSessionId) {
-			throw new Error('chatSessionId undefined');
-		}
+		// For: #263001 Use default sessionId
+		const DEFAULT_TODO_SESSION_ID = 'default';
+		const chatSessionId = context.chatSessionId ?? args.chatSessionId ?? DEFAULT_TODO_SESSION_ID;
 
 		const items = args.todoList ?? this.chatTodoListService.getTodos(chatSessionId);
+
+		const operation = this.writeOnly ? 'write' : args.operation;
+
+		// Only return tool specific data if the operation is write and all items are completed
+		const allCompleted = items.length > 0 && items.every(todo => todo.status === 'completed');
+		const shouldUpdateStatus = operation === 'write' && allCompleted;
+
 		const todoList = items.map(todo => ({
 			id: todo.id.toString(),
 			title: todo.title,
 			description: todo.description,
-			status: todo.status
+			status: shouldUpdateStatus ? todo.status : 'not-started'
 		}));
 
 		return {
@@ -233,8 +245,24 @@ export class ManageTodoListTool extends Disposable implements IToolImpl {
 			status: parsedTodo.status
 		}));
 
+		const existingTodos = this.chatTodoListService.getTodos(chatSessionId);
+		const changes = this.calculateTodoChanges(existingTodos, todoList);
+
 		this.chatTodoListService.setTodos(chatSessionId, todoList);
 		const statusCounts = this.calculateStatusCounts(todoList);
+
+		// Build warnings
+		const warnings: string[] = [];
+		if (todoList.length < 3) {
+			warnings.push('Warning: Small todo list (<3 items). This task might not need a todo list.');
+		}
+		else if (todoList.length > 10) {
+			warnings.push('Warning: Large todo list (>10 items). Consider keeping the list focused and actionable.');
+		}
+
+		if (changes > 3) {
+			warnings.push('Warning: Did you mean to update so many todos at the same time? Consider working on them one by one.');
+		}
 
 		this.telemetryService.publicLog2<TodoListToolInvokedEvent, TodoListToolInvokedClassification>(
 			'todoListToolInvoked',
@@ -250,7 +278,7 @@ export class ManageTodoListTool extends Disposable implements IToolImpl {
 		return {
 			content: [{
 				kind: 'text',
-				value: 'Successfully wrote todo list'
+				value: `Successfully wrote todo list${warnings.length ? '\n\n' + warnings.join('\n') : ''}`
 			}]
 		};
 	}
@@ -289,6 +317,24 @@ export class ManageTodoListTool extends Disposable implements IToolImpl {
 
 			return lines.join('\n');
 		}).join('\n');
+	}
+
+	private calculateTodoChanges(oldList: IChatTodo[], newList: IChatTodo[]): number {
+		// Assume arrays are equivalent in order; compare index-by-index
+		let modified = 0;
+		const minLen = Math.min(oldList.length, newList.length);
+		for (let i = 0; i < minLen; i++) {
+			const o = oldList[i];
+			const n = newList[i];
+			if (o.title !== n.title || (o.description ?? '') !== (n.description ?? '') || o.status !== n.status) {
+				modified++;
+			}
+		}
+
+		const added = Math.max(0, newList.length - oldList.length);
+		const removed = Math.max(0, oldList.length - newList.length);
+		const totalChanges = added + removed + modified;
+		return totalChanges;
 	}
 }
 
