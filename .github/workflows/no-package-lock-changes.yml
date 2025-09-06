@@ -12,8 +12,14 @@ jobs:
           route: GET /repos/microsoft/vscode/collaborators/{username}/permission
           username: ${{ github.event.pull_request.user.login }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Set control output variable
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Or use a PAT if required
+
+        steps:
+          - name: Check Collaborator Permission
+            run: |
+            curl -H "Authorization: token $GH_TOKEN" \
+                 -H "Accept: application/vnd.github.v3+json" \
+                 https://api.github.com/repos/${{ github.repository }}/collaborators/dependabot[bot]/permission
         id: control
         run: |
           echo "user: ${{ github.event.pull_request.user.login }}"
