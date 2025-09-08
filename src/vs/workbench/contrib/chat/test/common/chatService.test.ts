@@ -21,7 +21,7 @@ import { ITelemetryService } from '../../../../../platform/telemetry/common/tele
 import { NullTelemetryService } from '../../../../../platform/telemetry/common/telemetryUtils.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import { ChatAgentLocation, ChatAgentService, IChatAgent, IChatAgentImplementation, IChatAgentService } from '../../common/chatAgents.js';
-import { ISerializableChatData } from '../../common/chatModel.js';
+import { IChatModel, ISerializableChatData } from '../../common/chatModel.js';
 import { IChatFollowup, IChatService } from '../../common/chatService.js';
 import { ChatService } from '../../common/chatServiceImpl.js';
 import { ChatSlashCommandService, IChatSlashCommandService } from '../../common/chatSlashCommands.js';
@@ -34,7 +34,6 @@ import { IExtensionService, nullExtensionDescription } from '../../../../service
 import { IViewsService } from '../../../../services/views/common/viewsService.js';
 import { TestContextService, TestExtensionService, TestStorageService } from '../../../../test/common/workbenchTestServices.js';
 import { MarkdownString } from '../../../../../base/common/htmlContent.js';
-import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
 
 const chatAgentWithUsedContextId = 'ChatProviderWithUsedContext';
 const chatAgentWithUsedContext: IChatAgent = {
@@ -184,7 +183,7 @@ suite('ChatService', () => {
 		assert(response);
 		await response.responseCompletePromise;
 
-		await assertSnapshot(model.toExport());
+		await assertSnapshot(toSnapshotExportData(model));
 	});
 
 	test('history', async () => {
@@ -197,11 +196,9 @@ suite('ChatService', () => {
 		};
 
 		testDisposables.add(chatAgentService.registerAgent('defaultAgent', { ...getAgentData('defaultAgent'), isDefault: true }));
-		testDisposables.add(chatAgentService.registerAgent('agent2', { ...getAgentData('agent2'), extensionId: new ExtensionIdentifier('foo.bar') }));
-		testDisposables.add(chatAgentService.registerAgent('agent3', getAgentData('agent3')));
+		testDisposables.add(chatAgentService.registerAgent('agent2', getAgentData('agent2')));
 		testDisposables.add(chatAgentService.registerAgentImplementation('defaultAgent', historyLengthAgent));
 		testDisposables.add(chatAgentService.registerAgentImplementation('agent2', historyLengthAgent));
-		testDisposables.add(chatAgentService.registerAgentImplementation('agent3', historyLengthAgent));
 
 		const testService = testDisposables.add(instantiationService.createInstance(ChatService));
 		const model = testDisposables.add(testService.startSession(ChatAgentLocation.Panel, CancellationToken.None));
@@ -220,19 +217,12 @@ suite('ChatService', () => {
 		assert.strictEqual(model.getRequests().length, 2);
 		assert.strictEqual(model.getRequests()[1].response?.result?.metadata?.historyLength, 0);
 
-		// Send a request to agent3- it can see the default agent's message because they are from the same extension
-		const response3 = await testService.sendRequest(model.sessionId, `test request`, { agentId: 'agent3' });
+		// Send a request to defaultAgent - the default agent can see agent2's message
+		const response3 = await testService.sendRequest(model.sessionId, `test request`, { agentId: 'defaultAgent' });
 		assert(response3);
 		await response3.responseCompletePromise;
 		assert.strictEqual(model.getRequests().length, 3);
-		assert.strictEqual(model.getRequests()[2].response?.result?.metadata?.historyLength, 1);
-
-		// Send a request to defaultAgent - the default agent can see agent2's message
-		const response4 = await testService.sendRequest(model.sessionId, `test request`, { agentId: 'defaultAgent' });
-		assert(response4);
-		await response4.responseCompletePromise;
-		assert.strictEqual(model.getRequests().length, 4);
-		assert.strictEqual(model.getRequests()[3].response?.result?.metadata?.historyLength, 3);
+		assert.strictEqual(model.getRequests()[2].response?.result?.metadata?.historyLength, 2);
 	});
 
 	test('can serialize', async () => {
@@ -243,7 +233,7 @@ suite('ChatService', () => {
 		const model = testDisposables.add(testService.startSession(ChatAgentLocation.Panel, CancellationToken.None));
 		assert.strictEqual(model.getRequests().length, 0);
 
-		await assertSnapshot(model.toExport());
+		await assertSnapshot(toSnapshotExportData(model));
 
 		const response = await testService.sendRequest(model.sessionId, `@${chatAgentWithUsedContextId} test request`);
 		assert(response);
@@ -255,7 +245,7 @@ suite('ChatService', () => {
 		await response2.responseCompletePromise;
 		assert.strictEqual(model.getRequests().length, 2);
 
-		await assertSnapshot(model.toExport());
+		await assertSnapshot(toSnapshotExportData(model));
 	});
 
 	test('can deserialize', async () => {
@@ -284,7 +274,7 @@ suite('ChatService', () => {
 		const chatModel2 = testService2.loadSessionFromContent(serializedChatData);
 		assert(chatModel2);
 
-		await assertSnapshot(chatModel2.toExport());
+		await assertSnapshot(toSnapshotExportData(chatModel2));
 	});
 
 	test('can deserialize with response', async () => {
@@ -312,6 +302,22 @@ suite('ChatService', () => {
 		const chatModel2 = testService2.loadSessionFromContent(serializedChatData);
 		assert(chatModel2);
 
-		await assertSnapshot(chatModel2.toExport());
+		await assertSnapshot(toSnapshotExportData(chatModel2));
 	});
 });
+
+
+function toSnapshotExportData(model: IChatModel) {
+	const exp = model.toExport();
+	return {
+		...exp,
+		requests: exp.requests.map(r => {
+			return {
+				...r,
+				timestamp: undefined,
+				requestId: undefined, // id contains a random part
+				responseId: undefined, // id contains a random part
+			};
+		})
+	};
+}

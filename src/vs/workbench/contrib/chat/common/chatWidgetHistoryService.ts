@@ -12,6 +12,7 @@ import { ChatAgentLocation } from './chatAgents.js';
 import { WorkingSetEntryState } from './chatEditingService.js';
 import { IChatRequestVariableEntry } from './chatModel.js';
 import { CHAT_PROVIDER_ID } from './chatParticipantContribTypes.js';
+import { ChatMode } from './constants.js';
 
 export interface IChatHistoryEntry {
 	text: string;
@@ -23,6 +24,7 @@ export interface IChatInputState {
 	[key: string]: any;
 	chatContextAttachments?: ReadonlyArray<IChatRequestVariableEntry>;
 	chatWorkingSet?: ReadonlyArray<{ uri: URI; state: WorkingSetEntryState }>;
+	chatMode?: ChatMode;
 }
 
 export const IChatWidgetHistoryService = createDecorator<IChatWidgetHistoryService>('IChatWidgetHistoryService');
@@ -39,6 +41,8 @@ export interface IChatWidgetHistoryService {
 interface IChatHistory {
 	history: { [providerId: string]: IChatHistoryEntry[] };
 }
+
+export const ChatInputHistoryMaxEntries = 40;
 
 export class ChatWidgetHistoryService implements IChatWidgetHistoryService {
 	_serviceBrand: undefined;
@@ -78,7 +82,7 @@ export class ChatWidgetHistoryService implements IChatWidgetHistoryService {
 		}
 
 		const key = this.getKey(location);
-		this.viewState.history[key] = history;
+		this.viewState.history[key] = history.slice(-ChatInputHistoryMaxEntries);
 		this.memento.saveMemento();
 	}
 
