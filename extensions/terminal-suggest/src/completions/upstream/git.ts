@@ -310,15 +310,27 @@ export const gitGenerators: Record<string, Fig.Generator> = {
 			return Object.keys(remoteURLs).map((remote) => {
 				const url = remoteURLs[remote];
 				let icon = "box";
-				if (url.includes("github.com")) {
+				const getHost = (remoteUrl: string): string | null => {
+					try {
+						// Try parsing as standard URL
+						const parsed = new URL(remoteUrl);
+						return parsed.hostname;
+					} catch {
+						// Not a standard URL; maybe SSH
+						// Example: git@heroku.com:repo.git
+						const sshMatch = remoteUrl.match(/^([^@]+)@([^:]+):/);
+						if (sshMatch) return sshMatch[2];
+						return null;
+					}
+				};
+				const host = getHost(url);
+				if (host === "github.com") {
 					icon = "github";
 				}
-
-				if (url.includes("gitlab.com")) {
+				if (host === "gitlab.com") {
 					icon = "gitlab";
 				}
-
-				if (url.includes("heroku.com")) {
+				if (host === "heroku.com") {
 					icon = "heroku";
 				}
 				return {
