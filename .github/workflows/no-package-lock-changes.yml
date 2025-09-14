@@ -5,12 +5,15 @@ jobs:
   check-collaborator-permission:
     runs-on: ubuntu-latest
     steps:
-      - name: Check user permission
+      - name: Get collaborator permission
+        id: get_permissions
         env:
-          GH_TOKEN: ${{ secrets.COLLABORATOR_TOKEN }}
+        GH_TOKEN: ${{ secrets.COLLABORATOR_TOKEN }}
         run: |
-          curl -H "Authorization: token $GH_TOKEN" \
-            https://api.github.com/repos/Git-Hub-Chris/MicrosoftVsCode/collaborators/Git-Hub-Chris/permission
+        response=$(curl -s -H "Authorization: token $GH_TOKEN" \
+          https://api.github.com/repos/Git-Hub-Chris/MicrosoftVsCode/collaborators/${{ github.event.pull_request.user.login }}/permission)
+        perm=$(echo "$response" | jq -r .permission)
+        echo "permission=$perm" >> $GITHUB_OUTPUT
       - name: Set control output variable
         id: control
         run: |
