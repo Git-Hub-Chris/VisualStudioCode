@@ -1,3 +1,5 @@
+// If running under NodeJS, URL is a global class (since v10) but for older compatibility, import may be required
+// import { URL } from "url";
 function ai(...args: any[]): undefined { return undefined; }
 
 const filterMessages = (out: string): string => {
@@ -310,15 +312,25 @@ export const gitGenerators: Record<string, Fig.Generator> = {
 			return Object.keys(remoteURLs).map((remote) => {
 				const url = remoteURLs[remote];
 				let icon = "box";
-				if (url.includes("github.com")) {
+				let host = "";
+				try {
+					if (url.startsWith("git@")) {
+						// SSH remote, format: git@host:repo.git
+						const sshMatch = url.match(/^git@([^:]+):/);
+						if (sshMatch) host = sshMatch[1];
+					} else {
+						// Attempt to parse as URL
+						host = new URL(url).hostname;
+					}
+				} catch (e) {
+					// fallback: treat as plain string
+					host = url;
+				}
+				if (host === "github.com") {
 					icon = "github";
-				}
-
-				if (url.includes("gitlab.com")) {
+				} else if (host === "gitlab.com") {
 					icon = "gitlab";
-				}
-
-				if (url.includes("heroku.com")) {
+				} else if (host === "heroku.com") {
 					icon = "heroku";
 				}
 				return {
