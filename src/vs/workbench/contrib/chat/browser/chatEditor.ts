@@ -68,7 +68,7 @@ export class ChatEditor extends EditorPane {
 				undefined,
 				{
 					supportsFileReferences: true,
-					enableImplicitContext: true
+					enableImplicitContext: true,
 				},
 				{
 					listForeground: editorForeground,
@@ -128,7 +128,6 @@ export class ChatEditor extends EditorPane {
 
 			// Need to set props individually on the memento
 			this._viewState.inputValue = widgetViewState.inputValue;
-			this._viewState.selectedLanguageModelId = widgetViewState.selectedLanguageModelId;
 			this._memento.saveMemento();
 		}
 	}
