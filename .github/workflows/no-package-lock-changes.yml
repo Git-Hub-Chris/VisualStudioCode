@@ -2,17 +2,15 @@ name: Prevent package-lock.json changes in PRs
 on: [pull_request]
 
 jobs:
-  main:
-    name: Prevent package-lock.json changes in PRs
+  check-collaborator-permission:
     runs-on: ubuntu-latest
     steps:
-      - uses: octokit/request-action@v2.x
-        id: get_permissions
-        with:
-          route: GET /repos/microsoft/vscode/collaborators/{username}/permission
-          username: ${{ github.event.pull_request.user.login }}
+      - name: Check user permission
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.COLLABORATOR_TOKEN }}
+        run: |
+          curl -H "Authorization: token $GH_TOKEN" \
+            https://api.github.com/repos/Git-Hub-Chris/MicrosoftVsCode/collaborators/Git-Hub-Chris/permission
       - name: Set control output variable
         id: control
         run: |
