@@ -1,3 +1,5 @@
+// If running under NodeJS, URL is a global class (since v10) but for older compatibility, import may be required
+// import { URL } from "url";
 function ai(...args: any[]): undefined { return undefined; }
 
 const filterMessages = (out: string): string => {
@@ -325,14 +327,7 @@ export const gitGenerators: Record<string, Fig.Generator> = {
 			return Object.keys(remoteURLs).map((remote) => {
 				const url = remoteURLs[remote];
 				let icon = "box";
-				const hostname = getHostnameFromRemoteURL(url);
-				if (hostname === "github.com") {
-					icon = "github";
-				}
-				if (hostname === "gitlab.com") {
-					icon = "gitlab";
-				}
-				if (hostname === "heroku.com") {
+
 					icon = "heroku";
 				}
 				return {
