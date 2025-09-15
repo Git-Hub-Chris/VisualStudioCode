@@ -296,6 +296,21 @@ export const gitGenerators: Record<string, Fig.Generator> = {
 	remotes: {
 		script: ["git", "--no-optional-locks", "remote", "-v"],
 		postProcess: function (out) {
+			// Helper to extract hostname from remote URL (HTTP/S or SSH-type)
+			function getHostnameFromRemoteURL(url: string): string {
+				try {
+					// Handle HTTP/HTTPS/SSH URL using URL constructor.
+					if (/^https?:\/\//i.test(url) || /^ssh:\/\//i.test(url)) {
+						return new URL(url).hostname;
+					}
+					// Handle git SSH format: git@host:path.git
+					const sshMatch = url.match(/^([^@]+@)?([^:]+):/);
+					if (sshMatch) {
+						return sshMatch[2];
+					}
+				} catch (e) {}
+				return "";
+			}
 			const remoteURLs = out
 				.split("\n")
 				.reduce<Record<string, string>>((dict, line) => {
@@ -310,15 +325,14 @@ export const gitGenerators: Record<string, Fig.Generator> = {
 			return Object.keys(remoteURLs).map((remote) => {
 				const url = remoteURLs[remote];
 				let icon = "box";
-				if (url.includes("github.com")) {
+				const hostname = getHostnameFromRemoteURL(url);
+				if (hostname === "github.com") {
 					icon = "github";
 				}
-
-				if (url.includes("gitlab.com")) {
+				if (hostname === "gitlab.com") {
 					icon = "gitlab";
 				}
-
-				if (url.includes("heroku.com")) {
+				if (hostname === "heroku.com") {
 					icon = "heroku";
 				}
 				return {
