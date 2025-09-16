@@ -2424,6 +2424,27 @@ async function webviewPreloads(ctx: PreloadContext) {
 		}
 	}();
 
+	// --- Begin DOMPurify Minimal Implementation ---
+	// NOTE: In a production scenario, the full DOMPurify min.js should be included here or loaded up-front wherever allowed. This is a minimal, very basic, example for the notebook webview context.
+	function sanitizeHTML(dirty) {
+		const template = document.createElement('template');
+		template.innerHTML = dirty;
+		// Remove all <script> elements
+		for (const script of template.content.querySelectorAll('script')) {
+			script.remove();
+		}
+		// Remove event handler attributes (on*)
+		for (const el of template.content.querySelectorAll('*')) {
+			for (const attr of Array.from(el.attributes)) {
+				if (/^on/i.test(attr.name)) {
+					el.removeAttribute(attr.name);
+				}
+			}
+		}
+		return template.innerHTML;
+	}
+	// --- End DOMPurify Minimal Implementation ---
+
 	class MarkdownCodeBlock {
 		private static pendingCodeBlocksToHighlight = new Map<string, HTMLElement>();
 
@@ -2432,8 +2453,10 @@ async function webviewPreloads(ctx: PreloadContext) {
 			if (!el) {
 				return;
 			}
-			const trustedHtml = ttPolicy?.createHTML(html) ?? html;
-			el.innerHTML = trustedHtml as string; // CodeQL [SM03712] The rendered content comes from VS Code's tokenizer and is considered safe
+			// Sanitize untrusted HTML before injecting
+			const safeHtml = sanitizeHTML(html);
+			const trustedHtml = ttPolicy?.createHTML(safeHtml) ?? safeHtml;
+			el.innerHTML = trustedHtml as string; // safeHtml is sanitized
 			const root = el.getRootNode();
 			if (root instanceof ShadowRoot) {
 				if (!root.adoptedStyleSheets.includes(tokenizationStyle)) {
