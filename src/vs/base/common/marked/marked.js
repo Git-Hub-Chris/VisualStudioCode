@@ -1008,7 +1008,7 @@ const html = edit('^ {0,3}(?:' // optional indentation
     .replace('tag', _tag)
     .replace('attribute', / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/)
     .getRegex();
-const paragraph = edit(_paragraph)
+const paragraph = edit(_paragraph, 'i') // <-- add 'i' flag for case-insensitivity
     .replace('hr', hr)
     .replace('heading', ' {0,3}#{1,6}(?:\\s|$)')
     .replace('|lheading', '') // setext headings don't interrupt commonmark paragraphs
