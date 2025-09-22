@@ -90,18 +90,27 @@ onceDocumentLoaded(() => {
 	toggleFocusLockIndicatorEnabled(settings.focusLockIndicatorEnabled);
 
 	function navigateTo(rawUrl: string): void {
+		let safeUrl: string | null = null;
 		try {
 			const url = new URL(rawUrl);
-
-			// Try to bust the cache for the iframe
-			// There does not appear to be any way to reliably do this except modifying the url
-			url.searchParams.append('vscodeBrowserReqId', Date.now().toString());
-
-			iframe.src = url.toString();
+			if (url.protocol === 'http:' || url.protocol === 'https:') {
+				// Try to bust the cache for the iframe
+				url.searchParams.append('vscodeBrowserReqId', Date.now().toString());
+				safeUrl = url.toString();
+			}
 		} catch {
-			iframe.src = rawUrl;
+			// Fallback if URL parsing fails
+			// Try to match http/https only
+			if (/^(https?:\/\/)/i.test(rawUrl)) {
+				safeUrl = rawUrl;
+			}
 		}
-
+		if (safeUrl) {
+			iframe.src = safeUrl;
+		} else {
+			// Optionally, display an error or set to about:blank
+			iframe.src = 'about:blank';
+		}
 		vscode.setState({ url: rawUrl });
 	}
 });
