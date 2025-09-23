@@ -99,11 +99,7 @@ onceDocumentLoaded(() => {
 				safeUrl = url.toString();
 			}
 		} catch {
-			// Fallback if URL parsing fails
-			// Try to match http/https only
-			if (/^(https?:\/\/)/i.test(rawUrl)) {
-				safeUrl = rawUrl;
-			}
+			// On parse error, do not attempt to match with regex; keep safeUrl as null.
 		}
 		if (safeUrl) {
 			iframe.src = safeUrl;
