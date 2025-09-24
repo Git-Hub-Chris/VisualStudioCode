@@ -311,7 +311,44 @@
 		document.body.classList.remove('loading');
 	});
 
-	image.src = settings.src;
+	/**
+	 * Validate and ensure only safe image sources can be used.
+	 * @param {string} src
+	 * @return {boolean}
+	 */
+	function isSafeImageSrc(src) {
+		try {
+			if (typeof src !== 'string' || src.length > 2048) {
+				return false;
+			}
+			// Allow http, https, file, and data URIs for images only
+			const allowedSchemes = ['http:', 'https:', 'file:'];
+			const urlMatch = src.match(/^([a-zA-Z0-9+.-]+):/);
+			if (!urlMatch) {
+				return false;
+			}
+			const scheme = urlMatch[1].toLowerCase() + ':';
+			if (allowedSchemes.includes(scheme)) {
+				return true;
+			}
+			if (scheme === 'data:') {
+				// Allow only image media types in data URLs
+				return /^data:image\/(png|jpe?g|gif|bmp|webp|svg\+xml);base64,/.test(src);
+			}
+			return false;
+		} catch {
+			return false;
+		}
+	}
+
+	if (isSafeImageSrc(settings.src)) {
+		image.src = settings.src;
+	} else {
+		console.error('Unsafe image src detected:', settings.src);
+		image.src = '';
+		document.body.classList.add('error');
+		document.body.classList.remove('loading');
+	}
 
 	document.querySelector('.open-file-link')?.addEventListener('click', (e) => {
 		e.preventDefault();
