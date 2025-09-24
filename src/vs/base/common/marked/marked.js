@@ -1045,7 +1045,7 @@ const blockNormal = {
  */
 const gfmTable = edit('^ *([^\\n ].*)\\n' // Header
     + ' {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)' // Align
-    + '(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)') // Cells
+    + '(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)', 'i') // Cells: add case-insensitive flag
     .replace('hr', hr)
     .replace('heading', ' {0,3}#{1,6}(?:\\s|$)')
     .replace('blockquote', ' {0,3}>')
@@ -1058,7 +1058,7 @@ const gfmTable = edit('^ *([^\\n ].*)\\n' // Header
 const blockGfm = {
     ...blockNormal,
     table: gfmTable,
-    paragraph: edit(_paragraph)
+    paragraph: edit(_paragraph, 'i') // add case-insensitive flag
         .replace('hr', hr)
         .replace('heading', ' {0,3}#{1,6}(?:\\s|$)')
         .replace('|lheading', '') // setext headings don't interrupt commonmark paragraphs
