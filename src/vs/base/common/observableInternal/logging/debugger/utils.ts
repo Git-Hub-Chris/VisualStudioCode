@@ -109,7 +109,7 @@ export function deepAssign<T>(target: T, source: T): void {
 
 export function deepAssignDeleteNulls<T>(target: T, source: T): void {
 	for (const key in source) {
-		if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+
 			continue;
 		}
 		if (source[key] === null) {
