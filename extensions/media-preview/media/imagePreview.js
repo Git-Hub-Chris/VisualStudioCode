@@ -333,7 +333,8 @@
 			}
 			if (scheme === 'data:') {
 				// Allow only image media types in data URLs
-				return /^data:image\/(png|jpe?g|gif|bmp|webp|svg\+xml);base64,/.test(src);
+				// Disallow SVG images for data URIs to mitigate XSS
+				return /^data:image\/(png|jpe?g|gif|bmp|webp);base64,/.test(src);
 			}
 			return false;
 		} catch {
