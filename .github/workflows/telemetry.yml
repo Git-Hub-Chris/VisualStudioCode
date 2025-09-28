@@ -4,6 +4,8 @@ on:
 jobs:
   check-metdata:
     name: 'Check metadata'
+    permissions:
+      contents: read
     runs-on: 'ubuntu-latest'
 
     steps:
