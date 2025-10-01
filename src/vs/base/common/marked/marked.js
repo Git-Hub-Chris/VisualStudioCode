@@ -1143,7 +1143,7 @@ const autolink = edit(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/)
     .replace('scheme', /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/)
     .replace('email', /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/)
     .getRegex();
-const _inlineComment = edit(_comment).replace('(?:-->|$)', '-->').getRegex();
+const _inlineComment = edit(_comment).replace('(?:-->|$)', '(?:-->|--!>|$)').getRegex();
 const tag = edit('^comment'
     + '|^</[a-zA-Z][\\w:-]*\\s*>' // self-closing tag
     + '|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>' // open tag
