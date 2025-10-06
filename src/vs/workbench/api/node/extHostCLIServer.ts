@@ -112,8 +112,7 @@ export class CLIServerBase {
 				}
 				sendResponse(200, returnObj);
 			} catch (e) {
-				const message = e instanceof Error ? e.message : JSON.stringify(e);
-				sendResponse(500, message);
+				sendResponse(500, "An internal server error occurred.");
 				this.logService.error('Error while processing pipe request', e);
 			}
 		});
