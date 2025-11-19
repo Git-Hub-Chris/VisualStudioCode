@@ -89,6 +89,7 @@ export const CTX_INLINE_CHAT_CHANGE_SHOWS_DIFF = new RawContextKey<boolean>('inl
 export const CTX_INLINE_CHAT_REQUEST_IN_PROGRESS = new RawContextKey<boolean>('inlineChatRequestInProgress', false, localize('inlineChatRequestInProgress', "Whether an inline chat request is currently in progress"));
 export const CTX_INLINE_CHAT_RESPONSE_TYPE = new RawContextKey<InlineChatResponseType>('inlineChatResponseType', InlineChatResponseType.None, localize('inlineChatResponseTypes', "What type was the responses have been receieved, nothing yet, just messages, or messaged and local edits"));
 
+
 // --- (selected) action identifier
 
 export const ACTION_START = 'inlineChat.start';
@@ -104,6 +105,8 @@ export const ACTION_REPORT_ISSUE = 'inlineChat.reportIssue';
 export const MENU_INLINE_CHAT_WIDGET_STATUS = MenuId.for('inlineChatWidget.status');
 export const MENU_INLINE_CHAT_WIDGET_SECONDARY = MenuId.for('inlineChatWidget.secondary');
 export const MENU_INLINE_CHAT_ZONE = MenuId.for('inlineChatWidget.changesZone');
+
+export const MENU_INLINE_CHAT_SIDE = MenuId.for('inlineChatWidget.side');
 
 // --- colors
 

@@ -135,9 +135,10 @@ suite('lm', function () {
 			assert.ok(false, 'EXPECTED error');
 		} catch (error) {
 			assert.ok(error);
-			// assert.ok(error instanceof Error); // todo@jrieken requires one more insiders
+			assert.ok(error instanceof Error);
 		}
 	});
+
 
 	test('LanguageModelError instance is not thrown to extensions#235322 (SYNC)', async function () {
 

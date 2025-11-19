@@ -27,7 +27,7 @@ import { IWorkbenchContribution } from '../../../../common/contributions.js';
 import { IUntitledTextResourceEditorInput } from '../../../../common/editor.js';
 import { IEditorService } from '../../../../services/editor/common/editorService.js';
 import { accessibleViewInCodeBlock } from '../../../accessibility/browser/accessibilityConfiguration.js';
-import { InlineChatController, reviewEdits } from '../../../inlineChat/browser/inlineChatController.js';
+import { reviewEdits } from '../../../inlineChat/browser/inlineChatController.js';
 import { ITerminalEditorService, ITerminalGroupService, ITerminalService } from '../../../terminal/browser/terminal.js';
 import { ChatAgentLocation } from '../../common/chatAgents.js';
 import { ChatContextKeys } from '../../common/chatContextKeys.js';
@@ -450,8 +450,9 @@ export function registerChatCodeBlockActions() {
 		const focused = !widget.inputEditor.hasWidgetFocus() && widget.getFocus();
 		const focusedResponse = isResponseVM(focused) ? focused : undefined;
 
-		const currentResponse = curCodeBlockInfo ?
-			curCodeBlockInfo.element :
+		const elementId = curCodeBlockInfo?.elementId;
+		const element = elementId ? widget.viewModel?.getItems().find(item => item.id === elementId) : undefined;
+		const currentResponse = element ??
 			(focusedResponse ?? widget.viewModel?.getItems().reverse().find((item): item is IChatResponseViewModel => isResponseVM(item)));
 		if (!currentResponse || !isResponseVM(currentResponse)) {
 			return;
@@ -531,8 +532,9 @@ function getContextFromEditor(editor: ICodeEditor, accessor: ServicesAccessor): 
 		return;
 	}
 
+	const element = widget?.viewModel?.getItems().find(item => item.id === codeBlockInfo.elementId);
 	return {
-		element: codeBlockInfo.element,
+		element,
 		codeBlockIndex: codeBlockInfo.codeBlockIndex,
 		code: editor.getValue(),
 		languageId: editor.getModel()!.getLanguageId(),
@@ -599,13 +601,10 @@ export function registerChatCodeCompareBlockActions() {
 
 			const editorToApply = await editorService.openCodeEditor({ resource: item.uri }, null);
 			if (editorToApply) {
-				const inlineChatController = InlineChatController.get(editorToApply);
-				if (inlineChatController) {
-					editorToApply.revealLineInCenterIfOutsideViewport(firstEdit.range.startLineNumber);
-					instaService.invokeFunction(reviewEdits, editorToApply, textEdits, CancellationToken.None);
-					response.setEditApplied(item, 1);
-					return true;
-				}
+				editorToApply.revealLineInCenterIfOutsideViewport(firstEdit.range.startLineNumber);
+				instaService.invokeFunction(reviewEdits, editorToApply, textEdits, CancellationToken.None);
+				response.setEditApplied(item, 1);
+				return true;
 			}
 			return false;
 		}

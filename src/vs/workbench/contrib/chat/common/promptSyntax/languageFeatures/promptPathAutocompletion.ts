@@ -15,7 +15,7 @@
  */
 
 import { LANGUAGE_SELECTOR } from '../constants.js';
-import { IPromptSyntaxService } from '../service/types.js';
+import { IPromptsService } from '../service/types.js';
 import { URI } from '../../../../../../base/common/uri.js';
 import { IPromptFileReference } from '../parsers/types.js';
 import { FileReference } from '../codecs/tokens/fileReference.js';
@@ -101,12 +101,12 @@ export class PromptPathAutocompletion extends Disposable implements CompletionIt
 
 	constructor(
 		@IFileService private readonly fileService: IFileService,
-		@IPromptSyntaxService private readonly promptSyntaxService: IPromptSyntaxService,
+		@IPromptsService private readonly promptSyntaxService: IPromptsService,
 		@ILanguageFeaturesService private readonly languageService: ILanguageFeaturesService,
 	) {
 		super();
 
-		this.languageService.completionProvider.register(LANGUAGE_SELECTOR, this);
+		this._register(this.languageService.completionProvider.register(LANGUAGE_SELECTOR, this));
 	}
 
 	/**
@@ -137,7 +137,7 @@ export class PromptPathAutocompletion extends Disposable implements CompletionIt
 			`Prompt path autocompletion provider`,
 		);
 
-		const parser = this.promptSyntaxService.getParserFor(model);
+		const parser = this.promptSyntaxService.getSyntaxParserFor(model);
 		assert(
 			!parser.disposed,
 			'Prompt parser must not be disposed.',
