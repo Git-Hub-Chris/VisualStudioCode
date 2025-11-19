@@ -72,6 +72,7 @@ import { GettingStartedIndexList } from './gettingStartedList.js';
 import { AccessibilityVerbositySettingId } from '../../accessibility/browser/accessibilityConfiguration.js';
 import { AccessibleViewAction } from '../../accessibility/browser/accessibleViewActions.js';
 import { KeybindingLabel } from '../../../../base/browser/ui/keybindingLabel/keybindingLabel.js';
+import { ScrollbarVisibility } from '../../../../base/common/scrollable.js';
 
 const SLIDE_TRANSITION_TIME_MS = 250;
 const configurationKey = 'workbench.startupEditor';
@@ -718,8 +719,8 @@ export class GettingStartedPage extends EditorPane {
 			const themeType = this.themeService.getColorTheme().type;
 			const videoPath = media.path[themeType];
 			const videoPoster = media.poster ? media.poster[themeType] : undefined;
-
-			const rawHTML = await this.detailsRenderer.renderVideo(videoPath, videoPoster);
+			const altText = media.altText ? media.altText : localize('videoAltText', "Video for {0}", stepToExpand.title);
+			const rawHTML = await this.detailsRenderer.renderVideo(videoPath, videoPoster, altText);
 			this.webview.setHtml(rawHTML);
 
 			let isDisposed = false;
@@ -730,21 +731,10 @@ export class GettingStartedPage extends EditorPane {
 				const themeType = this.themeService.getColorTheme().type;
 				const videoPath = media.path[themeType];
 				const videoPoster = media.poster ? media.poster[themeType] : undefined;
-				const body = await this.detailsRenderer.renderVideo(videoPath, videoPoster);
+				const body = await this.detailsRenderer.renderVideo(videoPath, videoPoster, altText);
 
 				if (!isDisposed) { // Make sure we weren't disposed of in the meantime
 					this.webview.setHtml(body);
-				}
-			}));
-
-			this.stepDisposables.add(this.webview.onMessage(async e => {
-				const message: string = e.message as string;
-				if (message === 'playVideo') {
-					this.telemetryService.publicLog2<GettingStartedActionEvent, GettingStartedActionClassification>('gettingStarted.ActionExecuted', {
-						command: 'playVideo',
-						walkthroughId: this.currentWalkthrough?.id,
-						argument: stepId,
-					});
 				}
 			}));
 		}
@@ -831,8 +821,8 @@ export class GettingStartedPage extends EditorPane {
 
 		this.stepsContent = $('.gettingStartedDetailsContent', {});
 
-		this.detailsPageScrollbar = this._register(new DomScrollableElement(this.stepsContent, { className: 'full-height-scrollable' }));
-		this.categoriesPageScrollbar = this._register(new DomScrollableElement(this.categoriesSlide, { className: 'full-height-scrollable categoriesScrollbar' }));
+		this.detailsPageScrollbar = this._register(new DomScrollableElement(this.stepsContent, { className: 'full-height-scrollable', vertical: ScrollbarVisibility.Hidden }));
+		this.categoriesPageScrollbar = this._register(new DomScrollableElement(this.categoriesSlide, { className: 'full-height-scrollable categoriesScrollbar', vertical: ScrollbarVisibility.Hidden }));
 
 		this.stepsSlide.appendChild(this.detailsPageScrollbar.getDomNode());
 
@@ -1369,6 +1359,7 @@ export class GettingStartedPage extends EditorPane {
 						container.appendChild(shortcutMessage);
 						const label = new KeybindingLabel(shortcutMessage, OS, { ...defaultKeybindingLabelStyles });
 						label.set(keybinding);
+						this.detailsPageDisposables.add(label);
 					}
 				}
 
@@ -1386,7 +1377,8 @@ export class GettingStartedPage extends EditorPane {
 							}
 						}
 					} else {
-						const link = this.instantiationService.createInstance(Link, p, node, { opener: (href) => this.runStepCommand(href) });
+						const nodeWithTitle: ILink = matchesScheme(node.href, Schemas.http) || matchesScheme(node.href, Schemas.https) ? { ...node, title: node.href } : node;
+						const link = this.instantiationService.createInstance(Link, p, nodeWithTitle, { opener: (href) => this.runStepCommand(href) });
 						this.detailsPageDisposables.add(link);
 					}
 				}
@@ -1510,7 +1502,7 @@ export class GettingStartedPage extends EditorPane {
 		buildStepList();
 
 		this.detailsPageDisposables.add(this.contextService.onDidChangeContext(e => {
-			if (e.affectsSome(contextKeysToWatch)) {
+			if (e.affectsSome(contextKeysToWatch) && this.currentWalkthrough) {
 				buildStepList();
 				this.registerDispatchListeners();
 				this.selectStep(this.editorInput.selectedStep, false);
