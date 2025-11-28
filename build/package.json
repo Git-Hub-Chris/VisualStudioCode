@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "license": "MIT",
   "devDependencies": {
-    "@azure/core-auth": "^1.9.0",
+    "@azure/core-auth": "^1.10.1",
     "@azure/cosmos": "^3",
     "@azure/identity": "^4.2.1",
     "@azure/msal-node": "^2.16.1",
