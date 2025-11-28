@@ -48,9 +48,9 @@
 	},
 	"dependencies": {},
 	"devDependencies": {
-		"@types/jsdom": "^21.1.0",
+		"@types/jsdom": "^27.0.0",
 		"@types/vscode-notebook-renderer": "^1.60.0",
-		"jsdom": "^21.1.1"
+		"jsdom": "^27.2.0"
 	},
 	"repository": {
 		"type": "git",
