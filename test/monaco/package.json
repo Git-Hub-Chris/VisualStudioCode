@@ -12,7 +12,7 @@
   },
   "devDependencies": {
     "@types/chai": "^4.2.14",
-    "chai": "^4.2.0",
+    "chai": "^6.2.1",
     "warnings-to-errors-webpack-plugin": "^2.3.0"
   }
 }
