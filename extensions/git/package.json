@@ -3568,7 +3568,7 @@
     "jschardet": "3.1.4",
     "picomatch": "2.3.1",
     "vscode-uri": "^3.1.0",
-    "which": "4.0.0"
+    "which": "6.0.0"
   },
   "devDependencies": {
     "@types/byline": "4.2.31",
