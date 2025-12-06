@@ -3568,11 +3568,11 @@
     "jschardet": "3.1.4",
     "picomatch": "2.3.1",
     "vscode-uri": "^3.1.0",
-    "which": "4.0.0"
+    "which": "6.0.0"
   },
   "devDependencies": {
-    "@types/byline": "4.2.31",
-    "@types/mocha": "^9.1.1",
+    "@types/byline": "4.2.36",
+    "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
     "@types/picomatch": "2.3.0",
     "@types/which": "3.0.0"
