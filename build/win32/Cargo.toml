@@ -9,7 +9,7 @@ byteorder = "1.5.0"
 crc = "3.4.0"
 slog = "2.7.0"
 slog-async = "2.8.0"
-slog-term = "2.9.1"
+slog-term = "2.9.2"
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.52"
