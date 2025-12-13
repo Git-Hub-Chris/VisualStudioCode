@@ -77,7 +77,7 @@
     "test": "npx mocha --ui tdd 'out/*.test.js'"
   },
   "devDependencies": {
-    "@types/mocha": "^10.0.6",
+    "@types/mocha": "^10.0.10",
     "@types/node": "20.x"
   },
   "dependencies": {
