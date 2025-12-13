@@ -19,6 +19,43 @@ import type * as rendererApi from 'vscode-notebook-renderer';
 // function. Imports are not allowed. This is stringified and injected into
 // the webview.
 
+// Minimal HTML sanitizer implementation using browser's DOMParser, 
+// which removes <script> and dangerous attributes. For strong security 
+// consider DOMPurify. Here we use basic sanitization to mitigate XSS risk.
+function sanitizeHTML(dirty: string): string {
+	const parser = new DOMParser();
+	const doc = parser.parseFromString(dirty, 'text/html');
+
+	// Remove script/style/iframe tags
+	const forbiddenTags = ['script', 'style', 'iframe', 'object', 'embed'];
+	for (const tag of forbiddenTags) {
+		const elements = doc.getElementsByTagName(tag);
+		while (elements.length > 0) {
+			elements[0].remove();
+		}
+	}
+
+	// Remove dangerous attributes
+	function sanitizeElement(el: Element) {
+		const dangerousAttrs = ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'srcdoc', 'onmouseenter', 'onmouseleave'];
+		for (const attr of dangerousAttrs) {
+			if (el.hasAttribute(attr)) {
+				el.removeAttribute(attr);
+			}
+		}
+
+		// Recursively sanitize children
+		for (const child of Array.from(el.children)) {
+			sanitizeElement(child);
+		}
+	}
+	for (const el of Array.from(doc.body.children)) {
+		sanitizeElement(el);
+	}
+
+	return doc.body.innerHTML;
+}
+
 declare module globalThis {
 	const acquireVsCodeApi: () => ({
 		getState(): { [key: string]: unknown };
@@ -2917,8 +2954,9 @@ async function webviewPreloads(ctx: PreloadContext) {
 
 			this._content = { preferredRendererId, preloadErrors };
 			if (content.type === 0 /* RenderOutputType.Html */) {
-				const trustedHtml = ttPolicy?.createHTML(content.htmlContent) ?? content.htmlContent;
-				this.element.innerHTML = trustedHtml as string;  // CodeQL [SM03712] The content comes from renderer extensions, not from direct user input.
+				const sanitizedHtml = sanitizeHTML(content.htmlContent);
+				const trustedHtml = ttPolicy?.createHTML(sanitizedHtml) ?? sanitizedHtml;
+				this.element.innerHTML = trustedHtml as string;
 			} else if (preloadErrors.some(e => e instanceof Error)) {
 				const errors = preloadErrors.filter((e): e is Error => e instanceof Error);
 				showRenderError(`Error loading preloads`, this.element, errors);
