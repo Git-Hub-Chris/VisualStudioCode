@@ -2466,15 +2466,43 @@ async function webviewPreloads(ctx: PreloadContext) {
 	function sanitizeHTML(dirty) {
 		const template = document.createElement('template');
 		template.innerHTML = dirty;
-		// Remove all <script> elements
-		for (const script of template.content.querySelectorAll('script')) {
-			script.remove();
-		}
-		// Remove event handler attributes (on*)
+
+		// Remove potentially dangerous elements
+		const forbiddenTags = [
+			'script', 'style', 'iframe', 'object', 'embed', 'link', 'base', 'meta', 'form', 'input', 'button'
+		];
+		forbiddenTags.forEach(tag => {
+			for (const el of Array.from(template.content.querySelectorAll(tag))) {
+				el.remove();
+			}
+		});
+
+		// Remove event handler attributes (on*), style, srcdoc, javascript: URLs
 		for (const el of template.content.querySelectorAll('*')) {
 			for (const attr of Array.from(el.attributes)) {
-				if (/^on/i.test(attr.name)) {
-					el.removeAttribute(attr.name);
+				const name = attr.name;
+				const value = attr.value;
+
+				// Remove inline event handlers
+				if (/^on/i.test(name)) {
+					el.removeAttribute(name);
+					continue;
+				}
+				// Remove style attributes (CSS attacks)
+				if (/^style$/i.test(name)) {
+					el.removeAttribute(name);
+					continue;
+				}
+				// Remove srcdoc attribute
+				if (/^srcdoc$/i.test(name)) {
+					el.removeAttribute(name);
+					continue;
+				}
+				// Remove javascript: URIs in src/href/data attrs
+				if (/^(src|href|data)$/i.test(name) &&
+					/^javascript:/i.test(value.trim())) {
+					el.removeAttribute(name);
+					continue;
 				}
 			}
 		}
