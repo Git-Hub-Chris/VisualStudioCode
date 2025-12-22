@@ -112,7 +112,7 @@
   },
   "devDependencies": {
     "@types/markdown-it": "^0.0.0",
-    "@types/vscode-notebook-renderer": "^1.60.0"
+    "@types/vscode-notebook-renderer": "^1.72.4"
   },
   "repository": {
     "type": "git",

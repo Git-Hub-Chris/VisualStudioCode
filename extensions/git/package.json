@@ -3566,15 +3566,15 @@
     "byline": "^5.0.0",
     "file-type": "21.1.1",
     "jschardet": "3.1.4",
-    "picomatch": "2.3.1",
+    "picomatch": "4.0.3",
     "vscode-uri": "^3.1.0",
     "which": "6.0.0"
   },
   "devDependencies": {
     "@types/byline": "4.2.36",
-    "@types/mocha": "^9.1.1",
+    "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
-    "@types/picomatch": "2.3.0",
+    "@types/picomatch": "4.0.2",
     "@types/which": "3.0.0"
   },
   "repository": {
