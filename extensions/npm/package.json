@@ -21,7 +21,7 @@
     "watch": "npx gulp watch-extension:npm"
   },
   "dependencies": {
-    "find-up": "^5.0.0",
+    "find-up": "^8.0.0",
     "find-yarn-workspace-root": "^2.0.0",
     "jsonc-parser": "^3.3.1",
     "minimatch": "^10.1.1",
