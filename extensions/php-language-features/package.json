@@ -78,7 +78,7 @@
   },
   "devDependencies": {
     "@types/node": "25.x",
-    "@types/which": "^2.0.0"
+    "@types/which": "^3.0.4"
   },
   "repository": {
     "type": "git",
