@@ -3573,9 +3573,9 @@
   "devDependencies": {
     "@types/byline": "4.2.36",
     "@types/mocha": "^10.0.10",
-    "@types/node": "20.x",
+    "@types/node": "25.x",
     "@types/picomatch": "4.0.2",
-    "@types/which": "3.0.0"
+    "@types/which": "3.0.4"
   },
   "repository": {
     "type": "git",
