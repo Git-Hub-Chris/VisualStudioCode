@@ -774,10 +774,10 @@
     "vscode-languageclient": "^8.0.2",
     "vscode-languageserver-textdocument": "^1.0.12",
     "vscode-markdown-languageserver": "^0.5.0-alpha.9",
-    "vscode-uri": "^3.0.3"
+    "vscode-uri": "^3.1.0"
   },
   "devDependencies": {
-    "@types/dompurify": "^3.0.5",
+    "@types/dompurify": "^3.2.0",
     "@types/lodash.throttle": "^4.1.9",
     "@types/markdown-it": "14.1.2",
     "@types/picomatch": "^2.3.0",
