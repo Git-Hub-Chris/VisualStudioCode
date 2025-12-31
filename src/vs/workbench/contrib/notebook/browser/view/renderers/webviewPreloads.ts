@@ -2464,6 +2464,13 @@ async function webviewPreloads(ctx: PreloadContext) {
 	// --- Begin DOMPurify Minimal Implementation ---
 	// NOTE: In a production scenario, the full DOMPurify min.js should be included here or loaded up-front wherever allowed. This is a minimal, very basic, example for the notebook webview context.
 	function sanitizeHTML(dirty) {
+		// Ensure we only ever process strings to avoid unexpected DOM parsing behavior
+		if (dirty === undefined || dirty === null) {
+			dirty = '';
+		} else if (typeof dirty !== 'string') {
+			dirty = String(dirty);
+		}
+
 		const template = document.createElement('template');
 		template.innerHTML = dirty;
 
