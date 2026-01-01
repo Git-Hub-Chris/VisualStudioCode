@@ -768,7 +768,7 @@
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.1.0",
     "markdown-it-front-matter": "^0.2.4",
-    "morphdom": "^2.6.1",
+    "morphdom": "^2.7.7",
     "picomatch": "^2.3.1",
     "punycode": "^2.3.1",
     "vscode-languageclient": "^8.0.2",
