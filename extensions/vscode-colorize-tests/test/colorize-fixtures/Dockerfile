@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/base:ubuntu@sha256:8d68bbf458958747a7f41756f60de95d5b404f374f05cd42969957653fad0cfe
+FROM mcr.microsoft.com/devcontainers/base:ubuntu@sha256:c1613dbcdafe28e4b36ede9f3cb84a96e76765f50b3aeee87cb589eeb4c6dbca
 MAINTAINER Microsoft
 
 RUN apt-get install -y software-properties-common python
