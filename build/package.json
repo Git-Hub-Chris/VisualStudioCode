@@ -25,7 +25,7 @@
     "@types/gulp-sourcemaps": "^0.0.32",
     "@types/jws": "^3.2.11",
     "@types/mime": "4.0.0",
-    "@types/minimatch": "^3.0.3",
+    "@types/minimatch": "^6.0.0",
     "@types/minimist": "^1.2.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "25.x",
