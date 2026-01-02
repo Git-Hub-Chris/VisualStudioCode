@@ -33,7 +33,7 @@
   "devDependencies": {
     "@types/minimatch": "^6.0.0",
     "@types/node": "25.x",
-    "@types/which": "^3.0.0"
+    "@types/which": "^3.0.4"
   },
   "main": "./out/npmMain",
   "browser": "./dist/browser/npmBrowserMain",
