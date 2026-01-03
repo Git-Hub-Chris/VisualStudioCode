@@ -22,10 +22,10 @@
     "@types/gulp-json-editor": "^2.2.36",
     "@types/gulp-rename": "^2.0.7",
     "@types/gulp-sort": "^2.0.4",
-    "@types/gulp-sourcemaps": "^0.0.32",
+    "@types/gulp-sourcemaps": "^0.0.38",
     "@types/jws": "^3.2.11",
     "@types/mime": "4.0.0",
-    "@types/minimatch": "^3.0.3",
+    "@types/minimatch": "^6.0.0",
     "@types/minimist": "^1.2.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "25.x",
@@ -54,7 +54,7 @@
     "tree-sitter": "^0.25.0",
     "vscode-universal-bundler": "^0.1.3",
     "workerpool": "^6.4.0",
-    "yauzl": "^2.10.0"
+    "yauzl": "^3.2.0"
   },
   "type": "commonjs",
   "scripts": {
