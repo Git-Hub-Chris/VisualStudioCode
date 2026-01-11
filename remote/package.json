@@ -18,7 +18,7 @@
     "@xterm/addon-clipboard": "^0.2.0-beta.123",
     "@xterm/addon-image": "^0.10.0-beta.76",
     "@xterm/addon-ligatures": "^0.10.0-beta.140",
-    "@xterm/addon-progress": "^0.2.0-beta.4",
+    "@xterm/addon-progress": "^0.3.0-beta.100",
     "@xterm/addon-search": "^0.17.0-beta.89",
     "@xterm/addon-serialize": "^0.14.0-beta.140",
     "@xterm/addon-unicode11": "^0.10.0-beta.76",
