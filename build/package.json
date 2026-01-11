@@ -14,7 +14,7 @@
     "@types/debounce": "^1.2.4",
     "@types/debug": "^4.1.5",
     "@types/fancy-log": "^2.0.2",
-    "@types/fs-extra": "^9.0.12",
+    "@types/fs-extra": "^11.0.4",
     "@types/glob": "^9.0.0",
     "@types/gulp": "^4.0.18",
     "@types/gulp-filter": "^3.0.41",
