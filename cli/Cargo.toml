@@ -19,7 +19,7 @@ reqwest = { version = "0.12.5", default-features = false, features = ["json", "s
 tokio = { version = "1.49.0", features = ["full"] }
 tokio-util = { version = "0.7.8", features = ["compat", "codec"] }
 flate2 = { version = "1.1.5", default-features = false, features = ["zlib"] }
-zip = { version = "0.6.6", default-features = false, features = ["time", "deflate-zlib"] }
+zip = { version = "2.3.0", default-features = false, features = ["time", "deflate-zlib"] }
 regex = "1.12.2"
 lazy_static = "1.5.0"
 sysinfo = { version = "0.37.2", default-features = false }
