@@ -8,7 +8,7 @@
     "@azure/identity": "^4.13.0",
     "@azure/msal-node": "^2.16.1",
     "@azure/storage-blob": "^12.25.0",
-    "@electron/get": "^2.0.0",
+    "@electron/get": "^4.0.2",
     "@types/ansi-colors": "^3.2.0",
     "@types/byline": "^4.2.36",
     "@types/debounce": "^1.2.4",
