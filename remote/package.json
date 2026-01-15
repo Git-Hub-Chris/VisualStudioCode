@@ -10,7 +10,7 @@
     "@vscode/iconv-lite-umd": "0.7.1",
     "@vscode/proxy-agent": "^0.36.0",
     "@vscode/ripgrep": "^1.17.0",
-    "@vscode/spdlog": "^0.15.4",
+    "@vscode/spdlog": "^0.15.6",
     "@vscode/tree-sitter-wasm": "^0.3.0",
     "@vscode/vscode-languagedetection": "1.0.22",
     "@vscode/windows-process-tree": "^0.6.3",
