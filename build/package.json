@@ -48,7 +48,7 @@
     "jsonc-parser": "^3.3.1",
     "jws": "^4.0.1",
     "mime": "^4.1.0",
-    "source-map": "0.6.1",
+    "source-map": "0.7.6",
     "ternary-stream": "^3.0.0",
     "through2": "^4.0.2",
     "tree-sitter": "^0.25.0",
