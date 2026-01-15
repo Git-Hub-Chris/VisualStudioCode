@@ -467,7 +467,7 @@ dependencies = [
  "url",
  "uuid",
  "winapi",
- "winreg 0.50.0",
+ "winreg 0.52.0",
  "zbus 4.4.0",
  "zip",
 ]
