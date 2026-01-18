@@ -3,24 +3,29 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { compareBy, numberComparator } from 'vs/base/common/arrays';
-import { BugIndicatingError } from 'vs/base/common/errors';
-import { Disposable, toDisposable } from 'vs/base/common/lifecycle';
-import { ITextModel } from 'vs/editor/common/model';
-import { DetailedLineRangeMapping } from 'vs/workbench/contrib/mergeEditor/browser/model/mapping';
-import { LineRangeEdit } from 'vs/workbench/contrib/mergeEditor/browser/model/editing';
-import { LineRange } from 'vs/workbench/contrib/mergeEditor/browser/model/lineRange';
-import { ReentrancyBarrier } from 'vs/workbench/contrib/mergeEditor/browser/utils';
-import { IMergeDiffComputer } from './diffComputer';
-import { autorun, IObservable, IReader, ITransaction, observableValue, transaction } from 'vs/base/common/observable';
+import { compareBy, numberComparator } from '../../../../../base/common/arrays.js';
+import { BugIndicatingError } from '../../../../../base/common/errors.js';
+import { Disposable, toDisposable } from '../../../../../base/common/lifecycle.js';
+import { ITextModel } from '../../../../../editor/common/model.js';
+import { DetailedLineRangeMapping } from './mapping.js';
+import { LineRangeEdit } from './editing.js';
+import { LineRange } from './lineRange.js';
+import { ReentrancyBarrier } from '../../../../../base/common/controlFlow.js';
+import { IMergeDiffComputer } from './diffComputer.js';
+import { autorun, IObservableWithChange, IReader, ITransaction, observableSignal, observableValue, transaction } from '../../../../../base/common/observable.js';
+import { UndoRedoGroup } from '../../../../../platform/undoRedo/common/undoRedo.js';
 
 export class TextModelDiffs extends Disposable {
-	private updateCount = 0;
-	private readonly _state = observableValue<TextModelDiffState, TextModelDiffChangeReason>('LiveDiffState', TextModelDiffState.initializing);
-	private readonly _diffs = observableValue<DetailedLineRangeMapping[], TextModelDiffChangeReason>('LiveDiffs', []);
+	private _recomputeCount = 0;
+	private readonly _state = observableValue<TextModelDiffState, TextModelDiffChangeReason>(this, TextModelDiffState.initializing);
+	private readonly _diffs = observableValue<DetailedLineRangeMapping[], TextModelDiffChangeReason>(this, []);
 
-	private readonly barrier = new ReentrancyBarrier();
-	private isDisposed = false;
+	private readonly _barrier = new ReentrancyBarrier();
+	private _isDisposed = false;
+
+	public get isApplyingChange() {
+		return this._barrier.isOccupied;
+	}
 
 	constructor(
 		private readonly baseTextModel: ITextModel,
@@ -29,42 +34,58 @@ export class TextModelDiffs extends Disposable {
 	) {
 		super();
 
-		const counter = observableValue('invalidation counter', 0);
+		const recomputeSignal = observableSignal('recompute');
 
-		this._register(autorun('Update diff state', reader => {
-			counter.read(reader);
-			this.update(reader);
+		this._register(autorun(reader => {
+			/** @description Update diff state */
+			recomputeSignal.read(reader);
+			this._recompute(reader);
 		}));
 
-		this._register(baseTextModel.onDidChangeContent(this.barrier.makeExclusive(() => { counter.set(counter.get() + 1, undefined); })));
-		this._register(textModel.onDidChangeContent(this.barrier.makeExclusive(() => { counter.set(counter.get() + 1, undefined); })));
+		this._register(
+			baseTextModel.onDidChangeContent(
+				this._barrier.makeExclusiveOrSkip(() => {
+					recomputeSignal.trigger(undefined);
+				})
+			)
+		);
+		this._register(
+			textModel.onDidChangeContent(
+				this._barrier.makeExclusiveOrSkip(() => {
+					recomputeSignal.trigger(undefined);
+				})
+			)
+		);
 		this._register(toDisposable(() => {
-			this.isDisposed = true;
+			this._isDisposed = true;
 		}));
 	}
 
-	public get state(): IObservable<TextModelDiffState, TextModelDiffChangeReason> {
+	public get state(): IObservableWithChange<TextModelDiffState, TextModelDiffChangeReason> {
 		return this._state;
 	}
 
-	public get diffs(): IObservable<DetailedLineRangeMapping[], TextModelDiffChangeReason> {
+	/**
+	 * Diffs from base to input.
+	*/
+	public get diffs(): IObservableWithChange<DetailedLineRangeMapping[], TextModelDiffChangeReason> {
 		return this._diffs;
 	}
 
-	private isInitializing = true;
+	private _isInitializing = true;
 
-	private update(reader: IReader): void {
-		this.updateCount++;
-		const currentUpdateCount = this.updateCount;
+	private _recompute(reader: IReader): void {
+		this._recomputeCount++;
+		const currentRecomputeIdx = this._recomputeCount;
 
 		if (this._state.get() === TextModelDiffState.initializing) {
-			this.isInitializing = true;
+			this._isInitializing = true;
 		}
 
 		transaction(tx => {
 			/** @description Starting Diff Computation. */
 			this._state.set(
-				this.isInitializing ? TextModelDiffState.initializing : TextModelDiffState.updating,
+				this._isInitializing ? TextModelDiffState.initializing : TextModelDiffState.updating,
 				tx,
 				TextModelDiffChangeReason.other
 			);
@@ -73,12 +94,12 @@ export class TextModelDiffs extends Disposable {
 		const result = this.diffComputer.computeDiff(this.baseTextModel, this.textModel, reader);
 
 		result.then((result) => {
-			if (this.isDisposed) {
+			if (this._isDisposed) {
 				return;
 			}
 
-			if (currentUpdateCount !== this.updateCount) {
-				// There is a newer update call
+			if (currentRecomputeIdx !== this._recomputeCount) {
+				// There is a newer recompute call
 				return;
 			}
 
@@ -90,7 +111,7 @@ export class TextModelDiffs extends Disposable {
 				} else {
 					this._state.set(TextModelDiffState.error, tx, TextModelDiffChangeReason.textChange);
 				}
-				this.isInitializing = false;
+				this._isInitializing = false;
 			});
 		});
 	}
@@ -101,7 +122,7 @@ export class TextModelDiffs extends Disposable {
 		}
 	}
 
-	public removeDiffs(diffToRemoves: DetailedLineRangeMapping[], transaction: ITransaction | undefined): void {
+	public removeDiffs(diffToRemoves: DetailedLineRangeMapping[], transaction: ITransaction | undefined, group?: UndoRedoGroup): void {
 		this.ensureUpToDate();
 
 		diffToRemoves.sort(compareBy((d) => d.inputRange.startLineNumber, numberComparator));
@@ -117,8 +138,9 @@ export class TextModelDiffs extends Disposable {
 				throw new BugIndicatingError();
 			}
 
-			this.barrier.runExclusivelyOrThrow(() => {
-				diffToRemove.getReverseLineEdit().apply(this.textModel);
+			this._barrier.runExclusivelyOrThrow(() => {
+				const edits = diffToRemove.getReverseLineEdit().toEdits(this.textModel.getLineCount());
+				this.textModel.pushEditOperations(null, edits, () => null, group);
 			});
 
 			diffs = diffs.map((d) =>
@@ -134,7 +156,7 @@ export class TextModelDiffs extends Disposable {
 	/**
 	 * Edit must be conflict free.
 	 */
-	public applyEditRelativeToOriginal(edit: LineRangeEdit, transaction: ITransaction | undefined): void {
+	public applyEditRelativeToOriginal(edit: LineRangeEdit, transaction: ITransaction | undefined, group?: UndoRedoGroup): void {
 		this.ensureUpToDate();
 
 		const editMapping = new DetailedLineRangeMapping(
@@ -171,8 +193,9 @@ export class TextModelDiffs extends Disposable {
 			newDiffs.push(editMapping.addOutputLineDelta(delta));
 		}
 
-		this.barrier.runExclusivelyOrThrow(() => {
-			new LineRangeEdit(edit.range.delta(delta), edit.newLines).apply(this.textModel);
+		this._barrier.runExclusivelyOrThrow(() => {
+			const edits = new LineRangeEdit(edit.range.delta(delta), edit.newLines).toEdits(this.textModel.getLineCount());
+			this.textModel.pushEditOperations(null, edits, () => null, group);
 		});
 		this._diffs.set(newDiffs, transaction, TextModelDiffChangeReason.other);
 	}
@@ -196,7 +219,7 @@ export class TextModelDiffs extends Disposable {
 		return lineNumber + offset;
 	}
 
-	public getResultRange(baseRange: LineRange, reader?: IReader): LineRange {
+	public getResultLineRange(baseRange: LineRange, reader?: IReader): LineRange {
 		let start = this.getResultLine(baseRange.startLineNumber, reader);
 		if (typeof start !== 'number') {
 			start = start.outputRange.startLineNumber;

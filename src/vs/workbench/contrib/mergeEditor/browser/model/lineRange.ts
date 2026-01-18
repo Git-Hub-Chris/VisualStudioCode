@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Comparator, compareBy, numberComparator } from 'vs/base/common/arrays';
-import { BugIndicatingError } from 'vs/base/common/errors';
-import { Constants } from 'vs/base/common/uint';
-import { Range } from 'vs/editor/common/core/range';
-import { ITextModel } from 'vs/editor/common/model';
+import { Comparator, compareBy, numberComparator } from '../../../../../base/common/arrays.js';
+import { BugIndicatingError } from '../../../../../base/common/errors.js';
+import { Constants } from '../../../../../base/common/uint.js';
+import { Range } from '../../../../../editor/common/core/range.js';
+import { ITextModel } from '../../../../../editor/common/model.js';
 
 export class LineRange {
 	public static readonly compareByStart: Comparator<LineRange> = compareBy(l => l.startLineNumber, numberComparator);
@@ -61,8 +61,12 @@ export class LineRange {
 		);
 	}
 
-	public isAfter(modifiedRange: LineRange): boolean {
-		return this.startLineNumber >= modifiedRange.endLineNumberExclusive;
+	public isAfter(range: LineRange): boolean {
+		return this.startLineNumber >= range.endLineNumberExclusive;
+	}
+
+	public isBefore(range: LineRange): boolean {
+		return range.startLineNumber >= this.endLineNumberExclusive;
 	}
 
 	public delta(lineDelta: number): LineRange {
@@ -108,6 +112,13 @@ export class LineRange {
 	public toInclusiveRange(): Range | undefined {
 		if (this.isEmpty) {
 			return undefined;
+		}
+		return new Range(this.startLineNumber, 1, this.endLineNumberExclusive - 1, Constants.MAX_SAFE_SMALL_INTEGER);
+	}
+
+	public toInclusiveRangeOrEmpty(): Range {
+		if (this.isEmpty) {
+			return new Range(this.startLineNumber, 1, this.startLineNumber, 1);
 		}
 		return new Range(this.startLineNumber, 1, this.endLineNumberExclusive - 1, Constants.MAX_SAFE_SMALL_INTEGER);
 	}
