@@ -5,6 +5,7 @@
 	"publisher": "vscode",
 	"version": "1.0.0",
 	"license": "MIT",
+  "icon": "media/icon.png",
 	"engines": {
 		"vscode": "^1.57.0"
 	},
@@ -47,9 +48,9 @@
 	},
 	"dependencies": {},
 	"devDependencies": {
-		"@types/jsdom": "^21.1.0",
-		"@types/vscode-notebook-renderer": "^1.60.0",
-		"jsdom": "^21.1.1"
+		"@types/jsdom": "^27.0.0",
+		"@types/vscode-notebook-renderer": "^1.72.4",
+		"jsdom": "^27.4.0"
 	},
 	"repository": {
 		"type": "git",
