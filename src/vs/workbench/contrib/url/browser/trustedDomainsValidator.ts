@@ -3,31 +3,27 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Schemas } from 'vs/base/common/network';
-import Severity from 'vs/base/common/severity';
-import { URI } from 'vs/base/common/uri';
-import { localize } from 'vs/nls';
-import { IDialogService } from 'vs/platform/dialogs/common/dialogs';
-import { IOpenerService, matchesScheme } from 'vs/platform/opener/common/opener';
-import { IProductService } from 'vs/platform/product/common/productService';
-import { IQuickInputService } from 'vs/platform/quickinput/common/quickInput';
-import { IStorageService } from 'vs/platform/storage/common/storage';
-import { IWorkbenchContribution } from 'vs/workbench/common/contributions';
-import {
-	configureOpenerTrustedDomainsHandler,
-	readTrustedDomains
-} from 'vs/workbench/contrib/url/browser/trustedDomains';
-import { IEditorService } from 'vs/workbench/services/editor/common/editorService';
-import { IClipboardService } from 'vs/platform/clipboard/common/clipboardService';
-import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
-import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
-import { INotificationService } from 'vs/platform/notification/common/notification';
-
-type TrustedDomainsDialogActionClassification = {
-	action: { classification: 'SystemMetaData', purpose: 'FeatureInsight' };
-};
+import { Schemas, matchesScheme } from '../../../../base/common/network.js';
+import Severity from '../../../../base/common/severity.js';
+import { URI } from '../../../../base/common/uri.js';
+import { localize } from '../../../../nls.js';
+import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { IOpenerService, OpenOptions } from '../../../../platform/opener/common/opener.js';
+import { IProductService } from '../../../../platform/product/common/productService.js';
+import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { IStorageService } from '../../../../platform/storage/common/storage.js';
+import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
+import { IWorkspaceTrustManagementService } from '../../../../platform/workspace/common/workspaceTrust.js';
+import { IWorkbenchContribution } from '../../../common/contributions.js';
+import { ITrustedDomainService, isURLDomainTrusted } from './trustedDomainService.js';
+import { configureOpenerTrustedDomainsHandler, readStaticTrustedDomains } from './trustedDomains.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
 
 export class OpenerValidatorContributions implements IWorkbenchContribution {
+
 	constructor(
 		@IOpenerService private readonly _openerService: IOpenerService,
 		@IStorageService private readonly _storageService: IStorageService,
@@ -38,28 +34,34 @@ export class OpenerValidatorContributions implements IWorkbenchContribution {
 		@IClipboardService private readonly _clipboardService: IClipboardService,
 		@ITelemetryService private readonly _telemetryService: ITelemetryService,
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
-		@INotificationService private readonly _notificationService: INotificationService,
+		@IConfigurationService private readonly _configurationService: IConfigurationService,
+		@IWorkspaceTrustManagementService private readonly _workspaceTrustService: IWorkspaceTrustManagementService,
+		@ITrustedDomainService private readonly _trustedDomainService: ITrustedDomainService,
 	) {
-		this._openerService.registerValidator({ shouldOpen: r => this.validateLink(r) });
+		this._openerService.registerValidator({ shouldOpen: (uri, options) => this.validateLink(uri, options) });
 	}
 
-	async validateLink(resource: URI | string): Promise<boolean> {
+	async validateLink(resource: URI | string, openOptions?: OpenOptions): Promise<boolean> {
 		if (!matchesScheme(resource, Schemas.http) && !matchesScheme(resource, Schemas.https)) {
 			return true;
 		}
 
-		if (typeof resource === 'string') {
-			resource = URI.parse(resource);
+		if (openOptions?.fromWorkspace && this._workspaceTrustService.isWorkspaceTrusted() && !this._configurationService.getValue('workbench.trustedDomains.promptInTrustedWorkspace')) {
+			return true;
 		}
-		const { scheme, authority, path, query, fragment } = resource;
 
-		const domainToOpen = `${scheme}://${authority}`;
-		const { defaultTrustedDomains, trustedDomains, userDomains, workspaceDomains } = await this._instantiationService.invokeFunction(readTrustedDomains);
-		const allTrustedDomains = [...defaultTrustedDomains, ...trustedDomains, ...userDomains, ...workspaceDomains];
+		const originalResource = resource;
+		let resourceUri: URI;
+		if (typeof resource === 'string') {
+			resourceUri = URI.parse(resource);
+		} else {
+			resourceUri = resource;
+		}
 
-		if (isURLDomainTrusted(resource, allTrustedDomains)) {
+		if (this._trustedDomainService.isValid(resourceUri)) {
 			return true;
 		} else {
+			const { scheme, authority, path, query, fragment } = resourceUri;
 			let formattedLink = `${scheme}://${authority}${path}`;
 
 			const linkTail = `${query ? '?' + query : ''}${fragment ? '#' + fragment : ''}`;
@@ -76,209 +78,58 @@ export class OpenerValidatorContributions implements IWorkbenchContribution {
 				formattedLink += linkTail.charAt(0) + '...' + linkTail.substring(linkTail.length - linkTailLengthToKeep + 1);
 			}
 
-			const { choice } = await this._dialogService.show(
-				Severity.Info,
-				localize(
+			const { result } = await this._dialogService.prompt<boolean>({
+				type: Severity.Info,
+				message: localize(
 					'openExternalLinkAt',
 					'Do you want {0} to open the external website?',
 					this._productService.nameShort
 				),
-				[
-					localize('open', 'Open'),
-					localize('copy', 'Copy'),
-					localize('cancel', 'Cancel'),
-					localize('configureTrustedDomains', 'Configure Trusted Domains')
+				detail: typeof originalResource === 'string' ? originalResource : formattedLink,
+				buttons: [
+					{
+						label: localize({ key: 'open', comment: ['&& denotes a mnemonic'] }, '&&Open'),
+						run: () => true
+					},
+					{
+						label: localize({ key: 'copy', comment: ['&& denotes a mnemonic'] }, '&&Copy'),
+						run: () => {
+							this._clipboardService.writeText(typeof originalResource === 'string' ? originalResource : resourceUri.toString(true));
+							return false;
+						}
+					},
+					{
+						label: localize({ key: 'configureTrustedDomains', comment: ['&& denotes a mnemonic'] }, 'Configure &&Trusted Domains'),
+						run: async () => {
+							const { trustedDomains, } = this._instantiationService.invokeFunction(readStaticTrustedDomains);
+							const domainToOpen = `${scheme}://${authority}`;
+							const pickedDomains = await configureOpenerTrustedDomainsHandler(
+								trustedDomains,
+								domainToOpen,
+								resourceUri,
+								this._quickInputService,
+								this._storageService,
+								this._editorService,
+								this._telemetryService,
+							);
+							// Trust all domains
+							if (pickedDomains.indexOf('*') !== -1) {
+								return true;
+							}
+							// Trust current domain
+							if (isURLDomainTrusted(resourceUri, pickedDomains)) {
+								return true;
+							}
+							return false;
+						}
+					}
 				],
-				{
-					detail: formattedLink,
-					cancelId: 2
+				cancelButton: {
+					run: () => false
 				}
-			);
+			});
 
-			// Open Link
-			if (choice === 0) {
-				this._telemetryService.publicLog2<{ action: string }, TrustedDomainsDialogActionClassification>(
-					'trustedDomains.dialogAction',
-					{ action: 'open' }
-				);
-				return true;
-			}
-			// Copy Link
-			else if (choice === 1) {
-				this._telemetryService.publicLog2<{ action: string }, TrustedDomainsDialogActionClassification>(
-					'trustedDomains.dialogAction',
-					{ action: 'copy' }
-				);
-				this._clipboardService.writeText(resource.toString(true));
-			}
-			// Configure Trusted Domains
-			else if (choice === 3) {
-				this._telemetryService.publicLog2<{ action: string }, TrustedDomainsDialogActionClassification>(
-					'trustedDomains.dialogAction',
-					{ action: 'configure' }
-				);
-
-				const pickedDomains = await configureOpenerTrustedDomainsHandler(
-					trustedDomains,
-					domainToOpen,
-					resource,
-					this._quickInputService,
-					this._storageService,
-					this._editorService,
-					this._telemetryService,
-					this._notificationService,
-					this._clipboardService,
-				);
-				// Trust all domains
-				if (pickedDomains.indexOf('*') !== -1) {
-					return true;
-				}
-				// Trust current domain
-				if (isURLDomainTrusted(resource, pickedDomains)) {
-					return true;
-				}
-				return false;
-			}
-
-			this._telemetryService.publicLog2<{ action: string }, TrustedDomainsDialogActionClassification>(
-				'trustedDomains.dialogAction',
-				{ action: 'cancel' }
-			);
-
-			return false;
+			return result;
 		}
 	}
 }
-
-const rLocalhost = /^localhost(:\d+)?$/i;
-const r127 = /^127.0.0.1(:\d+)?$/;
-
-function isLocalhostAuthority(authority: string) {
-	return rLocalhost.test(authority) || r127.test(authority);
-}
-
-/**
- * Case-normalize some case-insensitive URLs, such as github.
- */
-function normalizeURL(url: string | URI): string {
-	const caseInsensitiveAuthorities = ['github.com'];
-	try {
-		const parsed = typeof url === 'string' ? URI.parse(url, true) : url;
-		if (caseInsensitiveAuthorities.includes(parsed.authority)) {
-			return parsed.with({ path: parsed.path.toLowerCase() }).toString(true);
-		} else {
-			return parsed.toString(true);
-		}
-	} catch { return url.toString(); }
-}
-
-/**
- * Check whether a domain like https://www.microsoft.com matches
- * the list of trusted domains.
- *
- * - Schemes must match
- * - There's no subdomain matching. For example https://microsoft.com doesn't match https://www.microsoft.com
- * - Star matches all subdomains. For example https://*.microsoft.com matches https://www.microsoft.com and https://foo.bar.microsoft.com
- */
-export function isURLDomainTrusted(url: URI, trustedDomains: string[]) {
-	url = URI.parse(normalizeURL(url));
-	trustedDomains = trustedDomains.map(normalizeURL);
-
-	if (isLocalhostAuthority(url.authority)) {
-		return true;
-	}
-
-	for (let i = 0; i < trustedDomains.length; i++) {
-		if (trustedDomains[i] === '*') {
-			return true;
-		}
-
-		if (isTrusted(url.toString(), trustedDomains[i])) {
-			return true;
-		}
-	}
-
-	return false;
-}
-
-export const isTrusted = (url: string, trustedURL: string): boolean => {
-	const normalize = (url: string) => url.replace(/\/+$/, '');
-	trustedURL = normalize(trustedURL);
-	url = normalize(url);
-
-	const memo = Array.from({ length: url.length + 1 }).map(() =>
-		Array.from({ length: trustedURL.length + 1 }).map(() => undefined),
-	);
-
-	if (/^[^./:]*:\/\//.test(trustedURL)) {
-		return doURLMatch(memo, url, trustedURL, 0, 0);
-	}
-
-	const scheme = /^(https?):\/\//.exec(url)?.[1];
-	if (scheme) {
-		return doURLMatch(memo, url, `${scheme}://${trustedURL}`, 0, 0);
-	}
-
-	return false;
-};
-
-const doURLMatch = (
-	memo: (boolean | undefined)[][],
-	url: string,
-	trustedURL: string,
-	urlOffset: number,
-	trustedURLOffset: number,
-): boolean => {
-	if (memo[urlOffset]?.[trustedURLOffset] !== undefined) {
-		return memo[urlOffset][trustedURLOffset]!;
-	}
-
-	const options = [];
-
-	// Endgame.
-	// Fully exact match
-	if (urlOffset === url.length) {
-		return trustedURLOffset === trustedURL.length;
-	}
-
-	// Some path remaining in url
-	if (trustedURLOffset === trustedURL.length) {
-		const remaining = url.slice(urlOffset);
-		return remaining[0] === '/';
-	}
-
-	if (url[urlOffset] === trustedURL[trustedURLOffset]) {
-		// Exact match.
-		options.push(doURLMatch(memo, url, trustedURL, urlOffset + 1, trustedURLOffset + 1));
-	}
-
-	if (trustedURL[trustedURLOffset] + trustedURL[trustedURLOffset + 1] === '*.') {
-		// Any subdomain match. Either consume one thing that's not a / or : and don't advance base or consume nothing and do.
-		if (!['/', ':'].includes(url[urlOffset])) {
-			options.push(doURLMatch(memo, url, trustedURL, urlOffset + 1, trustedURLOffset));
-		}
-		options.push(doURLMatch(memo, url, trustedURL, urlOffset, trustedURLOffset + 2));
-	}
-
-	if (trustedURL[trustedURLOffset] + trustedURL[trustedURLOffset + 1] === '.*' && url[urlOffset] === '.') {
-		// IP mode. Consume one segment of numbers or nothing.
-		let endBlockIndex = urlOffset + 1;
-		do { endBlockIndex++; } while (/[0-9]/.test(url[endBlockIndex]));
-		if (['.', ':', '/', undefined].includes(url[endBlockIndex])) {
-			options.push(doURLMatch(memo, url, trustedURL, endBlockIndex, trustedURLOffset + 2));
-		}
-	}
-
-	if (trustedURL[trustedURLOffset] + trustedURL[trustedURLOffset + 1] === ':*') {
-		// any port match. Consume a port if it exists otherwise nothing. Always comsume the base.
-		if (url[urlOffset] === ':') {
-			let endPortIndex = urlOffset + 1;
-			do { endPortIndex++; } while (/[0-9]/.test(url[endPortIndex]));
-			options.push(doURLMatch(memo, url, trustedURL, endPortIndex, trustedURLOffset + 2));
-		} else {
-			options.push(doURLMatch(memo, url, trustedURL, urlOffset, trustedURLOffset + 2));
-		}
-	}
-
-	return (memo[urlOffset][trustedURLOffset] = options.some(a => a === true));
-};

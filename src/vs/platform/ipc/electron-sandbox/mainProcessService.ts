@@ -3,34 +3,26 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IChannel, IServerChannel } from 'vs/base/parts/ipc/common/ipc';
-import { Client } from 'vs/base/parts/ipc/electron-sandbox/ipc.electron-sandbox';
-import { Disposable } from 'vs/base/common/lifecycle';
-import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
+import { Disposable } from '../../../base/common/lifecycle.js';
+import { IChannel, IServerChannel } from '../../../base/parts/ipc/common/ipc.js';
+import { Client as IPCElectronClient } from '../../../base/parts/ipc/electron-sandbox/ipc.electron.js';
+import { IMainProcessService } from '../common/mainProcessService.js';
 
-export const IMainProcessService = createDecorator<IMainProcessService>('mainProcessService');
-
-export interface IMainProcessService {
-
-	readonly _serviceBrand: undefined;
-
-	getChannel(channelName: string): IChannel;
-
-	registerChannel(channelName: string, channel: IServerChannel<string>): void;
-}
-
-export class MainProcessService extends Disposable implements IMainProcessService {
+/**
+ * An implementation of `IMainProcessService` that leverages Electron's IPC.
+ */
+export class ElectronIPCMainProcessService extends Disposable implements IMainProcessService {
 
 	declare readonly _serviceBrand: undefined;
 
-	private mainProcessConnection: Client;
+	private mainProcessConnection: IPCElectronClient;
 
 	constructor(
 		windowId: number
 	) {
 		super();
 
-		this.mainProcessConnection = this._register(new Client(`window:${windowId}`));
+		this.mainProcessConnection = this._register(new IPCElectronClient(`window:${windowId}`));
 	}
 
 	getChannel(channelName: string): IChannel {

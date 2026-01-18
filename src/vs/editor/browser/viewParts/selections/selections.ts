@@ -3,16 +3,15 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import 'vs/css!./selections';
-import * as browser from 'vs/base/browser/browser';
-import { DynamicViewOverlay } from 'vs/editor/browser/view/dynamicViewOverlay';
-import { Range } from 'vs/editor/common/core/range';
-import { HorizontalRange, LineVisibleRanges, RenderingContext } from 'vs/editor/common/view/renderingContext';
-import { ViewContext } from 'vs/editor/common/view/viewContext';
-import * as viewEvents from 'vs/editor/common/view/viewEvents';
-import { editorInactiveSelection, editorSelectionBackground, editorSelectionForeground } from 'vs/platform/theme/common/colorRegistry';
-import { registerThemingParticipant } from 'vs/platform/theme/common/themeService';
-import { EditorOption } from 'vs/editor/common/config/editorOptions';
+import './selections.css';
+import { DynamicViewOverlay } from '../../view/dynamicViewOverlay.js';
+import { Range } from '../../../common/core/range.js';
+import { HorizontalRange, LineVisibleRanges, RenderingContext } from '../../view/renderingContext.js';
+import { ViewContext } from '../../../common/viewModel/viewContext.js';
+import * as viewEvents from '../../../common/viewEvents.js';
+import { editorSelectionForeground } from '../../../../platform/theme/common/colorRegistry.js';
+import { registerThemingParticipant } from '../../../../platform/theme/common/themeService.js';
+import { EditorOption } from '../../../common/config/editorOptions.js';
 
 const enum CornerStyle {
 	EXTERN,
@@ -57,12 +56,9 @@ function toStyled(item: LineVisibleRanges): LineVisibleRangesWithStyle {
 	return new LineVisibleRangesWithStyle(item.lineNumber, item.ranges.map(toStyledRange));
 }
 
-// TODO@Alex: Remove this once IE11 fixes Bug #524217
-// The problem in IE11 is that it does some sort of auto-zooming to accomodate for displays with different pixel density.
-// Unfortunately, this auto-zooming is buggy around dealing with rounded borders
-const isIEWithZoomingIssuesNearRoundedBorders = browser.isEdge;
-
-
+/**
+ * This view part displays selected text to the user. Every line has its own selection overlay.
+ */
 export class SelectionsOverlay extends DynamicViewOverlay {
 
 	private static readonly SELECTION_CLASS_NAME = 'selected-text';
@@ -75,7 +71,6 @@ export class SelectionsOverlay extends DynamicViewOverlay {
 	private static readonly ROUNDED_PIECE_WIDTH = 10;
 
 	private readonly _context: ViewContext;
-	private _lineHeight: number;
 	private _roundedSelection: boolean;
 	private _typicalHalfwidthCharacterWidth: number;
 	private _selections: Range[];
@@ -85,7 +80,6 @@ export class SelectionsOverlay extends DynamicViewOverlay {
 		super();
 		this._context = context;
 		const options = this._context.configuration.options;
-		this._lineHeight = options.get(EditorOption.lineHeight);
 		this._roundedSelection = options.get(EditorOption.roundedSelection);
 		this._typicalHalfwidthCharacterWidth = options.get(EditorOption.fontInfo).typicalHalfwidthCharacterWidth;
 		this._selections = [];
@@ -93,7 +87,7 @@ export class SelectionsOverlay extends DynamicViewOverlay {
 		this._context.addEventHandler(this);
 	}
 
-	public dispose(): void {
+	public override dispose(): void {
 		this._context.removeEventHandler(this);
 		this._renderResult = null;
 		super.dispose();
@@ -101,37 +95,36 @@ export class SelectionsOverlay extends DynamicViewOverlay {
 
 	// --- begin event handlers
 
-	public onConfigurationChanged(e: viewEvents.ViewConfigurationChangedEvent): boolean {
+	public override onConfigurationChanged(e: viewEvents.ViewConfigurationChangedEvent): boolean {
 		const options = this._context.configuration.options;
-		this._lineHeight = options.get(EditorOption.lineHeight);
 		this._roundedSelection = options.get(EditorOption.roundedSelection);
 		this._typicalHalfwidthCharacterWidth = options.get(EditorOption.fontInfo).typicalHalfwidthCharacterWidth;
 		return true;
 	}
-	public onCursorStateChanged(e: viewEvents.ViewCursorStateChangedEvent): boolean {
+	public override onCursorStateChanged(e: viewEvents.ViewCursorStateChangedEvent): boolean {
 		this._selections = e.selections.slice(0);
 		return true;
 	}
-	public onDecorationsChanged(e: viewEvents.ViewDecorationsChangedEvent): boolean {
+	public override onDecorationsChanged(e: viewEvents.ViewDecorationsChangedEvent): boolean {
 		// true for inline decorations that can end up relayouting text
 		return true;//e.inlineDecorationsChanged;
 	}
-	public onFlushed(e: viewEvents.ViewFlushedEvent): boolean {
+	public override onFlushed(e: viewEvents.ViewFlushedEvent): boolean {
 		return true;
 	}
-	public onLinesChanged(e: viewEvents.ViewLinesChangedEvent): boolean {
+	public override onLinesChanged(e: viewEvents.ViewLinesChangedEvent): boolean {
 		return true;
 	}
-	public onLinesDeleted(e: viewEvents.ViewLinesDeletedEvent): boolean {
+	public override onLinesDeleted(e: viewEvents.ViewLinesDeletedEvent): boolean {
 		return true;
 	}
-	public onLinesInserted(e: viewEvents.ViewLinesInsertedEvent): boolean {
+	public override onLinesInserted(e: viewEvents.ViewLinesInsertedEvent): boolean {
 		return true;
 	}
-	public onScrollChanged(e: viewEvents.ViewScrollChangedEvent): boolean {
+	public override onScrollChanged(e: viewEvents.ViewScrollChangedEvent): boolean {
 		return e.scrollTopChanged;
 	}
-	public onZonesChanged(e: viewEvents.ViewZonesChangedEvent): boolean {
+	public override onZonesChanged(e: viewEvents.ViewZonesChangedEvent): boolean {
 		return true;
 	}
 
@@ -254,7 +247,7 @@ export class SelectionsOverlay extends DynamicViewOverlay {
 		const linesVisibleRanges = _linesVisibleRanges.map(toStyled);
 		const visibleRangesHaveGaps = this._visibleRangesHaveGaps(linesVisibleRanges);
 
-		if (!isIEWithZoomingIssuesNearRoundedBorders && !visibleRangesHaveGaps && this._roundedSelection) {
+		if (!visibleRangesHaveGaps && this._roundedSelection) {
 			this._enrichVisibleRangesWithStyle(ctx.visibleRange, linesVisibleRanges, previousFrame);
 		}
 
@@ -262,19 +255,16 @@ export class SelectionsOverlay extends DynamicViewOverlay {
 		return linesVisibleRanges;
 	}
 
-	private _createSelectionPiece(top: number, height: string, className: string, left: number, width: number): string {
+	private _createSelectionPiece(top: number, bottom: number, className: string, left: number, width: number): string {
 		return (
 			'<div class="cslr '
 			+ className
-			+ '" style="top:'
-			+ top.toString()
-			+ 'px;left:'
-			+ left.toString()
-			+ 'px;width:'
-			+ width.toString()
-			+ 'px;height:'
-			+ height
-			+ 'px;"></div>'
+			+ '" style="'
+			+ 'top:' + top.toString() + 'px;'
+			+ 'bottom:' + bottom.toString() + 'px;'
+			+ 'left:' + left.toString() + 'px;'
+			+ 'width:' + width.toString() + 'px;'
+			+ '"></div>'
 		);
 	}
 
@@ -284,8 +274,6 @@ export class SelectionsOverlay extends DynamicViewOverlay {
 		}
 
 		const visibleRangesHaveStyle = !!visibleRanges[0].ranges[0].startStyle;
-		const fullLineHeight = (this._lineHeight).toString();
-		const reducedLineHeight = (this._lineHeight - 1).toString();
 
 		const firstLineNumber = visibleRanges[0].lineNumber;
 		const lastLineNumber = visibleRanges[visibleRanges.length - 1].lineNumber;
@@ -295,8 +283,8 @@ export class SelectionsOverlay extends DynamicViewOverlay {
 			const lineNumber = lineVisibleRanges.lineNumber;
 			const lineIndex = lineNumber - visibleStartLineNumber;
 
-			const lineHeight = hasMultipleSelections ? (lineNumber === lastLineNumber || lineNumber === firstLineNumber ? reducedLineHeight : fullLineHeight) : fullLineHeight;
 			const top = hasMultipleSelections ? (lineNumber === firstLineNumber ? 1 : 0) : 0;
+			const bottom = hasMultipleSelections ? (lineNumber !== firstLineNumber && lineNumber === lastLineNumber ? 1 : 0) : 0;
 
 			let innerCornerOutput = '';
 			let restOfSelectionOutput = '';
@@ -311,7 +299,7 @@ export class SelectionsOverlay extends DynamicViewOverlay {
 						// Reverse rounded corner to the left
 
 						// First comes the selection (blue layer)
-						innerCornerOutput += this._createSelectionPiece(top, lineHeight, SelectionsOverlay.SELECTION_CLASS_NAME, visibleRange.left - SelectionsOverlay.ROUNDED_PIECE_WIDTH, SelectionsOverlay.ROUNDED_PIECE_WIDTH);
+						innerCornerOutput += this._createSelectionPiece(top, bottom, SelectionsOverlay.SELECTION_CLASS_NAME, visibleRange.left - SelectionsOverlay.ROUNDED_PIECE_WIDTH, SelectionsOverlay.ROUNDED_PIECE_WIDTH);
 
 						// Second comes the background (white layer) with inverse border radius
 						let className = SelectionsOverlay.EDITOR_BACKGROUND_CLASS_NAME;
@@ -321,13 +309,13 @@ export class SelectionsOverlay extends DynamicViewOverlay {
 						if (startStyle.bottom === CornerStyle.INTERN) {
 							className += ' ' + SelectionsOverlay.SELECTION_BOTTOM_RIGHT;
 						}
-						innerCornerOutput += this._createSelectionPiece(top, lineHeight, className, visibleRange.left - SelectionsOverlay.ROUNDED_PIECE_WIDTH, SelectionsOverlay.ROUNDED_PIECE_WIDTH);
+						innerCornerOutput += this._createSelectionPiece(top, bottom, className, visibleRange.left - SelectionsOverlay.ROUNDED_PIECE_WIDTH, SelectionsOverlay.ROUNDED_PIECE_WIDTH);
 					}
 					if (endStyle.top === CornerStyle.INTERN || endStyle.bottom === CornerStyle.INTERN) {
 						// Reverse rounded corner to the right
 
 						// First comes the selection (blue layer)
-						innerCornerOutput += this._createSelectionPiece(top, lineHeight, SelectionsOverlay.SELECTION_CLASS_NAME, visibleRange.left + visibleRange.width, SelectionsOverlay.ROUNDED_PIECE_WIDTH);
+						innerCornerOutput += this._createSelectionPiece(top, bottom, SelectionsOverlay.SELECTION_CLASS_NAME, visibleRange.left + visibleRange.width, SelectionsOverlay.ROUNDED_PIECE_WIDTH);
 
 						// Second comes the background (white layer) with inverse border radius
 						let className = SelectionsOverlay.EDITOR_BACKGROUND_CLASS_NAME;
@@ -337,7 +325,7 @@ export class SelectionsOverlay extends DynamicViewOverlay {
 						if (endStyle.bottom === CornerStyle.INTERN) {
 							className += ' ' + SelectionsOverlay.SELECTION_BOTTOM_LEFT;
 						}
-						innerCornerOutput += this._createSelectionPiece(top, lineHeight, className, visibleRange.left + visibleRange.width, SelectionsOverlay.ROUNDED_PIECE_WIDTH);
+						innerCornerOutput += this._createSelectionPiece(top, bottom, className, visibleRange.left + visibleRange.width, SelectionsOverlay.ROUNDED_PIECE_WIDTH);
 					}
 				}
 
@@ -358,7 +346,7 @@ export class SelectionsOverlay extends DynamicViewOverlay {
 						className += ' ' + SelectionsOverlay.SELECTION_BOTTOM_RIGHT;
 					}
 				}
-				restOfSelectionOutput += this._createSelectionPiece(top, lineHeight, className, visibleRange.left, visibleRange.width);
+				restOfSelectionOutput += this._createSelectionPiece(top, bottom, className, visibleRange.left, visibleRange.width);
 			}
 
 			output2[lineIndex][0] += innerCornerOutput;
@@ -410,14 +398,6 @@ export class SelectionsOverlay extends DynamicViewOverlay {
 }
 
 registerThemingParticipant((theme, collector) => {
-	const editorSelectionColor = theme.getColor(editorSelectionBackground);
-	if (editorSelectionColor) {
-		collector.addRule(`.monaco-editor .focused .selected-text { background-color: ${editorSelectionColor}; }`);
-	}
-	const editorInactiveSelectionColor = theme.getColor(editorInactiveSelection);
-	if (editorInactiveSelectionColor) {
-		collector.addRule(`.monaco-editor .selected-text { background-color: ${editorInactiveSelectionColor}; }`);
-	}
 	const editorSelectionForegroundColor = theme.getColor(editorSelectionForeground);
 	if (editorSelectionForegroundColor && !editorSelectionForegroundColor.isTransparent()) {
 		collector.addRule(`.monaco-editor .view-line span.inline-selected-text { color: ${editorSelectionForegroundColor}; }`);

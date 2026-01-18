@@ -3,18 +3,19 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { UriComponents, URI } from 'vs/base/common/uri';
-import * as modes from 'vs/editor/common/modes';
-import { MainContext, MainThreadEditorInsetsShape, IExtHostContext, ExtHostEditorInsetsShape, ExtHostContext } from 'vs/workbench/api/common/extHost.protocol';
-import { extHostNamedCustomer } from '../common/extHostCustomers';
-import { ICodeEditorService } from 'vs/editor/browser/services/codeEditorService';
-import { IWebviewService, WebviewElement } from 'vs/workbench/contrib/webview/browser/webview';
-import { DisposableStore } from 'vs/base/common/lifecycle';
-import { IActiveCodeEditor, IViewZone } from 'vs/editor/browser/editorBrowser';
-import { ExtensionIdentifier } from 'vs/platform/extensions/common/extensions';
-import { isEqual } from 'vs/base/common/resources';
+import { getWindow } from '../../../base/browser/dom.js';
+import { DisposableStore } from '../../../base/common/lifecycle.js';
+import { isEqual } from '../../../base/common/resources.js';
+import { URI, UriComponents } from '../../../base/common/uri.js';
+import { IActiveCodeEditor, IViewZone } from '../../../editor/browser/editorBrowser.js';
+import { ICodeEditorService } from '../../../editor/browser/services/codeEditorService.js';
+import { ExtensionIdentifier } from '../../../platform/extensions/common/extensions.js';
+import { reviveWebviewContentOptions } from './mainThreadWebviews.js';
+import { ExtHostContext, ExtHostEditorInsetsShape, IWebviewContentOptions, MainContext, MainThreadEditorInsetsShape } from '../common/extHost.protocol.js';
+import { IWebviewService, IWebviewElement } from '../../contrib/webview/browser/webview.js';
+import { extHostNamedCustomer, IExtHostContext } from '../../services/extensions/common/extHostCustomers.js';
 
-// todo@joh move these things back into something like contrib/insets
+// todo@jrieken move these things back into something like contrib/insets
 class EditorWebviewZone implements IViewZone {
 
 	readonly domNode: HTMLElement;
@@ -34,7 +35,7 @@ class EditorWebviewZone implements IViewZone {
 		readonly editor: IActiveCodeEditor,
 		readonly line: number,
 		readonly height: number,
-		readonly webview: WebviewElement,
+		readonly webview: IWebviewElement,
 	) {
 		this.domNode = document.createElement('div');
 		this.domNode.style.zIndex = '10'; // without this, the webview is not interactive
@@ -43,7 +44,7 @@ class EditorWebviewZone implements IViewZone {
 		this.heightInLines = height;
 
 		editor.changeViewZones(accessor => this._id = accessor.addZone(this));
-		webview.mountTo(this.domNode);
+		webview.mountTo(this.domNode, getWindow(editor.getDomNode()));
 	}
 
 	dispose(): void {
@@ -70,10 +71,10 @@ export class MainThreadEditorInsets implements MainThreadEditorInsetsShape {
 		this._disposables.dispose();
 	}
 
-	async $createEditorInset(handle: number, id: string, uri: UriComponents, line: number, height: number, options: modes.IWebviewOptions, extensionId: ExtensionIdentifier, extensionLocation: UriComponents): Promise<void> {
+	async $createEditorInset(handle: number, id: string, uri: UriComponents, line: number, height: number, options: IWebviewContentOptions, extensionId: ExtensionIdentifier, extensionLocation: UriComponents): Promise<void> {
 
 		let editor: IActiveCodeEditor | undefined;
-		id = id.substr(0, id.indexOf(',')); //todo@joh HACK
+		id = id.substr(0, id.indexOf(',')); //todo@jrieken HACK
 
 		for (const candidate of this._editorService.listCodeEditors()) {
 			if (candidate.getId() === id && candidate.hasModel() && isEqual(candidate.getModel().uri, URI.revive(uri))) {
@@ -89,12 +90,14 @@ export class MainThreadEditorInsets implements MainThreadEditorInsetsShape {
 
 		const disposables = new DisposableStore();
 
-		const webview = this._webviewService.createWebviewElement('' + handle, {
-			enableFindWidget: false,
-		}, {
-			allowScripts: options.enableScripts,
-			localResourceRoots: options.localResourceRoots ? options.localResourceRoots.map(uri => URI.revive(uri)) : undefined
-		}, { id: extensionId, location: URI.revive(extensionLocation) });
+		const webview = this._webviewService.createWebviewElement({
+			title: undefined,
+			options: {
+				enableFindWidget: false,
+			},
+			contentOptions: reviveWebviewContentOptions(options),
+			extension: { id: extensionId, location: URI.revive(extensionLocation) }
+		});
 
 		const webviewZone = new EditorWebviewZone(editor, line, height, webview);
 
@@ -108,7 +111,7 @@ export class MainThreadEditorInsets implements MainThreadEditorInsetsShape {
 		disposables.add(editor.onDidDispose(remove));
 		disposables.add(webviewZone);
 		disposables.add(webview);
-		disposables.add(webview.onMessage(msg => this._proxy.$onDidReceiveMessage(handle, msg)));
+		disposables.add(webview.onMessage(msg => this._proxy.$onDidReceiveMessage(handle, msg.message)));
 
 		this._insets.set(handle, webviewZone);
 	}
@@ -117,20 +120,16 @@ export class MainThreadEditorInsets implements MainThreadEditorInsetsShape {
 		const inset = this.getInset(handle);
 		this._insets.delete(handle);
 		inset.dispose();
-
 	}
 
 	$setHtml(handle: number, value: string): void {
 		const inset = this.getInset(handle);
-		inset.webview.html = value;
+		inset.webview.setHtml(value);
 	}
 
-	$setOptions(handle: number, options: modes.IWebviewOptions): void {
+	$setOptions(handle: number, options: IWebviewContentOptions): void {
 		const inset = this.getInset(handle);
-		inset.webview.contentOptions = {
-			...options,
-			localResourceRoots: options.localResourceRoots?.map(components => URI.from(components)),
-		};
+		inset.webview.contentOptions = reviveWebviewContentOptions(options);
 	}
 
 	async $postMessage(handle: number, value: any): Promise<boolean> {

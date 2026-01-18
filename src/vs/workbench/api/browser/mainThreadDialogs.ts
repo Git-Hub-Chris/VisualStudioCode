@@ -3,11 +3,10 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { URI } from 'vs/base/common/uri';
-import { MainThreadDiaglogsShape, MainContext, IExtHostContext, MainThreadDialogOpenOptions, MainThreadDialogSaveOptions } from '../common/extHost.protocol';
-import { extHostNamedCustomer } from 'vs/workbench/api/common/extHostCustomers';
-import { forEach } from 'vs/base/common/collections';
-import { IFileDialogService, IOpenDialogOptions, ISaveDialogOptions } from 'vs/platform/dialogs/common/dialogs';
+import { URI } from '../../../base/common/uri.js';
+import { MainThreadDiaglogsShape, MainContext, MainThreadDialogOpenOptions, MainThreadDialogSaveOptions } from '../common/extHost.protocol.js';
+import { extHostNamedCustomer, IExtHostContext } from '../../services/extensions/common/extHostCustomers.js';
+import { IFileDialogService, IOpenDialogOptions, ISaveDialogOptions } from '../../../platform/dialogs/common/dialogs.js';
 
 @extHostNamedCustomer(MainContext.MainThreadDialogs)
 export class MainThreadDialogs implements MainThreadDiaglogsShape {
@@ -23,12 +22,20 @@ export class MainThreadDialogs implements MainThreadDiaglogsShape {
 		//
 	}
 
-	$showOpenDialog(options?: MainThreadDialogOpenOptions): Promise<URI[] | undefined> {
-		return Promise.resolve(this._fileDialogService.showOpenDialog(MainThreadDialogs._convertOpenOptions(options)));
+	async $showOpenDialog(options?: MainThreadDialogOpenOptions): Promise<URI[] | undefined> {
+		const convertedOptions = MainThreadDialogs._convertOpenOptions(options);
+		if (!convertedOptions.defaultUri) {
+			convertedOptions.defaultUri = await this._fileDialogService.defaultFilePath();
+		}
+		return Promise.resolve(this._fileDialogService.showOpenDialog(convertedOptions));
 	}
 
-	$showSaveDialog(options?: MainThreadDialogSaveOptions): Promise<URI | undefined> {
-		return Promise.resolve(this._fileDialogService.showSaveDialog(MainThreadDialogs._convertSaveOptions(options)));
+	async $showSaveDialog(options?: MainThreadDialogSaveOptions): Promise<URI | undefined> {
+		const convertedOptions = MainThreadDialogs._convertSaveOptions(options);
+		if (!convertedOptions.defaultUri) {
+			convertedOptions.defaultUri = await this._fileDialogService.defaultFilePath();
+		}
+		return Promise.resolve(this._fileDialogService.showSaveDialog(convertedOptions));
 	}
 
 	private static _convertOpenOptions(options?: MainThreadDialogOpenOptions): IOpenDialogOptions {
@@ -38,11 +45,14 @@ export class MainThreadDialogs implements MainThreadDiaglogsShape {
 			canSelectFolders: options?.canSelectFolders,
 			canSelectMany: options?.canSelectMany,
 			defaultUri: options?.defaultUri ? URI.revive(options.defaultUri) : undefined,
-			title: options?.title || undefined
+			title: options?.title || undefined,
+			availableFileSystems: []
 		};
 		if (options?.filters) {
 			result.filters = [];
-			forEach(options.filters, entry => result.filters!.push({ name: entry.key, extensions: entry.value }));
+			for (const [key, value] of Object.entries(options.filters)) {
+				result.filters.push({ name: key, extensions: value });
+			}
 		}
 		return result;
 	}
@@ -55,7 +65,9 @@ export class MainThreadDialogs implements MainThreadDiaglogsShape {
 		};
 		if (options?.filters) {
 			result.filters = [];
-			forEach(options.filters, entry => result.filters!.push({ name: entry.key, extensions: entry.value }));
+			for (const [key, value] of Object.entries(options.filters)) {
+				result.filters.push({ name: key, extensions: value });
+			}
 		}
 		return result;
 	}

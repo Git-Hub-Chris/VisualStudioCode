@@ -3,13 +3,14 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import type { Database, Statement } from 'vscode-sqlite3';
-import { Event } from 'vs/base/common/event';
-import { timeout } from 'vs/base/common/async';
-import { mapToString, setToString } from 'vs/base/common/map';
-import { basename } from 'vs/base/common/path';
-import { copy, renameIgnoreError, unlink } from 'vs/base/node/pfs';
-import { IStorageDatabase, IStorageItemsChangeEvent, IUpdateRequest } from 'vs/base/parts/storage/common/storage';
+import * as fs from 'fs';
+import { timeout } from '../../../common/async.js';
+import { Event } from '../../../common/event.js';
+import { mapToString, setToString } from '../../../common/map.js';
+import { basename } from '../../../common/path.js';
+import { Promises } from '../../../node/pfs.js';
+import { IStorageDatabase, IStorageItemsChangeEvent, IUpdateRequest } from '../common/storage.js';
+import type { Database, Statement } from '@vscode/sqlite3';
 
 interface IDatabaseConnection {
 	readonly db: Database;
@@ -37,13 +38,20 @@ export class SQLiteStorageDatabase implements IStorageDatabase {
 	private static readonly BUSY_OPEN_TIMEOUT = 2000; // timeout in ms to retry when opening DB fails with SQLITE_BUSY
 	private static readonly MAX_HOST_PARAMETERS = 256; // maximum number of parameters within a statement
 
-	private readonly name = basename(this.path);
+	private readonly name: string;
 
-	private readonly logger = new SQLiteStorageDatabaseLogger(this.options.logging);
+	private readonly logger: SQLiteStorageDatabaseLogger;
 
-	private readonly whenConnected = this.connect(this.path);
+	private readonly whenConnected: Promise<IDatabaseConnection>;
 
-	constructor(private readonly path: string, private readonly options: ISQLiteStorageDatabaseOptions = Object.create(null)) { }
+	constructor(
+		private readonly path: string,
+		options: ISQLiteStorageDatabaseOptions = Object.create(null)
+	) {
+		this.name = basename(this.path);
+		this.logger = new SQLiteStorageDatabaseLogger(options.logging);
+		this.whenConnected = this.connect(this.path);
+	}
 
 	async getItems(): Promise<Map<string, string>> {
 		const connection = await this.whenConnected;
@@ -144,6 +152,14 @@ export class SQLiteStorageDatabase implements IStorageDatabase {
 		});
 	}
 
+	async optimize(): Promise<void> {
+		this.logger.trace(`[storage ${this.name}] vacuum()`);
+
+		const connection = await this.whenConnected;
+
+		return this.exec(connection, 'VACUUM');
+	}
+
 	async close(recovery?: () => Map<string, string>): Promise<void> {
 		this.logger.trace(`[storage ${this.name}] close()`);
 
@@ -186,7 +202,7 @@ export class SQLiteStorageDatabase implements IStorageDatabase {
 					// Delete the existing DB. If the path does not exist or fails to
 					// be deleted, we do not try to recover anymore because we assume
 					// that the path is no longer writeable for us.
-					return unlink(this.path).then(() => {
+					return fs.promises.unlink(this.path).then(() => {
 
 						// Re-open the DB fresh
 						return this.doConnect(this.path).then(recoveryConnection => {
@@ -216,7 +232,7 @@ export class SQLiteStorageDatabase implements IStorageDatabase {
 	private backup(): Promise<void> {
 		const backupPath = this.toBackupPath(this.path);
 
-		return copy(this.path, backupPath);
+		return Promises.copy(this.path, backupPath, { preserveSymlinks: false });
 	}
 
 	private toBackupPath(path: string): string {
@@ -272,8 +288,12 @@ export class SQLiteStorageDatabase implements IStorageDatabase {
 			// folder is really not writeable for us.
 			//
 			try {
-				await unlink(path);
-				await renameIgnoreError(this.toBackupPath(path), path);
+				await fs.promises.unlink(path);
+				try {
+					await Promises.rename(this.toBackupPath(path), path, false /* no retry */);
+				} catch (error) {
+					// ignore
+				}
 
 				return await this.doConnect(path);
 			} catch (error) {
@@ -295,11 +315,12 @@ export class SQLiteStorageDatabase implements IStorageDatabase {
 
 	private doConnect(path: string): Promise<IDatabaseConnection> {
 		return new Promise((resolve, reject) => {
-			import('vscode-sqlite3').then(sqlite3 => {
+			import('@vscode/sqlite3').then(sqlite3 => {
+				const ctor = (this.logger.isTracing ? sqlite3.default.verbose().Database : sqlite3.default.Database);
 				const connection: IDatabaseConnection = {
-					db: new (this.logger.isTracing ? sqlite3.verbose().Database : sqlite3.Database)(path, error => {
+					db: new ctor(path, (error: (Error & { code?: string }) | null) => {
 						if (error) {
-							return connection.db ? connection.db.close(() => reject(error)) : reject(error);
+							return (connection.db && error.code !== 'SQLITE_CANTOPEN' /* https://github.com/TryGhost/node-sqlite3/issues/1617 */) ? connection.db.close(() => reject(error)) : reject(error);
 						}
 
 						// The following exec() statement serves two purposes:
@@ -356,7 +377,7 @@ export class SQLiteStorageDatabase implements IStorageDatabase {
 		});
 	}
 
-	private all(connection: IDatabaseConnection, sql: string): Promise<{ key: string, value: string }[]> {
+	private all(connection: IDatabaseConnection, sql: string): Promise<{ key: string; value: string }[]> {
 		return new Promise((resolve, reject) => {
 			connection.db.all(sql, (error, rows) => {
 				if (error) {
@@ -412,11 +433,17 @@ export class SQLiteStorageDatabase implements IStorageDatabase {
 }
 
 class SQLiteStorageDatabaseLogger {
+
+	// to reduce lots of output, require an environment variable to enable tracing
+	// this helps when running with --verbose normally where the storage tracing
+	// might hide useful output to look at
+	private static readonly VSCODE_TRACE_STORAGE = 'VSCODE_TRACE_STORAGE';
+
 	private readonly logTrace: ((msg: string) => void) | undefined;
 	private readonly logError: ((error: string | Error) => void) | undefined;
 
 	constructor(options?: ISQLiteStorageDatabaseLoggingOptions) {
-		if (options && typeof options.logTrace === 'function') {
+		if (options && typeof options.logTrace === 'function' && process.env[SQLiteStorageDatabaseLogger.VSCODE_TRACE_STORAGE]) {
 			this.logTrace = options.logTrace;
 		}
 
@@ -430,14 +457,10 @@ class SQLiteStorageDatabaseLogger {
 	}
 
 	trace(msg: string): void {
-		if (this.logTrace) {
-			this.logTrace(msg);
-		}
+		this.logTrace?.(msg);
 	}
 
 	error(error: string | Error): void {
-		if (this.logError) {
-			this.logError(error);
-		}
+		this.logError?.(error);
 	}
 }

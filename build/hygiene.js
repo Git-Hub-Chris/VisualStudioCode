@@ -5,153 +5,13 @@
 
 const filter = require('gulp-filter');
 const es = require('event-stream');
-const gulpeslint = require('gulp-eslint');
-const tsfmt = require('typescript-formatter');
 const VinylFile = require('vinyl');
 const vfs = require('vinyl-fs');
 const path = require('path');
 const fs = require('fs');
 const pall = require('p-all');
 
-/**
- * Hygiene works by creating cascading subsets of all our files and
- * passing them through a sequence of checks. Here are the current subsets,
- * named according to the checks performed on them. Each subset contains
- * the following one, as described in mathematical notation:
- *
- * all ⊃ eol ⊇ indentation ⊃ copyright ⊃ typescript
- */
-
-const all = [
-	'*',
-	'build/**/*',
-	'extensions/**/*',
-	'scripts/**/*',
-	'src/**/*',
-	'test/**/*',
-	'!test/**/out/**',
-	'!**/node_modules/**',
-];
-module.exports.all = all;
-
-const indentationFilter = [
-	'**',
-
-	// except specific files
-	'!**/ThirdPartyNotices.txt',
-	'!**/LICENSE.{txt,rtf}',
-	'!LICENSES.chromium.html',
-	'!**/LICENSE',
-	'!src/vs/nls.js',
-	'!src/vs/nls.build.js',
-	'!src/vs/css.js',
-	'!src/vs/css.build.js',
-	'!src/vs/loader.js',
-	'!src/vs/base/common/insane/insane.js',
-	'!src/vs/base/common/marked/marked.js',
-	'!src/vs/base/node/terminateProcess.sh',
-	'!src/vs/base/node/cpuUsage.sh',
-	'!test/unit/assert.js',
-
-	// except specific folders
-	'!test/automation/out/**',
-	'!test/smoke/out/**',
-	'!extensions/typescript-language-features/test-workspace/**',
-	'!extensions/vscode-api-tests/testWorkspace/**',
-	'!extensions/vscode-api-tests/testWorkspace2/**',
-	'!build/monaco/**',
-	'!build/win32/**',
-
-	// except multiple specific files
-	'!**/package.json',
-	'!**/yarn.lock',
-	'!**/yarn-error.log',
-
-	// except multiple specific folders
-	'!**/codicon/**',
-	'!**/fixtures/**',
-	'!**/lib/**',
-	'!extensions/**/out/**',
-	'!extensions/**/snippets/**',
-	'!extensions/**/syntaxes/**',
-	'!extensions/**/themes/**',
-	'!extensions/**/colorize-fixtures/**',
-
-	// except specific file types
-	'!src/vs/*/**/*.d.ts',
-	'!src/typings/**/*.d.ts',
-	'!extensions/**/*.d.ts',
-	'!**/*.{svg,exe,png,bmp,scpt,bat,cmd,cur,ttf,woff,eot,md,ps1,template,yaml,yml,d.ts.recipe,ico,icns,plist}',
-	'!build/{lib,download,darwin}/**/*.js',
-	'!build/**/*.sh',
-	'!build/azure-pipelines/**/*.js',
-	'!build/azure-pipelines/**/*.config',
-	'!**/Dockerfile',
-	'!**/Dockerfile.*',
-	'!**/*.Dockerfile',
-	'!**/*.dockerfile',
-	'!extensions/markdown-language-features/media/*.js',
-];
-
-const copyrightFilter = [
-	'**',
-	'!**/*.desktop',
-	'!**/*.json',
-	'!**/*.html',
-	'!**/*.template',
-	'!**/*.md',
-	'!**/*.bat',
-	'!**/*.cmd',
-	'!**/*.ico',
-	'!**/*.icns',
-	'!**/*.xml',
-	'!**/*.sh',
-	'!**/*.txt',
-	'!**/*.xpm',
-	'!**/*.opts',
-	'!**/*.disabled',
-	'!**/*.code-workspace',
-	'!**/*.js.map',
-	'!build/**/*.init',
-	'!resources/linux/snap/snapcraft.yaml',
-	'!resources/linux/snap/electron-launch',
-	'!resources/win32/bin/code.js',
-	'!resources/web/code-web.js',
-	'!resources/completions/**',
-	'!extensions/markdown-language-features/media/highlight.css',
-	'!extensions/html-language-features/server/src/modes/typescript/*',
-	'!extensions/*/server/bin/*',
-	'!src/vs/editor/test/node/classification/typescript-test.ts',
-];
-
-const jsHygieneFilter = [
-	'src/**/*.js',
-	'build/gulpfile.*.js',
-	'!src/vs/loader.js',
-	'!src/vs/css.js',
-	'!src/vs/nls.js',
-	'!src/vs/css.build.js',
-	'!src/vs/nls.build.js',
-	'!src/**/insane.js',
-	'!src/**/marked.js',
-	'!**/test/**',
-];
-module.exports.jsHygieneFilter = jsHygieneFilter;
-
-const tsHygieneFilter = [
-	'src/**/*.ts',
-	'test/**/*.ts',
-	'extensions/**/*.ts',
-	'!**/fixtures/**',
-	'!**/typings/**',
-	'!**/node_modules/**',
-	'!extensions/typescript-basics/test/colorize-fixtures/**',
-	'!extensions/vscode-api-tests/testWorkspace/**',
-	'!extensions/vscode-api-tests/testWorkspace2/**',
-	'!extensions/**/*.test.ts',
-	'!extensions/html-language-features/server/lib/jquery.d.ts',
-];
-module.exports.tsHygieneFilter = tsHygieneFilter;
+const { all, copyrightFilter, unicodeFilter, indentationFilter, tsFormattingFilter, eslintFilter, stylelintFilter } = require('./filters');
 
 const copyrightHeaderLines = [
 	'/*---------------------------------------------------------------------------------------------',
@@ -160,7 +20,11 @@ const copyrightHeaderLines = [
 	' *--------------------------------------------------------------------------------------------*/',
 ];
 
-function hygiene(some) {
+function hygiene(some, linting = true) {
+	const eslint = require('./gulp-eslint');
+	const gulpstylelint = require('./stylelint');
+	const formatter = require('./lib/formatter');
+
 	let errorCount = 0;
 
 	const productJson = es.through(function (file) {
@@ -174,8 +38,45 @@ function hygiene(some) {
 		this.emit('data', file);
 	});
 
-	const indentation = es.through(function (file) {
+	const unicode = es.through(function (file) {
 		const lines = file.contents.toString('utf8').split(/\r\n|\r|\n/);
+		file.__lines = lines;
+		const allowInComments = lines.some(line => /allow-any-unicode-comment-file/.test(line));
+		let skipNext = false;
+		lines.forEach((line, i) => {
+			if (/allow-any-unicode-next-line/.test(line)) {
+				skipNext = true;
+				return;
+			}
+			if (skipNext) {
+				skipNext = false;
+				return;
+			}
+			// If unicode is allowed in comments, trim the comment from the line
+			if (allowInComments) {
+				if (line.match(/\s+(\*)/)) { // Naive multi-line comment check
+					line = '';
+				} else {
+					const index = line.indexOf('\/\/');
+					line = index === -1 ? line : line.substring(0, index);
+				}
+			}
+			// Please do not add symbols that resemble ASCII letters!
+			// eslint-disable-next-line no-misleading-character-class
+			const m = /([^\t\n\r\x20-\x7E⊃⊇✔︎✓🎯⚠️🛑🔴🚗🚙🚕🎉✨❗⇧⌥⌘×÷¦⋯…↑↓￫→←↔⟷·•●◆▼⟪⟫┌└├⏎↩√φ]+)/g.exec(line);
+			if (m) {
+				console.error(
+					file.relative + `(${i + 1},${m.index + 1}): Unexpected unicode character: "${m[0]}" (charCode: ${m[0].charCodeAt(0)}). To suppress, use // allow-any-unicode-next-line`
+				);
+				errorCount++;
+			}
+		});
+
+		this.emit('data', file);
+	});
+
+	const indentation = es.through(function (file) {
+		const lines = file.__lines || file.contents.toString('utf8').split(/\r\n|\r|\n/);
 		file.__lines = lines;
 
 		lines.forEach((line, i) => {
@@ -211,38 +112,23 @@ function hygiene(some) {
 	});
 
 	const formatting = es.map(function (file, cb) {
-		tsfmt
-			.processString(file.path, file.contents.toString('utf8'), {
-				verify: false,
-				tsfmt: true,
-				// verbose: true,
-				// keep checkJS happy
-				editorconfig: undefined,
-				replace: undefined,
-				tsconfig: undefined,
-				tsconfigFile: undefined,
-				tsfmtFile: undefined,
-				vscode: undefined,
-				vscodeFile: undefined,
-			})
-			.then(
-				(result) => {
-					let original = result.src.replace(/\r\n/gm, '\n');
-					let formatted = result.dest.replace(/\r\n/gm, '\n');
+		try {
+			const rawInput = file.contents.toString('utf8');
+			const rawOutput = formatter.format(file.path, rawInput);
 
-					if (original !== formatted) {
-						console.error(
-							`File not formatted. Run the 'Format Document' command to fix it:`,
-							file.relative
-						);
-						errorCount++;
-					}
-					cb(null, file);
-				},
-				(err) => {
-					cb(err);
-				}
-			);
+			const original = rawInput.replace(/\r\n/gm, '\n');
+			const formatted = rawOutput.replace(/\r\n/gm, '\n');
+			if (original !== formatted) {
+				console.error(
+					`File not formatted. Run the 'Format Document' command to fix it:`,
+					file.relative
+				);
+				errorCount++;
+			}
+			cb(null, file);
+		} catch (err) {
+			cb(err);
+		}
 	});
 
 	let input;
@@ -259,37 +145,54 @@ function hygiene(some) {
 	}
 
 	const productJsonFilter = filter('product.json', { restore: true });
+	const snapshotFilter = filter(['**', '!**/*.snap', '!**/*.snap.actual']);
+	const yarnLockFilter = filter(['**', '!**/yarn.lock']);
+	const unicodeFilterStream = filter(unicodeFilter, { restore: true });
 
 	const result = input
 		.pipe(filter((f) => !f.stat.isDirectory()))
+		.pipe(snapshotFilter)
+		.pipe(yarnLockFilter)
 		.pipe(productJsonFilter)
 		.pipe(process.env['BUILD_SOURCEVERSION'] ? es.through() : productJson)
 		.pipe(productJsonFilter.restore)
+		.pipe(unicodeFilterStream)
+		.pipe(unicode)
+		.pipe(unicodeFilterStream.restore)
 		.pipe(filter(indentationFilter))
 		.pipe(indentation)
 		.pipe(filter(copyrightFilter))
 		.pipe(copyrights);
 
-	const typescript = result.pipe(filter(tsHygieneFilter)).pipe(formatting);
+	const streams = [
+		result.pipe(filter(tsFormattingFilter)).pipe(formatting)
+	];
 
-	const javascript = result
-		.pipe(filter(jsHygieneFilter.concat(tsHygieneFilter)))
-		.pipe(
-			gulpeslint({
-				configFile: '.eslintrc.json',
-				rulePaths: ['./build/lib/eslint'],
-			})
-		)
-		.pipe(gulpeslint.formatEach('compact'))
-		.pipe(
-			gulpeslint.results((results) => {
-				errorCount += results.warningCount;
-				errorCount += results.errorCount;
-			})
+	if (linting) {
+		streams.push(
+			result
+				.pipe(filter(eslintFilter))
+				.pipe(
+					eslint((results) => {
+						errorCount += results.warningCount;
+						errorCount += results.errorCount;
+					})
+				)
 		);
+		streams.push(
+			result.pipe(filter(stylelintFilter)).pipe(gulpstylelint(((message, isError) => {
+				if (isError) {
+					console.error(message);
+					errorCount++;
+				} else {
+					console.warn(message);
+				}
+			})))
+		);
+	}
 
 	let count = 0;
-	return es.merge(typescript, javascript).pipe(
+	return es.merge(...streams).pipe(
 		es.through(
 			function (data) {
 				count++;
@@ -334,8 +237,8 @@ function createGitIndexVinyls(paths) {
 				}
 
 				cp.exec(
-					`git show :${relativePath}`,
-					{ maxBuffer: 2000 * 1024, encoding: 'buffer' },
+					process.platform === 'win32' ? `git show :${relativePath}` : `git show ':${relativePath}'`,
+					{ maxBuffer: stat.size, encoding: 'buffer' },
 					(err, out) => {
 						if (err) {
 							return e(err);
@@ -393,7 +296,7 @@ if (require.main === module) {
 						.then(
 							(vinyls) =>
 								new Promise((c, e) =>
-									hygiene(es.readArray(vinyls))
+									hygiene(es.readArray(vinyls).pipe(filter(all)))
 										.on('end', () => c())
 										.on('error', e)
 								)

@@ -3,19 +3,20 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { KeyCode, KeyMod } from 'vs/base/common/keyCodes';
-import * as nls from 'vs/nls';
-import { Action2, MenuId } from 'vs/platform/actions/common/actions';
-import { ContextKeyExpr } from 'vs/platform/contextkey/common/contextkey';
-import { ServicesAccessor } from 'vs/platform/instantiation/common/instantiation';
-import { KeybindingWeight } from 'vs/platform/keybinding/common/keybindingsRegistry';
-import { CATEGORIES } from 'vs/workbench/common/actions';
-import { KEYBINDING_CONTEXT_WEBVIEW_FIND_WIDGET_FOCUSED, KEYBINDING_CONTEXT_WEBVIEW_FIND_WIDGET_VISIBLE, Webview } from 'vs/workbench/contrib/webview/browser/webview';
-import { WebviewEditor } from 'vs/workbench/contrib/webviewPanel/browser/webviewEditor';
-import { WebviewInput } from 'vs/workbench/contrib/webviewPanel/browser/webviewEditorInput';
-import { IEditorService } from 'vs/workbench/services/editor/common/editorService';
+import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
+import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.js';
+import * as nls from '../../../../nls.js';
+import { Action2, MenuId } from '../../../../platform/actions/common/actions.js';
+import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
+import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
+import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
+import { IWebviewService, KEYBINDING_CONTEXT_WEBVIEW_FIND_WIDGET_ENABLED, KEYBINDING_CONTEXT_WEBVIEW_FIND_WIDGET_FOCUSED, KEYBINDING_CONTEXT_WEBVIEW_FIND_WIDGET_VISIBLE, IWebview } from '../../webview/browser/webview.js';
+import { WebviewEditor } from './webviewEditor.js';
+import { WebviewInput } from './webviewEditorInput.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
 
-const webviewActiveContextKeyExpr = ContextKeyExpr.and(ContextKeyExpr.equals('activeEditor', WebviewEditor.ID), ContextKeyExpr.not('editorFocus') /* https://github.com/microsoft/vscode/issues/58668 */)!;
+const webviewActiveContextKeyExpr = ContextKeyExpr.and(ContextKeyExpr.equals('activeEditor', WebviewEditor.ID), EditorContextKeys.focus.toNegated() /* https://github.com/microsoft/vscode/issues/58668 */)!;
 
 export class ShowWebViewEditorFindWidgetAction extends Action2 {
 	public static readonly ID = 'editor.action.webvieweditor.showFind';
@@ -26,8 +27,8 @@ export class ShowWebViewEditorFindWidgetAction extends Action2 {
 			id: ShowWebViewEditorFindWidgetAction.ID,
 			title: ShowWebViewEditorFindWidgetAction.LABEL,
 			keybinding: {
-				when: webviewActiveContextKeyExpr,
-				primary: KeyMod.CtrlCmd | KeyCode.KEY_F,
+				when: ContextKeyExpr.and(webviewActiveContextKeyExpr, KEYBINDING_CONTEXT_WEBVIEW_FIND_WIDGET_ENABLED),
+				primary: KeyMod.CtrlCmd | KeyCode.KeyF,
 				weight: KeybindingWeight.EditorContrib
 			}
 		});
@@ -103,13 +104,13 @@ export class WebViewEditorFindPreviousCommand extends Action2 {
 
 export class ReloadWebviewAction extends Action2 {
 	static readonly ID = 'workbench.action.webview.reloadWebviewAction';
-	static readonly LABEL = nls.localize('refreshWebviewLabel', "Reload Webviews");
+	static readonly LABEL = nls.localize2('refreshWebviewLabel', "Reload Webviews");
 
 	public constructor() {
 		super({
 			id: ReloadWebviewAction.ID,
-			title: { value: ReloadWebviewAction.LABEL, original: 'Reload Webviews' },
-			category: CATEGORIES.Developer,
+			title: ReloadWebviewAction.LABEL,
+			category: Categories.Developer,
 			menu: [{
 				id: MenuId.CommandPalette
 			}]
@@ -117,16 +118,14 @@ export class ReloadWebviewAction extends Action2 {
 	}
 
 	public async run(accessor: ServicesAccessor): Promise<void> {
-		const editorService = accessor.get(IEditorService);
-		for (const editor of editorService.visibleEditors) {
-			if (editor instanceof WebviewInput) {
-				editor.webview.reload();
-			}
+		const webviewService = accessor.get(IWebviewService);
+		for (const webview of webviewService.webviews) {
+			webview.reload();
 		}
 	}
 }
 
-export function getActiveWebviewEditor(accessor: ServicesAccessor): Webview | undefined {
+function getActiveWebviewEditor(accessor: ServicesAccessor): IWebview | undefined {
 	const editorService = accessor.get(IEditorService);
 	const activeEditor = editorService.activeEditor;
 	return activeEditor instanceof WebviewInput ? activeEditor.webview : undefined;

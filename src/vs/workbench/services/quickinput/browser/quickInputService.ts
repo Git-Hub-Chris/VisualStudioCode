@@ -3,33 +3,31 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { ILayoutService } from 'vs/platform/layout/browser/layoutService';
-import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
-import { IThemeService } from 'vs/platform/theme/common/themeService';
-import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
-import { IKeybindingService } from 'vs/platform/keybinding/common/keybinding';
-import { IAccessibilityService } from 'vs/platform/accessibility/common/accessibility';
-import { QuickInputController } from 'vs/base/parts/quickinput/browser/quickInput';
-import { QuickInputService as BaseQuickInputService } from 'vs/platform/quickinput/browser/quickInput';
-import { registerSingleton } from 'vs/platform/instantiation/common/extensions';
-import { IQuickInputService } from 'vs/platform/quickinput/common/quickInput';
-import { InQuickPickContextKey } from 'vs/workbench/browser/quickaccess';
+import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { IThemeService } from '../../../../platform/theme/common/themeService.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
+import { QuickInputController } from '../../../../platform/quickinput/browser/quickInputController.js';
+import { QuickInputService as BaseQuickInputService } from '../../../../platform/quickinput/browser/quickInputService.js';
+import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
+import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { InQuickPickContextKey } from '../../../browser/quickaccess.js';
 
 export class QuickInputService extends BaseQuickInputService {
 
 	private readonly inQuickInputContext = InQuickPickContextKey.bindTo(this.contextKeyService);
 
 	constructor(
-		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IConfigurationService configurationService: IConfigurationService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IKeybindingService private readonly keybindingService: IKeybindingService,
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@IThemeService themeService: IThemeService,
-		@IAccessibilityService accessibilityService: IAccessibilityService,
-		@ILayoutService protected readonly layoutService: ILayoutService,
+		@ILayoutService layoutService: ILayoutService,
 	) {
-		super(instantiationService, contextKeyService, themeService, accessibilityService, layoutService);
+		super(instantiationService, contextKeyService, themeService, layoutService, configurationService);
 
 		this.registerListeners();
 	}
@@ -39,7 +37,7 @@ export class QuickInputService extends BaseQuickInputService {
 		this._register(this.onHide(() => this.inQuickInputContext.set(false)));
 	}
 
-	protected createController(): QuickInputController {
+	protected override createController(): QuickInputController {
 		return super.createController(this.layoutService, {
 			ignoreFocusOut: () => !this.configurationService.getValue('workbench.quickOpen.closeOnFocusLost'),
 			backKeybindingLabel: () => this.keybindingService.lookupKeybinding('workbench.action.quickInputBack')?.getLabel() || undefined,
@@ -47,4 +45,4 @@ export class QuickInputService extends BaseQuickInputService {
 	}
 }
 
-registerSingleton(IQuickInputService, QuickInputService, true);
+registerSingleton(IQuickInputService, QuickInputService, InstantiationType.Delayed);

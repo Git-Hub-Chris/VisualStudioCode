@@ -4,16 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import type * as Proto from '../protocol';
+import { DocumentSelector } from '../configuration/documentSelector';
+import type * as Proto from '../tsServer/protocol/protocol';
+import * as typeConverters from '../typeConverters';
 import { ITypeScriptServiceClient } from '../typescriptService';
-import API from '../utils/api';
 import { coalesce } from '../utils/arrays';
-import { conditionalRegistration, requireMinVersion } from '../utils/dependentRegistration';
-import { DocumentSelector } from '../utils/documentSelector';
-import * as typeConverters from '../utils/typeConverters';
 
 class TypeScriptFoldingProvider implements vscode.FoldingRangeProvider {
-	public static readonly minVersion = API.v280;
 
 	public constructor(
 		private readonly client: ITypeScriptServiceClient
@@ -24,7 +21,7 @@ class TypeScriptFoldingProvider implements vscode.FoldingRangeProvider {
 		_context: vscode.FoldingContext,
 		token: vscode.CancellationToken
 	): Promise<vscode.FoldingRange[] | undefined> {
-		const file = this.client.toOpenedFilePath(document);
+		const file = this.client.toOpenTsFilePath(document);
 		if (!file) {
 			return;
 		}
@@ -48,18 +45,28 @@ class TypeScriptFoldingProvider implements vscode.FoldingRangeProvider {
 		// Workaround for #49904
 		if (span.kind === 'comment') {
 			const line = document.lineAt(range.start.line).text;
-			if (line.match(/\/\/\s*#endregion/gi)) {
+			if (/\/\/\s*#endregion/gi.test(line)) {
 				return undefined;
 			}
 		}
 
 		const start = range.start.line;
-		// workaround for #47240
-		const end = (range.end.character > 0 && ['}', ']'].includes(document.getText(new vscode.Range(range.end.translate(0, -1), range.end))))
-			? Math.max(range.end.line - 1, range.start.line)
-			: range.end.line;
-
+		const end = this.adjustFoldingEnd(range, document);
 		return new vscode.FoldingRange(start, end, kind);
+	}
+
+	private static readonly foldEndPairCharacters = ['}', ']', ')', '`', '>'];
+
+	private adjustFoldingEnd(range: vscode.Range, document: vscode.TextDocument) {
+		// workaround for #47240
+		if (range.end.character > 0) {
+			const foldEndCharacter = document.getText(new vscode.Range(range.end.translate(0, -1), range.end));
+			if (TypeScriptFoldingProvider.foldEndPairCharacters.includes(foldEndCharacter)) {
+				return Math.max(range.end.line - 1, range.start.line);
+			}
+		}
+
+		return range.end.line;
 	}
 
 	private static getFoldingRangeKind(span: Proto.OutliningSpan): vscode.FoldingRangeKind | undefined {
@@ -77,10 +84,6 @@ export function register(
 	selector: DocumentSelector,
 	client: ITypeScriptServiceClient,
 ): vscode.Disposable {
-	return conditionalRegistration([
-		requireMinVersion(client, TypeScriptFoldingProvider.minVersion),
-	], () => {
-		return vscode.languages.registerFoldingRangeProvider(selector.syntax,
-			new TypeScriptFoldingProvider(client));
-	});
+	return vscode.languages.registerFoldingRangeProvider(selector.syntax,
+		new TypeScriptFoldingProvider(client));
 }

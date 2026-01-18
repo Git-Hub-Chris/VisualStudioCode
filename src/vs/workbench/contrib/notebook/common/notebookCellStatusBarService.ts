@@ -3,19 +3,22 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Event } from 'vs/base/common/event';
-import { IDisposable } from 'vs/base/common/lifecycle';
-import { URI } from 'vs/base/common/uri';
-import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
-import { INotebookCellStatusBarEntry } from 'vs/workbench/contrib/notebook/common/notebookCommon';
+import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { Event } from '../../../../base/common/event.js';
+import { IDisposable } from '../../../../base/common/lifecycle.js';
+import { URI } from '../../../../base/common/uri.js';
+import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { INotebookCellStatusBarItemList, INotebookCellStatusBarItemProvider } from './notebookCommon.js';
 
 export const INotebookCellStatusBarService = createDecorator<INotebookCellStatusBarService>('notebookCellStatusBarService');
 
 export interface INotebookCellStatusBarService {
 	readonly _serviceBrand: undefined;
 
-	onDidChangeEntriesForCell: Event<URI>;
+	readonly onDidChangeProviders: Event<void>;
+	readonly onDidChangeItems: Event<void>;
 
-	addEntry(entry: INotebookCellStatusBarEntry): IDisposable;
-	getEntries(cell: URI): INotebookCellStatusBarEntry[];
+	registerCellStatusBarItemProvider(provider: INotebookCellStatusBarItemProvider): IDisposable;
+
+	getStatusBarItemsForCell(docUri: URI, cellIndex: number, viewType: string, token: CancellationToken): Promise<INotebookCellStatusBarItemList[]>;
 }

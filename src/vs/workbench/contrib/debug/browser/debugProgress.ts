@@ -3,12 +3,12 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Event } from 'vs/base/common/event';
-import { IWorkbenchContribution } from 'vs/workbench/common/contributions';
-import { IDebugService, VIEWLET_ID, IDebugSession } from 'vs/workbench/contrib/debug/common/debug';
-import { IProgressService, ProgressLocation } from 'vs/platform/progress/common/progress';
-import { dispose, IDisposable } from 'vs/base/common/lifecycle';
-import { IViewsService } from 'vs/workbench/common/views';
+import { Event } from '../../../../base/common/event.js';
+import { IDisposable, dispose } from '../../../../base/common/lifecycle.js';
+import { IProgressService, ProgressLocation } from '../../../../platform/progress/common/progress.js';
+import { IWorkbenchContribution } from '../../../common/contributions.js';
+import { IDebugService, IDebugSession, VIEWLET_ID } from '../common/debug.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
 
 export class DebugProgressContribution implements IWorkbenchContribution {
 
@@ -39,17 +39,16 @@ export class DebugProgressContribution implements IWorkbenchContribution {
 					if (viewsService.isViewContainerVisible(VIEWLET_ID)) {
 						progressService.withProgress({ location: VIEWLET_ID }, () => promise);
 					}
-					const source = debugService.getConfigurationManager().getDebuggerLabel(session.configuration.type);
+					const source = debugService.getAdapterManager().getDebuggerLabel(session.configuration.type);
 					progressService.withProgress({
 						location: ProgressLocation.Notification,
 						title: progressStartEvent.body.title,
 						cancellable: progressStartEvent.body.cancellable,
-						silent: true,
 						source,
 						delay: 500
 					}, progressStep => {
 						let total = 0;
-						const reportProgress = (progress: { message?: string, percentage?: number }) => {
+						const reportProgress = (progress: { message?: string; percentage?: number }) => {
 							let increment = undefined;
 							if (typeof progress.percentage === 'number') {
 								increment = progress.percentage - total;

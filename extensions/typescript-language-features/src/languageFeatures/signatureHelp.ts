@@ -4,12 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import type * as Proto from '../protocol';
+import { DocumentSelector } from '../configuration/documentSelector';
+import type * as Proto from '../tsServer/protocol/protocol';
+import * as typeConverters from '../typeConverters';
 import { ClientCapability, ITypeScriptServiceClient } from '../typescriptService';
-import { conditionalRegistration, requireSomeCapability } from '../utils/dependentRegistration';
-import { DocumentSelector } from '../utils/documentSelector';
-import * as Previewer from '../utils/previewer';
-import * as typeConverters from '../utils/typeConverters';
+import { conditionalRegistration, requireSomeCapability } from './util/dependentRegistration';
+import * as Previewer from './util/textRendering';
 
 class TypeScriptSignatureHelpProvider implements vscode.SignatureHelpProvider {
 
@@ -26,7 +26,7 @@ class TypeScriptSignatureHelpProvider implements vscode.SignatureHelpProvider {
 		token: vscode.CancellationToken,
 		context: vscode.SignatureHelpContext,
 	): Promise<vscode.SignatureHelp | undefined> {
-		const filepath = this.client.toOpenedFilePath(document);
+		const filepath = this.client.toOpenTsFilePath(document);
 		if (!filepath) {
 			return undefined;
 		}
@@ -42,7 +42,7 @@ class TypeScriptSignatureHelpProvider implements vscode.SignatureHelpProvider {
 
 		const info = response.body;
 		const result = new vscode.SignatureHelp();
-		result.signatures = info.items.map(signature => this.convertSignature(signature));
+		result.signatures = info.items.map(signature => this.convertSignature(signature, document.uri));
 		result.activeSignature = this.getActiveSignature(context, info, result.signatures);
 		result.activeParameter = this.getActiveParameter(info);
 
@@ -64,27 +64,27 @@ class TypeScriptSignatureHelpProvider implements vscode.SignatureHelpProvider {
 
 	private getActiveParameter(info: Proto.SignatureHelpItems): number {
 		const activeSignature = info.items[info.selectedItemIndex];
-		if (activeSignature && activeSignature.isVariadic) {
+		if (activeSignature?.isVariadic) {
 			return Math.min(info.argumentIndex, activeSignature.parameters.length - 1);
 		}
 		return info.argumentIndex;
 	}
 
-	private convertSignature(item: Proto.SignatureHelpItem) {
+	private convertSignature(item: Proto.SignatureHelpItem, baseUri: vscode.Uri) {
 		const signature = new vscode.SignatureInformation(
-			Previewer.plain(item.prefixDisplayParts),
-			Previewer.markdownDocumentation(item.documentation, item.tags.filter(x => x.name !== 'param')));
+			Previewer.asPlainTextWithLinks(item.prefixDisplayParts, this.client),
+			Previewer.documentationToMarkdown(item.documentation, item.tags.filter(x => x.name !== 'param'), this.client, baseUri));
 
 		let textIndex = signature.label.length;
-		const separatorLabel = Previewer.plain(item.separatorDisplayParts);
+		const separatorLabel = Previewer.asPlainTextWithLinks(item.separatorDisplayParts, this.client);
 		for (let i = 0; i < item.parameters.length; ++i) {
 			const parameter = item.parameters[i];
-			const label = Previewer.plain(parameter.displayParts);
+			const label = Previewer.asPlainTextWithLinks(parameter.displayParts, this.client);
 
 			signature.parameters.push(
 				new vscode.ParameterInformation(
 					[textIndex, textIndex + label.length],
-					Previewer.markdownDocumentation(parameter.documentation, [])));
+					Previewer.documentationToMarkdown(parameter.documentation, [], this.client, baseUri)));
 
 			textIndex += label.length;
 			signature.label += label;
@@ -95,7 +95,7 @@ class TypeScriptSignatureHelpProvider implements vscode.SignatureHelpProvider {
 			}
 		}
 
-		signature.label += Previewer.plain(item.suffixDisplayParts);
+		signature.label += Previewer.asPlainTextWithLinks(item.suffixDisplayParts, this.client);
 		return signature;
 	}
 }

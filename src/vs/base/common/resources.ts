@@ -44,19 +44,24 @@ export interface IExtUri {
 	/**
 	 * Tests whether a `candidate` URI is a parent or equal of a given `base` URI.
 	 *
-	 * @param base A uri which is "longer"
-	 * @param parentCandidate A uri which is "shorter" then `base`
+	 * @param base A uri which is "longer" or at least same length as `parentCandidate`
+	 * @param parentCandidate A uri which is "shorter" or up to same length as `base`
 	 * @param ignoreFragment Ignore the fragment (defaults to `false`)
 	 */
 	isEqualOrParent(base: URI, parentCandidate: URI, ignoreFragment?: boolean): boolean;
 
 	/**
 	 * Creates a key from a resource URI to be used to resource comparison and for resource maps.
-	 * @see ResourceMap
+	 * @see {@link ResourceMap}
 	 * @param uri Uri
 	 * @param ignoreFragment Ignore the fragment (defaults to `false`)
 	 */
 	getComparisonKey(uri: URI, ignoreFragment?: boolean): string;
+
+	/**
+	 * Whether the casing of the path-component of the uri should be ignored.
+	 */
+	ignorePathCasing(uri: URI): boolean;
 
 	// --- path math
 
@@ -87,7 +92,7 @@ export interface IExtUri {
 	 * @param pathFragment The path fragment to add to the URI path.
 	 * @returns The resulting URI.
 	 */
-	joinPath(resource: URI, ...pathFragment: string[]): URI
+	joinPath(resource: URI, ...pathFragment: string[]): URI;
 	/**
 	 * Normalizes the path part of a URI: Resolves `.` and `..` elements with directory names.
 	 *
@@ -159,6 +164,10 @@ export class ExtUri implements IExtUri {
 			path: this._ignorePathCasing(uri) ? uri.path.toLowerCase() : undefined,
 			fragment: ignoreFragment ? null : undefined
 		}).toString();
+	}
+
+	ignorePathCasing(uri: URI): boolean {
+		return this._ignorePathCasing(uri);
 	}
 
 	isEqualOrParent(base: URI, parentCandidate: URI, ignoreFragment: boolean = false): boolean {
@@ -256,12 +265,7 @@ export class ExtUri implements IExtUri {
 				path: newURI.path
 			});
 		}
-		if (path.indexOf('/') === -1) { // no slashes? it's likely a Windows path
-			path = extpath.toSlashes(path);
-			if (/^[a-zA-Z]:(\/|$)/.test(path)) { // starts with a drive letter
-				path = '/' + path;
-			}
-		}
+		path = extpath.toPosixPath(path); // we allow path to be a windows path
 		return base.with({
 			path: paths.posix.resolve(base.path, path)
 		});
@@ -273,8 +277,8 @@ export class ExtUri implements IExtUri {
 		return !!resource.path && resource.path[0] === '/';
 	}
 
-	isEqualAuthority(a1: string, a2: string) {
-		return a1 === a2 || equalsIgnoreCase(a1, a2);
+	isEqualAuthority(a1: string | undefined, a2: string | undefined) {
+		return a1 === a2 || (a1 !== undefined && a2 !== undefined && equalsIgnoreCase(a1, a2));
 	}
 
 	hasTrailingPathSeparator(resource: URI, sep: string = paths.sep): boolean {
@@ -434,33 +438,6 @@ export namespace DataUri {
 		}
 
 		return metadata;
-	}
-}
-
-export class ResourceGlobMatcher {
-
-	private readonly globalExpression: ParsedExpression;
-	private readonly expressionsByRoot: TernarySearchTree<URI, { root: URI, expression: ParsedExpression }> = TernarySearchTree.forUris<{ root: URI, expression: ParsedExpression }>();
-
-	constructor(
-		globalExpression: IExpression,
-		rootExpressions: { root: URI, expression: IExpression }[]
-	) {
-		this.globalExpression = parse(globalExpression);
-		for (const expression of rootExpressions) {
-			this.expressionsByRoot.set(expression.root, { root: expression.root, expression: parse(expression.expression) });
-		}
-	}
-
-	matches(resource: URI): boolean {
-		const rootExpression = this.expressionsByRoot.findSubstr(resource);
-		if (rootExpression) {
-			const path = relativePath(rootExpression.root, resource);
-			if (path && !!rootExpression.expression(path)) {
-				return true;
-			}
-		}
-		return !!this.globalExpression(resource.path);
 	}
 }
 

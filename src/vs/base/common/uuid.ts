@@ -10,52 +10,56 @@ export function isUUID(value: string): boolean {
 	return _UUIDPattern.test(value);
 }
 
-// prep-work
-const _data = new Uint8Array(16);
-const _hex: string[] = [];
-for (let i = 0; i < 256; i++) {
-	_hex.push(i.toString(16).padStart(2, '0'));
-}
+export const generateUuid = (function (): () => string {
 
-// todo@joh node nodejs use `crypto#randomBytes`, see: https://nodejs.org/docs/latest/api/crypto.html#crypto_crypto_randombytes_size_callback
-// todo@joh use browser-crypto
-const _fillRandomValues = function (bucket: Uint8Array): Uint8Array {
-	for (let i = 0; i < bucket.length; i++) {
-		bucket[i] = Math.floor(Math.random() * 256);
+	// use `randomUUID` if possible
+	if (typeof crypto.randomUUID === 'function') {
+		// see https://developer.mozilla.org/en-US/docs/Web/API/Window/crypto
+		// > Although crypto is available on all windows, the returned Crypto object only has one
+		// > usable feature in insecure contexts: the getRandomValues() method.
+		// > In general, you should use this API only in secure contexts.
+
+		return crypto.randomUUID.bind(crypto);
 	}
-	return bucket;
-};
 
-export function generateUuid(): string {
-	// get data
-	_fillRandomValues(_data);
+	// prep-work
+	const _data = new Uint8Array(16);
+	const _hex: string[] = [];
+	for (let i = 0; i < 256; i++) {
+		_hex.push(i.toString(16).padStart(2, '0'));
+	}
 
-	// set version bits
-	_data[6] = (_data[6] & 0x0f) | 0x40;
-	_data[8] = (_data[8] & 0x3f) | 0x80;
+	return function generateUuid(): string {
+		// get data
+		crypto.getRandomValues(_data);
 
-	// print as string
-	let i = 0;
-	let result = '';
-	result += _hex[_data[i++]];
-	result += _hex[_data[i++]];
-	result += _hex[_data[i++]];
-	result += _hex[_data[i++]];
-	result += '-';
-	result += _hex[_data[i++]];
-	result += _hex[_data[i++]];
-	result += '-';
-	result += _hex[_data[i++]];
-	result += _hex[_data[i++]];
-	result += '-';
-	result += _hex[_data[i++]];
-	result += _hex[_data[i++]];
-	result += '-';
-	result += _hex[_data[i++]];
-	result += _hex[_data[i++]];
-	result += _hex[_data[i++]];
-	result += _hex[_data[i++]];
-	result += _hex[_data[i++]];
-	result += _hex[_data[i++]];
-	return result;
-}
+		// set version bits
+		_data[6] = (_data[6] & 0x0f) | 0x40;
+		_data[8] = (_data[8] & 0x3f) | 0x80;
+
+		// print as string
+		let i = 0;
+		let result = '';
+		result += _hex[_data[i++]];
+		result += _hex[_data[i++]];
+		result += _hex[_data[i++]];
+		result += _hex[_data[i++]];
+		result += '-';
+		result += _hex[_data[i++]];
+		result += _hex[_data[i++]];
+		result += '-';
+		result += _hex[_data[i++]];
+		result += _hex[_data[i++]];
+		result += '-';
+		result += _hex[_data[i++]];
+		result += _hex[_data[i++]];
+		result += '-';
+		result += _hex[_data[i++]];
+		result += _hex[_data[i++]];
+		result += _hex[_data[i++]];
+		result += _hex[_data[i++]];
+		result += _hex[_data[i++]];
+		result += _hex[_data[i++]];
+		return result;
+	};
+})();

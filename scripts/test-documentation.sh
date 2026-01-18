@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -14,7 +14,7 @@ cd $ROOT
 
 echo "Runs tests against the current documentation in https://github.com/microsoft/vscode-docs/tree/vnext"
 
-# Tests in AMD
+# Tests
 ./scripts/test.sh --runGlob **/*.releaseTest.js "$@"
 
 

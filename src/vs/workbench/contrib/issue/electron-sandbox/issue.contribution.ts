@@ -3,48 +3,91 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Registry } from 'vs/platform/registry/common/platform';
-import * as nls from 'vs/nls';
-import product from 'vs/platform/product/common/product';
-import { SyncActionDescriptor, ICommandAction, MenuRegistry, MenuId } from 'vs/platform/actions/common/actions';
-import { IWorkbenchActionRegistry, Extensions, CATEGORIES } from 'vs/workbench/common/actions';
-import { ReportPerformanceIssueUsingReporterAction, OpenProcessExplorer } from 'vs/workbench/contrib/issue/electron-sandbox/issueActions';
-import { registerSingleton } from 'vs/platform/instantiation/common/extensions';
-import { IWorkbenchIssueService } from 'vs/workbench/contrib/issue/electron-sandbox/issue';
-import { WorkbenchIssueService } from 'vs/workbench/contrib/issue/electron-sandbox/issueService';
-import { CommandsRegistry } from 'vs/platform/commands/common/commands';
-import { IssueReporterData } from 'vs/platform/issue/common/issue';
-import { IIssueService } from 'vs/platform/issue/electron-sandbox/issue';
-import { OpenIssueReporterArgs, OpenIssueReporterActionId } from 'vs/workbench/contrib/issue/common/commands';
+import { localize, localize2 } from '../../../../nls.js';
+import { registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
+import { IWorkbenchIssueService, IssueType, IIssueFormService } from '../common/issue.js';
+import { BaseIssueContribution } from '../common/issue.contribution.js';
+import { IProductService } from '../../../../platform/product/common/productService.js';
+import { Registry } from '../../../../platform/registry/common/platform.js';
+import { Extensions, IWorkbenchContributionsRegistry } from '../../../common/contributions.js';
+import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
+import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
+import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IDisposable } from '../../../../base/common/lifecycle.js';
+import { IQuickAccessRegistry, Extensions as QuickAccessExtensions } from '../../../../platform/quickinput/common/quickAccess.js';
+import { IssueQuickAccess } from '../browser/issueQuickAccess.js';
+import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
+import { NativeIssueService } from './issueService.js';
+import './processMainService.js';
+import '../browser/issueTroubleshoot.js';
+import { NativeIssueFormService } from './nativeIssueFormService.js';
 
-const workbenchActionsRegistry = Registry.as<IWorkbenchActionRegistry>(Extensions.WorkbenchActions);
+//#region Issue Contribution
+registerSingleton(IWorkbenchIssueService, NativeIssueService, InstantiationType.Delayed);
+registerSingleton(IIssueFormService, NativeIssueFormService, InstantiationType.Delayed);
 
-if (!!product.reportIssueUrl) {
-	workbenchActionsRegistry.registerWorkbenchAction(SyncActionDescriptor.from(ReportPerformanceIssueUsingReporterAction), 'Help: Report Performance Issue', CATEGORIES.Help.value);
+class NativeIssueContribution extends BaseIssueContribution {
 
-	const OpenIssueReporterActionLabel = nls.localize({ key: 'reportIssueInEnglish', comment: ['Translate this to "Report Issue in English" in all languages please!'] }, "Report Issue...");
+	constructor(
+		@IProductService productService: IProductService,
+		@IConfigurationService configurationService: IConfigurationService
+	) {
+		super(productService, configurationService);
 
-	CommandsRegistry.registerCommand(OpenIssueReporterActionId, function (accessor, args?: [string] | OpenIssueReporterArgs) {
-		const data: Partial<IssueReporterData> = Array.isArray(args)
-			? { extensionId: args[0] }
-			: args || {};
+		if (productService.reportIssueUrl) {
+			this._register(registerAction2(ReportPerformanceIssueUsingReporterAction));
+		}
 
-		return accessor.get(IWorkbenchIssueService).openReporter(data);
-	});
+		let disposable: IDisposable | undefined;
 
-	const command: ICommandAction = {
-		id: OpenIssueReporterActionId,
-		title: { value: OpenIssueReporterActionLabel, original: 'Report Issue' },
-		category: CATEGORIES.Help
-	};
+		const registerQuickAccessProvider = () => {
+			disposable = Registry.as<IQuickAccessRegistry>(QuickAccessExtensions.Quickaccess).registerQuickAccessProvider({
+				ctor: IssueQuickAccess,
+				prefix: IssueQuickAccess.PREFIX,
+				contextKey: 'inReportIssuePicker',
+				placeholder: localize('tasksQuickAccessPlaceholder', "Type the name of an extension to report on."),
+				helpEntries: [{
+					description: localize('openIssueReporter', "Open Issue Reporter"),
+					commandId: 'workbench.action.openIssueReporter'
+				}]
+			});
+		};
 
-	MenuRegistry.appendMenuItem(MenuId.CommandPalette, { command });
+		this._register(configurationService.onDidChangeConfiguration(e => {
+			if (!configurationService.getValue<boolean>('extensions.experimental.issueQuickAccess') && disposable) {
+				disposable.dispose();
+				disposable = undefined;
+			} else if (!disposable) {
+				registerQuickAccessProvider();
+			}
+		}));
+
+		if (configurationService.getValue<boolean>('extensions.experimental.issueQuickAccess')) {
+			registerQuickAccessProvider();
+		}
+	}
+}
+Registry.as<IWorkbenchContributionsRegistry>(Extensions.Workbench).registerWorkbenchContribution(NativeIssueContribution, LifecyclePhase.Restored);
+
+class ReportPerformanceIssueUsingReporterAction extends Action2 {
+
+	static readonly ID = 'workbench.action.reportPerformanceIssueUsingReporter';
+
+	constructor() {
+		super({
+			id: ReportPerformanceIssueUsingReporterAction.ID,
+			title: localize2({ key: 'reportPerformanceIssue', comment: [`Here, 'issue' means problem or bug`] }, "Report Performance Issue..."),
+			category: Categories.Help,
+			f1: true
+		});
+	}
+
+	override async run(accessor: ServicesAccessor): Promise<void> {
+		const issueService = accessor.get(IWorkbenchIssueService); // later can just get IIssueFormService
+
+		return issueService.openReporter({ issueType: IssueType.PerformanceIssue });
+	}
 }
 
-workbenchActionsRegistry.registerWorkbenchAction(SyncActionDescriptor.from(OpenProcessExplorer), 'Developer: Open Process Explorer', CATEGORIES.Developer.value);
-
-registerSingleton(IWorkbenchIssueService, WorkbenchIssueService, true);
-
-CommandsRegistry.registerCommand('_issues.getSystemStatus', (accessor) => {
-	return accessor.get(IIssueService).getSystemStatus();
-});
+// #endregion

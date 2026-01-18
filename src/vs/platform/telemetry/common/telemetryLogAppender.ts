@@ -3,39 +3,49 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable } from 'vs/base/common/lifecycle';
-import { IEnvironmentService } from 'vs/platform/environment/common/environment';
-import { ILogger, ILoggerService } from 'vs/platform/log/common/log';
-import { ITelemetryAppender, validateTelemetryData } from 'vs/platform/telemetry/common/telemetryUtils';
+import { Disposable } from '../../../base/common/lifecycle.js';
+import { localize } from '../../../nls.js';
+import { IEnvironmentService } from '../../environment/common/environment.js';
+import { ILogger, ILoggerService } from '../../log/common/log.js';
+import { IProductService } from '../../product/common/productService.js';
+import { ITelemetryAppender, TelemetryLogGroup, isLoggingOnly, telemetryLogId, validateTelemetryData } from './telemetryUtils.js';
 
 export class TelemetryLogAppender extends Disposable implements ITelemetryAppender {
 
-	private commonPropertiesRegex = /^sessionID$|^version$|^timestamp$|^commitHash$|^common\./;
 	private readonly logger: ILogger;
 
 	constructor(
+		private readonly prefix: string,
+		remote: boolean,
 		@ILoggerService loggerService: ILoggerService,
-		@IEnvironmentService environmentService: IEnvironmentService
+		@IEnvironmentService environmentService: IEnvironmentService,
+		@IProductService productService: IProductService,
 	) {
 		super();
-		this.logger = this._register(loggerService.getLogger(environmentService.telemetryLogResource));
-		this.logger.info('The below are logs for every telemetry event sent from VS Code once the log level is set to trace.');
-		this.logger.info('===========================================================');
+
+		const id = remote ? 'remoteTelemetry' : telemetryLogId;
+		const logger = loggerService.getLogger(id);
+		if (logger) {
+			this.logger = this._register(logger);
+		} else {
+			// Not a perfect check, but a nice way to indicate if we only have logging enabled for debug purposes and nothing is actually being sent
+			const justLoggingAndNotSending = isLoggingOnly(productService, environmentService);
+			const logSuffix = justLoggingAndNotSending ? ' (Not Sent)' : '';
+			this.logger = this._register(loggerService.createLogger(id,
+				{
+					name: localize('telemetryLog', "Telemetry{0}", logSuffix),
+					group: TelemetryLogGroup,
+					hidden: true
+				}));
+		}
 	}
 
-	flush(): Promise<any> {
-		return Promise.resolve(undefined);
+	flush(): Promise<void> {
+		return Promise.resolve();
 	}
 
 	log(eventName: string, data: any): void {
-		let strippedData: { [key: string]: any } = {};
-		Object.keys(data).forEach(key => {
-			if (!this.commonPropertiesRegex.test(key)) {
-				strippedData[key] = data[key];
-			}
-		});
-		strippedData = validateTelemetryData(strippedData);
-		this.logger.trace(`telemetry/${eventName}`, strippedData);
+		this.logger.trace(`${this.prefix}telemetry/${eventName}`, validateTelemetryData(data));
 	}
 }
 

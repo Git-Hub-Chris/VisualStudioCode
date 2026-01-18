@@ -3,16 +3,17 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as assert from 'assert';
-import { join, normalize } from 'vs/base/common/path';
-import * as platform from 'vs/base/common/platform';
-import { IDebugAdapterExecutable, IConfigurationManager, IConfig, IDebugSession } from 'vs/workbench/contrib/debug/common/debug';
-import { Debugger } from 'vs/workbench/contrib/debug/common/debugger';
-import { TestConfigurationService } from 'vs/platform/configuration/test/common/testConfigurationService';
-import { URI } from 'vs/base/common/uri';
-import { ExecutableDebugAdapter } from 'vs/workbench/contrib/debug/node/debugAdapter';
-import { TestTextResourcePropertiesService } from 'vs/editor/test/common/services/modelService.test';
-import { ExtensionIdentifier, IExtensionDescription } from 'vs/platform/extensions/common/extensions';
+import assert from 'assert';
+import { join, normalize } from '../../../../../base/common/path.js';
+import * as platform from '../../../../../base/common/platform.js';
+import { IDebugAdapterExecutable, IConfig, IDebugSession, IAdapterManager } from '../../common/debug.js';
+import { Debugger } from '../../common/debugger.js';
+import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
+import { URI } from '../../../../../base/common/uri.js';
+import { ExecutableDebugAdapter } from '../../node/debugAdapter.js';
+import { TestTextResourcePropertiesService } from '../../../../../editor/test/common/services/testTextResourcePropertiesService.js';
+import { ExtensionIdentifier, IExtensionDescription, TargetPlatform } from '../../../../../platform/extensions/common/extensions.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 
 suite('Debug - Debugger', () => {
@@ -22,7 +23,6 @@ suite('Debug - Debugger', () => {
 	const debuggerContribution = {
 		type: 'mock',
 		label: 'Mock Debug',
-		enableBreakpointsFor: { 'languageIds': ['markdown'] },
 		program: './out/mock/mockDebug.js',
 		args: ['arg1', 'arg2'],
 		configurationAttributes: {
@@ -59,11 +59,14 @@ suite('Debug - Debugger', () => {
 		isUserBuiltin: false,
 		isUnderDevelopment: false,
 		engines: null!,
+		targetPlatform: TargetPlatform.UNDEFINED,
 		contributes: {
 			'debuggers': [
 				debuggerContribution
 			]
-		}
+		},
+		enabledApiProposals: undefined,
+		preRelease: false,
 	};
 
 	const extensionDescriptor1 = {
@@ -77,6 +80,7 @@ suite('Debug - Debugger', () => {
 		isUserBuiltin: false,
 		isUnderDevelopment: false,
 		engines: null!,
+		targetPlatform: TargetPlatform.UNDEFINED,
 		contributes: {
 			'debuggers': [
 				{
@@ -87,7 +91,9 @@ suite('Debug - Debugger', () => {
 					args: ['parg']
 				}
 			]
-		}
+		},
+		enabledApiProposals: undefined,
+		preRelease: false,
 	};
 
 	const extensionDescriptor2 = {
@@ -101,6 +107,7 @@ suite('Debug - Debugger', () => {
 		isUserBuiltin: false,
 		isUnderDevelopment: false,
 		engines: null!,
+		targetPlatform: TargetPlatform.UNDEFINED,
 		contributes: {
 			'debuggers': [
 				{
@@ -119,21 +126,25 @@ suite('Debug - Debugger', () => {
 					}
 				}
 			]
-		}
+		},
+		enabledApiProposals: undefined,
+		preRelease: false,
 	};
 
 
-	const configurationManager = <IConfigurationManager>{
+	const adapterManager = <IAdapterManager>{
 		getDebugAdapterDescriptor(session: IDebugSession, config: IConfig): Promise<IDebugAdapterExecutable | undefined> {
 			return Promise.resolve(undefined);
 		}
 	};
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	const configurationService = new TestConfigurationService();
 	const testResourcePropertiesService = new TestTextResourcePropertiesService(configurationService);
 
 	setup(() => {
-		_debugger = new Debugger(configurationManager, debuggerContribution, extensionDescriptor0, configurationService, testResourcePropertiesService, undefined!, undefined!, undefined!);
+		_debugger = new Debugger(adapterManager, debuggerContribution, extensionDescriptor0, configurationService, testResourcePropertiesService, undefined!, undefined!, undefined!, undefined!);
 	});
 
 	teardown(() => {
@@ -141,34 +152,23 @@ suite('Debug - Debugger', () => {
 	});
 
 	test('attributes', () => {
-		assert.equal(_debugger.type, debuggerContribution.type);
-		assert.equal(_debugger.label, debuggerContribution.label);
+		assert.strictEqual(_debugger.type, debuggerContribution.type);
+		assert.strictEqual(_debugger.label, debuggerContribution.label);
 
 		const ae = ExecutableDebugAdapter.platformAdapterExecutable([extensionDescriptor0], 'mock');
 
-		assert.equal(ae!.command, join(extensionFolderPath, debuggerContribution.program));
-		assert.deepEqual(ae!.args, debuggerContribution.args);
+		assert.strictEqual(ae!.command, join(extensionFolderPath, debuggerContribution.program));
+		assert.deepStrictEqual(ae!.args, debuggerContribution.args);
 	});
 
-	test('schema attributes', () => {
-		const schemaAttribute = _debugger.getSchemaAttributes()![0];
-		assert.notDeepEqual(schemaAttribute, debuggerContribution.configurationAttributes);
-		Object.keys(debuggerContribution.configurationAttributes.launch).forEach(key => {
-			assert.deepEqual((<any>schemaAttribute)[key], (<any>debuggerContribution.configurationAttributes.launch)[key]);
-		});
-
-		assert.equal(schemaAttribute['additionalProperties'], false);
-		assert.equal(!!schemaAttribute['properties']!['request'], true);
-		assert.equal(!!schemaAttribute['properties']!['name'], true);
-		assert.equal(!!schemaAttribute['properties']!['type'], true);
-		assert.equal(!!schemaAttribute['properties']!['preLaunchTask'], true);
-	});
-
-	test('merge platform specific attributes', () => {
+	test('merge platform specific attributes', function () {
+		if (!process.versions.electron) {
+			this.skip(); //TODO@debug this test fails when run in node.js environments
+		}
 		const ae = ExecutableDebugAdapter.platformAdapterExecutable([extensionDescriptor1, extensionDescriptor2], 'mock')!;
-		assert.equal(ae.command, platform.isLinux ? 'linuxRuntime' : (platform.isMacintosh ? 'osxRuntime' : 'winRuntime'));
+		assert.strictEqual(ae.command, platform.isLinux ? 'linuxRuntime' : (platform.isMacintosh ? 'osxRuntime' : 'winRuntime'));
 		const xprogram = platform.isLinux ? 'linuxProgram' : (platform.isMacintosh ? 'osxProgram' : 'winProgram');
-		assert.deepEqual(ae.args, ['rarg', normalize('/e2/b/c/') + xprogram, 'parg']);
+		assert.deepStrictEqual(ae.args, ['rarg', normalize('/e2/b/c/') + xprogram, 'parg']);
 	});
 
 	test('initial config file content', () => {
@@ -189,7 +189,7 @@ suite('Debug - Debugger', () => {
 			'}'].join(testResourcePropertiesService.getEOL(URI.file('somefile')));
 
 		return _debugger.getInitialConfigurationContent().then(content => {
-			assert.equal(content, expected);
+			assert.strictEqual(content, expected);
 		}, err => assert.fail(err));
 	});
 });

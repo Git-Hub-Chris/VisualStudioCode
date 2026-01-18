@@ -4,132 +4,100 @@
  *--------------------------------------------------------------------------------------------*/
 
 
-// #######################################################################
-// ###                                                                 ###
-// ### !!! PLEASE ADD COMMON IMPORTS INTO WORKBENCH.COMMON.MAIN.TS !!! ###
-// ###                                                                 ###
-// #######################################################################
+// ####################################
+// ###                              ###
+// ### !!! PLEASE DO NOT MODIFY !!! ###
+// ###                              ###
+// ####################################
 
+// TODO@esm remove me once we stop supporting our web-esm-bridge
 
-//#region --- workbench common
+(function () {
 
-import 'vs/workbench/workbench.common.main';
+	// #region Types
+	type IGlobalDefine = {
+		(moduleName: string, dependencies: string[], callback: (...args: any[]) => any): any;
+		(moduleName: string, dependencies: string[], definition: any): any;
+		(moduleName: string, callback: (...args: any[]) => any): any;
+		(moduleName: string, definition: any): any;
+		(dependencies: string[], callback: (...args: any[]) => any): any;
+		(dependencies: string[], definition: any): any;
+	};
 
-//#endregion
+	interface ILoaderPlugin {
+		load: (pluginParam: string, parentRequire: IRelativeRequire, loadCallback: IPluginLoadCallback, options: IConfigurationOptions) => void;
+		write?: (pluginName: string, moduleName: string, write: IPluginWriteCallback) => void;
+		writeFile?: (pluginName: string, moduleName: string, req: IRelativeRequire, write: IPluginWriteFileCallback, config: IConfigurationOptions) => void;
+		finishBuild?: (write: (filename: string, contents: string) => void) => void;
+	}
+	interface IRelativeRequire {
+		(dependencies: string[], callback: Function, errorback?: (error: Error) => void): void;
+		toUrl(id: string): string;
+	}
+	interface IPluginLoadCallback {
+		(value: any): void;
+		error(err: any): void;
+	}
+	interface IConfigurationOptions {
+		isBuild: boolean | undefined;
+		[key: string]: any;
+	}
+	interface IPluginWriteCallback {
+		(contents: string): void;
+		getEntryPoint(): string;
+		asModule(moduleId: string, contents: string): void;
+	}
+	interface IPluginWriteFileCallback {
+		(filename: string, contents: string): void;
+		getEntryPoint(): string;
+		asModule(moduleId: string, contents: string): void;
+	}
 
+	//#endregion
 
-//#region --- workbench (web main)
+	const define: IGlobalDefine = (globalThis as any).define;
+	const require: { getConfig?(): any } | undefined = (globalThis as any).require;
 
-import 'vs/workbench/browser/web.main';
+	if (!define || !require || typeof require.getConfig !== 'function') {
+		throw new Error('Expected global define() and require() functions. Please only load this module in an AMD context!');
+	}
 
-//#endregion
+	let baseUrl = require?.getConfig().baseUrl;
+	if (!baseUrl) {
+		throw new Error('Failed to determine baseUrl for loading AMD modules (tried require.getConfig().baseUrl)');
+	}
+	if (!baseUrl.endsWith('/')) {
+		baseUrl = baseUrl + '/';
+	}
+	globalThis._VSCODE_FILE_ROOT = baseUrl;
 
+	const trustedTypesPolicy: Pick<TrustedTypePolicy<{ createScriptURL(value: string): string }>, 'name' | 'createScriptURL'> | undefined = require.getConfig().trustedTypesPolicy;
+	if (trustedTypesPolicy) {
+		globalThis._VSCODE_WEB_PACKAGE_TTP = trustedTypesPolicy;
+	}
 
-//#region --- workbench services
+	const promise = new Promise(resolve => {
+		(globalThis as any).__VSCODE_WEB_ESM_PROMISE = resolve;
+	});
 
-import 'vs/workbench/services/integrity/browser/integrityService';
-import 'vs/workbench/services/textMate/browser/textMateService';
-import 'vs/workbench/services/search/common/searchService';
-import 'vs/workbench/services/output/common/outputChannelModelService';
-import 'vs/workbench/services/textfile/browser/browserTextFileService';
-import 'vs/workbench/services/keybinding/browser/keymapService';
-import 'vs/workbench/services/extensions/browser/extensionService';
-import 'vs/workbench/services/extensionManagement/common/extensionManagementServerService';
-import 'vs/workbench/services/telemetry/browser/telemetryService';
-import 'vs/workbench/services/configurationResolver/browser/configurationResolverService';
-import 'vs/workbench/services/credentials/browser/credentialsService';
-import 'vs/workbench/services/url/browser/urlService';
-import 'vs/workbench/services/update/browser/updateService';
-import 'vs/workbench/services/workspaces/browser/workspacesService';
-import 'vs/workbench/services/workspaces/browser/workspaceEditingService';
-import 'vs/workbench/services/dialogs/browser/dialogService';
-import 'vs/workbench/services/dialogs/browser/fileDialogService';
-import 'vs/workbench/services/host/browser/browserHostService';
-import 'vs/workbench/services/lifecycle/browser/lifecycleService';
-import 'vs/workbench/services/clipboard/browser/clipboardService';
-import 'vs/workbench/services/extensionResourceLoader/browser/extensionResourceLoaderService';
-import 'vs/workbench/services/path/browser/pathService';
-import 'vs/workbench/services/themes/browser/browserHostColorSchemeService';
-import 'vs/workbench/services/encryption/browser/encryptionService';
+	define('vs/web-api', [], (): ILoaderPlugin => {
+		return {
+			load: (_name, _req, _load, _config) => {
+				const script: any = document.createElement('script');
+				script.type = 'module';
+				script.src = trustedTypesPolicy ? trustedTypesPolicy.createScriptURL(`${baseUrl}vs/workbench/workbench.web.main.internal.js`) as any as string : `${baseUrl}vs/workbench/workbench.web.main.internal.js`;
+				document.head.appendChild(script);
 
-import { registerSingleton } from 'vs/platform/instantiation/common/extensions';
-import { IAccessibilityService } from 'vs/platform/accessibility/common/accessibility';
-import { IContextMenuService } from 'vs/platform/contextview/browser/contextView';
-import { ContextMenuService } from 'vs/platform/contextview/browser/contextMenuService';
-import { IBackupFileService } from 'vs/workbench/services/backup/common/backup';
-import { BackupFileService } from 'vs/workbench/services/backup/common/backupFileService';
-import { IExtensionManagementService, IExtensionTipsService } from 'vs/platform/extensionManagement/common/extensionManagement';
-import { ExtensionTipsService } from 'vs/platform/extensionManagement/common/extensionTipsService';
-import { ExtensionManagementService } from 'vs/workbench/services/extensionManagement/common/extensionManagementService';
-import { ITunnelService, TunnelService } from 'vs/platform/remote/common/tunnel';
-import { ILoggerService } from 'vs/platform/log/common/log';
-import { FileLoggerService } from 'vs/platform/log/common/fileLogService';
-import { UserDataSyncMachinesService, IUserDataSyncMachinesService } from 'vs/platform/userDataSync/common/userDataSyncMachines';
-import { IUserDataSyncStoreService, IUserDataSyncService, IUserDataSyncLogService, IUserDataAutoSyncService, IUserDataSyncBackupStoreService } from 'vs/platform/userDataSync/common/userDataSync';
-import { StorageKeysSyncRegistryService, IStorageKeysSyncRegistryService } from 'vs/platform/userDataSync/common/storageKeys';
-import { UserDataSyncLogService } from 'vs/platform/userDataSync/common/userDataSyncLog';
-import { UserDataSyncStoreService } from 'vs/platform/userDataSync/common/userDataSyncStoreService';
-import { UserDataSyncBackupStoreService } from 'vs/platform/userDataSync/common/userDataSyncBackupStoreService';
-import { UserDataSyncService } from 'vs/platform/userDataSync/common/userDataSyncService';
-import { IUserDataSyncAccountService, UserDataSyncAccountService } from 'vs/platform/userDataSync/common/userDataSyncAccount';
-import { WebUserDataAutoSyncService } from 'vs/workbench/services/userDataSync/browser/userDataAutoSyncService';
-import { AccessibilityService } from 'vs/platform/accessibility/common/accessibilityService';
-import { ITitleService } from 'vs/workbench/services/title/common/titleService';
-import { TitlebarPart } from 'vs/workbench/browser/parts/titlebar/titlebarPart';
-import { ITimerService, TimerService } from 'vs/workbench/services/timer/browser/timerService';
+				return promise.then(mod => _load(mod));
+			}
+		};
+	});
 
-registerSingleton(IExtensionManagementService, ExtensionManagementService);
-registerSingleton(IBackupFileService, BackupFileService);
-registerSingleton(IAccessibilityService, AccessibilityService, true);
-registerSingleton(IContextMenuService, ContextMenuService);
-registerSingleton(ITunnelService, TunnelService, true);
-registerSingleton(ILoggerService, FileLoggerService);
-registerSingleton(IUserDataSyncLogService, UserDataSyncLogService);
-registerSingleton(IUserDataSyncStoreService, UserDataSyncStoreService);
-registerSingleton(IUserDataSyncMachinesService, UserDataSyncMachinesService);
-registerSingleton(IUserDataSyncBackupStoreService, UserDataSyncBackupStoreService);
-registerSingleton(IStorageKeysSyncRegistryService, StorageKeysSyncRegistryService);
-registerSingleton(IUserDataSyncAccountService, UserDataSyncAccountService);
-registerSingleton(IUserDataSyncService, UserDataSyncService, true);
-registerSingleton(IUserDataAutoSyncService, WebUserDataAutoSyncService, true);
-registerSingleton(ITitleService, TitlebarPart);
-registerSingleton(IExtensionTipsService, ExtensionTipsService);
-registerSingleton(ITimerService, TimerService);
-
-//#endregion
-
-
-//#region --- workbench contributions
-
-// Explorer
-import 'vs/workbench/contrib/files/browser/files.web.contribution';
-
-// Backup
-import 'vs/workbench/contrib/backup/browser/backup.web.contribution';
-
-// Preferences
-import 'vs/workbench/contrib/preferences/browser/keyboardLayoutPicker';
-
-// Debug
-import 'vs/workbench/contrib/debug/browser/extensionHostDebugService';
-
-// Webview
-import 'vs/workbench/contrib/webview/browser/webview.web.contribution';
-
-// Terminal
-import 'vs/workbench/contrib/terminal/browser/terminal.web.contribution';
-import 'vs/workbench/contrib/terminal/browser/terminalInstanceService';
-
-// Tasks
-import 'vs/workbench/contrib/tasks/browser/taskService';
-
-// Tags
-import 'vs/workbench/contrib/tags/browser/workspaceTagsService';
-
-// Telemetry Opt Out
-import 'vs/workbench/contrib/welcome/telemetryOptOut/browser/telemetryOptOut.contribution';
-
-// Issues
-import 'vs/workbench/contrib/issue/browser/issue.web.contribution';
-
-//#endregion
+	define(
+		'vs/workbench/workbench.web.main',
+		['require', 'exports', 'vs/web-api!'],
+		function (_require, exports, webApi) {
+			Object.assign(exports, webApi);
+		}
+	);
+})();

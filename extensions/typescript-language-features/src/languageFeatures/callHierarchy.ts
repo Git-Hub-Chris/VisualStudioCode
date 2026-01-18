@@ -5,14 +5,14 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
-import type * as Proto from '../protocol';
-import * as PConst from '../protocol.const';
+import { DocumentSelector } from '../configuration/documentSelector';
+import { API } from '../tsServer/api';
+import { parseKindModifier } from '../tsServer/protocol/modifiers';
+import type * as Proto from '../tsServer/protocol/protocol';
+import * as PConst from '../tsServer/protocol/protocol.const';
+import * as typeConverters from '../typeConverters';
 import { ClientCapability, ITypeScriptServiceClient } from '../typescriptService';
-import API from '../utils/api';
-import { conditionalRegistration, requireSomeCapability, requireMinVersion } from '../utils/dependentRegistration';
-import { DocumentSelector } from '../utils/documentSelector';
-import { parseKindModifier } from '../utils/modifiers';
-import * as typeConverters from '../utils/typeConverters';
+import { conditionalRegistration, requireMinVersion, requireSomeCapability } from './util/dependentRegistration';
 
 class TypeScriptCallHierarchySupport implements vscode.CallHierarchyProvider {
 	public static readonly minVersion = API.v380;
@@ -26,7 +26,7 @@ class TypeScriptCallHierarchySupport implements vscode.CallHierarchyProvider {
 		position: vscode.Position,
 		token: vscode.CancellationToken
 	): Promise<vscode.CallHierarchyItem | vscode.CallHierarchyItem[] | undefined> {
-		const filepath = this.client.toOpenedFilePath(document);
+		const filepath = this.client.toOpenTsFilePath(document);
 		if (!filepath) {
 			return undefined;
 		}
@@ -43,7 +43,7 @@ class TypeScriptCallHierarchySupport implements vscode.CallHierarchyProvider {
 	}
 
 	public async provideCallHierarchyIncomingCalls(item: vscode.CallHierarchyItem, token: vscode.CancellationToken): Promise<vscode.CallHierarchyIncomingCall[] | undefined> {
-		const filepath = this.client.toPath(item.uri);
+		const filepath = this.client.toTsFilePath(item.uri);
 		if (!filepath) {
 			return undefined;
 		}
@@ -54,11 +54,11 @@ class TypeScriptCallHierarchySupport implements vscode.CallHierarchyProvider {
 			return undefined;
 		}
 
-		return response.body.map(fromProtocolCallHierchyIncomingCall);
+		return response.body.map(fromProtocolCallHierarchyIncomingCall);
 	}
 
 	public async provideCallHierarchyOutgoingCalls(item: vscode.CallHierarchyItem, token: vscode.CancellationToken): Promise<vscode.CallHierarchyOutgoingCall[] | undefined> {
-		const filepath = this.client.toPath(item.uri);
+		const filepath = this.client.toTsFilePath(item.uri);
 		if (!filepath) {
 			return undefined;
 		}
@@ -69,7 +69,7 @@ class TypeScriptCallHierarchySupport implements vscode.CallHierarchyProvider {
 			return undefined;
 		}
 
-		return response.body.map(fromProtocolCallHierchyOutgoingCall);
+		return response.body.map(fromProtocolCallHierarchyOutgoingCall);
 	}
 }
 
@@ -91,20 +91,20 @@ function fromProtocolCallHierarchyItem(item: Proto.CallHierarchyItem): vscode.Ca
 	);
 
 	const kindModifiers = item.kindModifiers ? parseKindModifier(item.kindModifiers) : undefined;
-	if (kindModifiers?.has(PConst.KindModifiers.depreacted)) {
+	if (kindModifiers?.has(PConst.KindModifiers.deprecated)) {
 		result.tags = [vscode.SymbolTag.Deprecated];
 	}
 	return result;
 }
 
-function fromProtocolCallHierchyIncomingCall(item: Proto.CallHierarchyIncomingCall): vscode.CallHierarchyIncomingCall {
+function fromProtocolCallHierarchyIncomingCall(item: Proto.CallHierarchyIncomingCall): vscode.CallHierarchyIncomingCall {
 	return new vscode.CallHierarchyIncomingCall(
 		fromProtocolCallHierarchyItem(item.from),
 		item.fromSpans.map(typeConverters.Range.fromTextSpan)
 	);
 }
 
-function fromProtocolCallHierchyOutgoingCall(item: Proto.CallHierarchyOutgoingCall): vscode.CallHierarchyOutgoingCall {
+function fromProtocolCallHierarchyOutgoingCall(item: Proto.CallHierarchyOutgoingCall): vscode.CallHierarchyOutgoingCall {
 	return new vscode.CallHierarchyOutgoingCall(
 		fromProtocolCallHierarchyItem(item.to),
 		item.fromSpans.map(typeConverters.Range.fromTextSpan)

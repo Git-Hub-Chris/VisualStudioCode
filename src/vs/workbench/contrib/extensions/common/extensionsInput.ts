@@ -3,47 +3,66 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Schemas } from 'vs/base/common/network';
-import { URI } from 'vs/base/common/uri';
-import { localize } from 'vs/nls';
-import { EditorInput } from 'vs/workbench/common/editor';
-import { IExtension } from 'vs/workbench/contrib/extensions/common/extensions';
-import { areSameExtensions } from 'vs/platform/extensionManagement/common/extensionManagementUtil';
+import { Schemas } from '../../../../base/common/network.js';
+import { URI } from '../../../../base/common/uri.js';
+import { localize } from '../../../../nls.js';
+import { EditorInputCapabilities, IUntypedEditorInput } from '../../../common/editor.js';
+import { EditorInput } from '../../../common/editor/editorInput.js';
+import { ExtensionEditorTab, IExtension } from './extensions.js';
+import { areSameExtensions } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
+import { join } from '../../../../base/common/path.js';
+import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
+import { ThemeIcon } from '../../../../base/common/themables.js';
+import { Codicon } from '../../../../base/common/codicons.js';
+import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
+
+const ExtensionEditorIcon = registerIcon('extensions-editor-label-icon', Codicon.extensions, localize('extensionsEditorLabelIcon', 'Icon of the extensions editor label.'));
+
+export interface IExtensionEditorOptions extends IEditorOptions {
+	showPreReleaseVersion?: boolean;
+	tab?: ExtensionEditorTab;
+	feature?: string;
+	sideByside?: boolean;
+}
 
 export class ExtensionsInput extends EditorInput {
 
 	static readonly ID = 'workbench.extensions.input2';
 
-	get resource() {
-		return URI.from({
-			scheme: Schemas.extension,
-			path: this.extension.identifier.id
-		});
-	}
-
-	constructor(
-		public readonly extension: IExtension
-	) {
-		super();
-	}
-
-	getTypeId(): string {
+	override get typeId(): string {
 		return ExtensionsInput.ID;
 	}
 
-	getName(): string {
-		return localize('extensionsInputName', "Extension: {0}", this.extension.displayName);
+	override get capabilities(): EditorInputCapabilities {
+		return EditorInputCapabilities.Readonly | EditorInputCapabilities.Singleton;
 	}
 
-	supportsSplitEditor(): boolean {
-		return false;
+	override get resource() {
+		return URI.from({
+			scheme: Schemas.extension,
+			path: join(this._extension.identifier.id, 'extension')
+		});
 	}
 
-	matches(other: unknown): boolean {
+	constructor(private _extension: IExtension) {
+		super();
+	}
+
+	get extension(): IExtension { return this._extension; }
+
+	override getName(): string {
+		return localize('extensionsInputName', "Extension: {0}", this._extension.displayName);
+	}
+
+	override getIcon(): ThemeIcon | undefined {
+		return ExtensionEditorIcon;
+	}
+
+	override matches(other: EditorInput | IUntypedEditorInput): boolean {
 		if (super.matches(other)) {
 			return true;
 		}
 
-		return other instanceof ExtensionsInput && areSameExtensions(this.extension.identifier, other.extension.identifier);
+		return other instanceof ExtensionsInput && areSameExtensions(this._extension.identifier, other._extension.identifier);
 	}
 }

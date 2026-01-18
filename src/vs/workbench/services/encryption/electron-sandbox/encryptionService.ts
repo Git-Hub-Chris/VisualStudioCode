@@ -3,18 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IMainProcessService } from 'vs/platform/ipc/electron-sandbox/mainProcessService';
-import { createChannelSender } from 'vs/base/parts/ipc/common/ipc';
-import { registerSingleton } from 'vs/platform/instantiation/common/extensions';
-import { IEncryptionService } from 'vs/workbench/services/encryption/common/encryptionService';
+import { registerMainProcessRemoteService } from '../../../../platform/ipc/electron-sandbox/services.js';
+import { IEncryptionService } from '../../../../platform/encryption/common/encryptionService.js';
 
-export class EncryptionService {
-
-	declare readonly _serviceBrand: undefined;
-
-	constructor(@IMainProcessService mainProcessService: IMainProcessService) {
-		return createChannelSender<IEncryptionService>(mainProcessService.getChannel('encryption'));
-	}
-}
-
-registerSingleton(IEncryptionService, EncryptionService, true);
+registerMainProcessRemoteService(IEncryptionService, 'encryption');

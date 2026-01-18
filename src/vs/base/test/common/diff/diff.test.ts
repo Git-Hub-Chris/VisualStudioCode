@@ -3,8 +3,9 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as assert from 'assert';
-import { LcsDiff, IDiffChange, StringDiffSequence } from 'vs/base/common/diff/diff';
+import assert from 'assert';
+import { IDiffChange, LcsDiff, StringDiffSequence } from '../../../common/diff/diff.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../utils.js';
 
 function createArray<T>(length: number, value: T): T[] {
 	const r: T[] = [];
@@ -25,8 +26,8 @@ function maskBasedSubstring(str: string, mask: boolean[]): string {
 }
 
 function assertAnswer(originalStr: string, modifiedStr: string, changes: IDiffChange[], answerStr: string, onlyLength: boolean = false): void {
-	let originalMask = createArray(originalStr.length, true);
-	let modifiedMask = createArray(modifiedStr.length, true);
+	const originalMask = createArray(originalStr.length, true);
+	const modifiedMask = createArray(modifiedStr.length, true);
 
 	let i, j, change;
 	for (i = 0; i < changes.length; i++) {
@@ -45,21 +46,21 @@ function assertAnswer(originalStr: string, modifiedStr: string, changes: IDiffCh
 		}
 	}
 
-	let originalAnswer = maskBasedSubstring(originalStr, originalMask);
-	let modifiedAnswer = maskBasedSubstring(modifiedStr, modifiedMask);
+	const originalAnswer = maskBasedSubstring(originalStr, originalMask);
+	const modifiedAnswer = maskBasedSubstring(modifiedStr, modifiedMask);
 
 	if (onlyLength) {
-		assert.equal(originalAnswer.length, answerStr.length);
-		assert.equal(modifiedAnswer.length, answerStr.length);
+		assert.strictEqual(originalAnswer.length, answerStr.length);
+		assert.strictEqual(modifiedAnswer.length, answerStr.length);
 	} else {
-		assert.equal(originalAnswer, answerStr);
-		assert.equal(modifiedAnswer, answerStr);
+		assert.strictEqual(originalAnswer, answerStr);
+		assert.strictEqual(modifiedAnswer, answerStr);
 	}
 }
 
 function lcsInnerTest(originalStr: string, modifiedStr: string, answerStr: string, onlyLength: boolean = false): void {
-	let diff = new LcsDiff(new StringDiffSequence(originalStr), new StringDiffSequence(modifiedStr));
-	let changes = diff.ComputeDiff(false).changes;
+	const diff = new LcsDiff(new StringDiffSequence(originalStr), new StringDiffSequence(modifiedStr));
+	const changes = diff.ComputeDiff(false).changes;
 	assertAnswer(originalStr, modifiedStr, changes, answerStr, onlyLength);
 }
 
@@ -79,6 +80,8 @@ function lcsTest(originalStr: string, modifiedStr: string, answerStr: string) {
 }
 
 suite('Diff', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('LcsDiff - different strings tests', function () {
 		this.timeout(10000);
 		lcsTest('heLLo world', 'hello orlando', 'heo orld');
@@ -97,27 +100,29 @@ suite('Diff', () => {
 });
 
 suite('Diff - Ported from VS', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('using continue processing predicate to quit early', function () {
-		let left = 'abcdef';
-		let right = 'abxxcyyydzzzzezzzzzzzzzzzzzzzzzzzzf';
+		const left = 'abcdef';
+		const right = 'abxxcyyydzzzzezzzzzzzzzzzzzzzzzzzzf';
 
 		// We use a long non-matching portion at the end of the right-side string, so the backwards tracking logic
 		// doesn't get there first.
 		let predicateCallCount = 0;
 
 		let diff = new LcsDiff(new StringDiffSequence(left), new StringDiffSequence(right), function (leftIndex, longestMatchSoFar) {
-			assert.equal(predicateCallCount, 0);
+			assert.strictEqual(predicateCallCount, 0);
 
 			predicateCallCount++;
 
-			assert.equal(leftIndex, 1);
+			assert.strictEqual(leftIndex, 1);
 
 			// cancel processing
 			return false;
 		});
 		let changes = diff.ComputeDiff(true).changes;
 
-		assert.equal(predicateCallCount, 1);
+		assert.strictEqual(predicateCallCount, 1);
 
 		// Doesn't include 'c', 'd', or 'e', since we quit on the first request
 		assertAnswer(left, right, changes, 'abf');
@@ -155,7 +160,7 @@ suite('Diff - Ported from VS', () => {
 		diff = new LcsDiff(new StringDiffSequence(left), new StringDiffSequence(right), function (leftIndex, longestMatchSoFar) {
 			assert(longestMatchSoFar <= 2); // We never see a match of length > 2
 
-			let hitYet = hitSecondMatch;
+			const hitYet = hitSecondMatch;
 			hitSecondMatch = longestMatchSoFar > 1;
 			// Continue processing as long as there hasn't been a match made.
 			return !hitYet;

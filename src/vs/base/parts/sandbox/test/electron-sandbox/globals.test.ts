@@ -3,13 +3,18 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as assert from 'assert';
-import { ipcRenderer, crashReporter, webFrame } from 'vs/base/parts/sandbox/electron-sandbox/globals';
+import assert from 'assert';
+import { ipcRenderer, process, webFrame, webUtils } from '../../electron-sandbox/globals.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../test/common/utils.js';
 
 suite('Sandbox', () => {
-	test('globals', () => {
-		assert.ok(ipcRenderer);
-		assert.ok(crashReporter);
-		assert.ok(webFrame);
+
+	test('globals', async () => {
+		assert.ok(typeof ipcRenderer.send === 'function');
+		assert.ok(typeof webFrame.setZoomLevel === 'function');
+		assert.ok(typeof process.platform === 'string');
+		assert.ok(typeof webUtils.getPathForFile === 'function');
 	});
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 });

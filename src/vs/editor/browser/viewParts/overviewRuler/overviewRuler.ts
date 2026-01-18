@@ -3,14 +3,18 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { FastDomNode, createFastDomNode } from 'vs/base/browser/fastDomNode';
-import { IOverviewRuler } from 'vs/editor/browser/editorBrowser';
-import { OverviewRulerPosition, EditorOption } from 'vs/editor/common/config/editorOptions';
-import { ColorZone, OverviewRulerZone, OverviewZoneManager } from 'vs/editor/common/view/overviewZoneManager';
-import { ViewContext } from 'vs/editor/common/view/viewContext';
-import * as viewEvents from 'vs/editor/common/view/viewEvents';
-import { ViewEventHandler } from 'vs/editor/common/viewModel/viewEventHandler';
+import { FastDomNode, createFastDomNode } from '../../../../base/browser/fastDomNode.js';
+import { IOverviewRuler } from '../../editorBrowser.js';
+import { OverviewRulerPosition, EditorOption } from '../../../common/config/editorOptions.js';
+import { ColorZone, OverviewRulerZone, OverviewZoneManager } from '../../../common/viewModel/overviewZoneManager.js';
+import { ViewContext } from '../../../common/viewModel/viewContext.js';
+import * as viewEvents from '../../../common/viewEvents.js';
+import { ViewEventHandler } from '../../../common/viewEventHandler.js';
 
+/**
+ * The overview ruler appears underneath the editor scroll bar and shows things
+ * like the cursor, various decorations, etc.
+ */
 export class OverviewRuler extends ViewEventHandler implements IOverviewRuler {
 
 	private readonly _context: ViewContext;
@@ -39,14 +43,14 @@ export class OverviewRuler extends ViewEventHandler implements IOverviewRuler {
 		this._context.addEventHandler(this);
 	}
 
-	public dispose(): void {
+	public override dispose(): void {
 		this._context.removeEventHandler(this);
 		super.dispose();
 	}
 
 	// ---- begin view event handlers
 
-	public onConfigurationChanged(e: viewEvents.ViewConfigurationChangedEvent): boolean {
+	public override onConfigurationChanged(e: viewEvents.ViewConfigurationChangedEvent): boolean {
 		const options = this._context.configuration.options;
 
 		if (e.hasChanged(EditorOption.lineHeight)) {
@@ -65,18 +69,18 @@ export class OverviewRuler extends ViewEventHandler implements IOverviewRuler {
 
 		return true;
 	}
-	public onFlushed(e: viewEvents.ViewFlushedEvent): boolean {
+	public override onFlushed(e: viewEvents.ViewFlushedEvent): boolean {
 		this._render();
 		return true;
 	}
-	public onScrollChanged(e: viewEvents.ViewScrollChangedEvent): boolean {
+	public override onScrollChanged(e: viewEvents.ViewScrollChangedEvent): boolean {
 		if (e.scrollHeightChanged) {
 			this._zoneManager.setOuterHeight(e.scrollHeight);
 			this._render();
 		}
 		return true;
 	}
-	public onZonesChanged(e: viewEvents.ViewZonesChangedEvent): boolean {
+	public override onZonesChanged(e: viewEvents.ViewZonesChangedEvent): boolean {
 		this._render();
 		return true;
 	}

@@ -3,24 +3,43 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { localize } from 'vs/nls';
-import { ISetting } from 'vs/workbench/services/preferences/common/preferences';
+import { isWeb, isWindows } from '../../../../base/common/platform.js';
+import { localize } from '../../../../nls.js';
+import { ExtensionToggleData } from '../common/preferences.js';
 
-export interface ITOCEntry {
+export interface ITOCEntry<T> {
 	id: string;
 	label: string;
-
-	children?: ITOCEntry[];
-	settings?: Array<string | ISetting>;
+	order?: number;
+	children?: ITOCEntry<T>[];
+	settings?: Array<T>;
+	hide?: boolean;
 }
 
-export const commonlyUsedData: ITOCEntry = {
-	id: 'commonlyUsed',
-	label: localize('commonlyUsed', "Commonly Used"),
-	settings: ['files.autoSave', 'editor.fontSize', 'editor.fontFamily', 'editor.tabSize', 'editor.renderWhitespace', 'editor.cursorStyle', 'editor.multiCursorModifier', 'editor.insertSpaces', 'editor.wordWrap', 'files.exclude', 'files.associations']
-};
+const defaultCommonlyUsedSettings: string[] = [
+	'files.autoSave',
+	'editor.fontSize',
+	'editor.fontFamily',
+	'editor.tabSize',
+	'editor.renderWhitespace',
+	'editor.cursorStyle',
+	'editor.multiCursorModifier',
+	'editor.insertSpaces',
+	'editor.wordWrap',
+	'files.exclude',
+	'files.associations',
+	'workbench.editor.enablePreview'
+];
 
-export const tocData: ITOCEntry = {
+export function getCommonlyUsedData(toggleData: ExtensionToggleData | undefined): ITOCEntry<string> {
+	return {
+		id: 'commonlyUsed',
+		label: localize('commonlyUsed', "Commonly Used"),
+		settings: toggleData?.commonlyUsed ?? defaultCommonlyUsedSettings
+	};
+}
+
+export const tocData: ITOCEntry<string> = {
 	id: 'root',
 	label: 'root',
 	children: [
@@ -53,6 +72,11 @@ export const tocData: ITOCEntry = {
 					id: 'editor/diffEditor',
 					label: localize('diffEditor', "Diff Editor"),
 					settings: ['diffEditor.*']
+				},
+				{
+					id: 'editor/multiDiffEditor',
+					label: localize('multiDiffEditor', "Multi-File Diff Editor"),
+					settings: ['multiDiffEditor.*']
 				},
 				{
 					id: 'editor/minimap',
@@ -125,6 +149,16 @@ export const tocData: ITOCEntry = {
 			label: localize('features', "Features"),
 			children: [
 				{
+					id: 'features/accessibilitySignals',
+					label: localize('accessibility.signals', 'Accessibility Signals'),
+					settings: ['accessibility.signal*']
+				},
+				{
+					id: 'features/accessibility',
+					label: localize('accessibility', "Accessibility"),
+					settings: ['accessibility.*']
+				},
+				{
 					id: 'features/explorer',
 					label: localize('fileExplorer', "Explorer"),
 					settings: ['explorer.*', 'outline.*']
@@ -133,16 +167,20 @@ export const tocData: ITOCEntry = {
 					id: 'features/search',
 					label: localize('search', "Search"),
 					settings: ['search.*']
-				}
-				,
+				},
 				{
 					id: 'features/debug',
 					label: localize('debug', "Debug"),
 					settings: ['debug.*', 'launch']
 				},
 				{
+					id: 'features/testing',
+					label: localize('testing', "Testing"),
+					settings: ['testing.*']
+				},
+				{
 					id: 'features/scm',
-					label: localize('scm', "SCM"),
+					label: localize('scm', "Source Control"),
 					settings: ['scm.*']
 				},
 				{
@@ -188,7 +226,23 @@ export const tocData: ITOCEntry = {
 				{
 					id: 'features/notebook',
 					label: localize('notebook', 'Notebook'),
-					settings: ['notebook.*']
+					settings: ['notebook.*', 'interactiveWindow.*']
+				},
+				{
+					id: 'features/mergeEditor',
+					label: localize('mergeEditor', 'Merge Editor'),
+					settings: ['mergeEditor.*']
+				},
+				{
+					id: 'features/chat',
+					label: localize('chat', 'Chat'),
+					settings: ['chat.*', 'inlineChat.*']
+				},
+				{
+					id: 'features/issueReporter',
+					label: localize('issueReporter', 'Issue Reporter'),
+					settings: ['issueReporter.*'],
+					hide: !isWeb
 				}
 			]
 		},
@@ -219,7 +273,30 @@ export const tocData: ITOCEntry = {
 				{
 					id: 'application/settingsSync',
 					label: localize('settingsSync', "Settings Sync"),
-					settings: ['settingsSync.*', 'sync.*']
+					settings: ['settingsSync.*']
+				},
+				{
+					id: 'application/experimental',
+					label: localize('experimental', "Experimental"),
+					settings: ['application.experimental.*']
+				},
+				{
+					id: 'application/other',
+					label: localize('other', "Other"),
+					settings: ['application.*'],
+					hide: isWindows
+				}
+			]
+		},
+		{
+			id: 'security',
+			label: localize('security', "Security"),
+			settings: ['security.*'],
+			children: [
+				{
+					id: 'security/workspace',
+					label: localize('workspace', "Workspace"),
+					settings: ['security.workspace.*']
 				}
 			]
 		}
@@ -246,3 +323,4 @@ knownTermMappings.set('power shell', 'PowerShell');
 knownTermMappings.set('powershell', 'PowerShell');
 knownTermMappings.set('javascript', 'JavaScript');
 knownTermMappings.set('typescript', 'TypeScript');
+knownTermMappings.set('github', 'GitHub');

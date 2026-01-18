@@ -3,14 +3,14 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import 'vs/css!./iPadShowKeyboard';
-import * as browser from 'vs/base/browser/browser';
-import * as dom from 'vs/base/browser/dom';
-import { Disposable } from 'vs/base/common/lifecycle';
-import { ICodeEditor, IOverlayWidget, IOverlayWidgetPosition, OverlayWidgetPositionPreference } from 'vs/editor/browser/editorBrowser';
-import { registerEditorContribution } from 'vs/editor/browser/editorExtensions';
-import { IEditorContribution } from 'vs/editor/common/editorCommon';
-import { EditorOption } from 'vs/editor/common/config/editorOptions';
+import './iPadShowKeyboard.css';
+import * as dom from '../../../../base/browser/dom.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { ICodeEditor, IOverlayWidget, IOverlayWidgetPosition, OverlayWidgetPositionPreference } from '../../../browser/editorBrowser.js';
+import { EditorContributionInstantiation, registerEditorContribution } from '../../../browser/editorExtensions.js';
+import { IEditorContribution } from '../../../common/editorCommon.js';
+import { EditorOption } from '../../../common/config/editorOptions.js';
+import { isIOS } from '../../../../base/common/platform.js';
 
 export class IPadShowKeyboard extends Disposable implements IEditorContribution {
 
@@ -23,7 +23,7 @@ export class IPadShowKeyboard extends Disposable implements IEditorContribution 
 		super();
 		this.editor = editor;
 		this.widget = null;
-		if (browser.isIPad) {
+		if (isIOS) {
 			this._register(editor.onDidChangeConfiguration(() => this.update()));
 			this.update();
 		}
@@ -44,7 +44,7 @@ export class IPadShowKeyboard extends Disposable implements IEditorContribution 
 		}
 	}
 
-	public dispose(): void {
+	public override dispose(): void {
 		super.dispose();
 		if (this.widget) {
 			this.widget.dispose();
@@ -77,7 +77,7 @@ class ShowKeyboardWidget extends Disposable implements IOverlayWidget {
 		this.editor.addOverlayWidget(this);
 	}
 
-	public dispose(): void {
+	public override dispose(): void {
 		this.editor.removeOverlayWidget(this);
 		super.dispose();
 	}
@@ -99,4 +99,4 @@ class ShowKeyboardWidget extends Disposable implements IOverlayWidget {
 	}
 }
 
-registerEditorContribution(IPadShowKeyboard.ID, IPadShowKeyboard);
+registerEditorContribution(IPadShowKeyboard.ID, IPadShowKeyboard, EditorContributionInstantiation.Eventually);

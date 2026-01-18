@@ -13,7 +13,7 @@ html {
 .mac:lang(zh-Hans) { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", sans-serif; }
 .mac:lang(zh-Hant) { font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", sans-serif; }
 .mac:lang(ja) { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic Pro", sans-serif; }
-.mac:lang(ko) { font-family: -apple-system, BlinkMacSystemFont, "Nanum Gothic", "Apple SD Gothic Neo", "AppleGothic", sans-serif; }
+.mac:lang(ko) { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Nanum Gothic", "AppleGothic", sans-serif; }
 
 .windows { font-family: "Segoe WPC", "Segoe UI", sans-serif; }
 .windows:lang(zh-Hans) { font-family: "Segoe WPC", "Segoe UI", "Microsoft YaHei", sans-serif; }
@@ -38,7 +38,7 @@ body {
 }
 
 .cpu {
-	width: 45px;
+	width: 60px;
 }
 
 .pid {
@@ -49,28 +49,16 @@ body {
 	width: 90px;
 }
 
-.process-item {
-	line-height: 22px;
+.monaco-list:focus {
+	outline: 0;
 }
 
-table {
-	border-collapse: collapse;
-	width: 100%;
-	table-layout: fixed;
+.monaco-list-row:first-of-type {
+	border-bottom: 1px solid;
 }
 
-th[scope='col'] {
-	vertical-align: bottom;
-	border-bottom: 1px solid #cccccc;
-	padding: .5rem;
-	border-top: 1px solid #cccccc;
-	cursor: default;
-}
-
-td {
-	padding: .25rem;
-	vertical-align: top;
-	cursor: default;
+.row {
+	display: flex;
 }
 
 .centered {
@@ -79,6 +67,9 @@ td {
 
 .nameLabel{
 	text-align: left;
+	width: calc(100% - 185px);
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .data {
@@ -92,16 +83,4 @@ td {
 .error {
 	padding-left: 20px;
 	white-space: nowrap;
-}
-
-tbody > tr:hover {
-	background-color: #2A2D2E;
-}
-
-.hidden {
-	display: none;
-}
-
-.header {
-	display: flex;
 }

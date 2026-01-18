@@ -3,23 +3,20 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { KeyCode, KeyMod } from 'vs/base/common/keyCodes';
-import { KeybindingWeight, KeybindingsRegistry } from 'vs/platform/keybinding/common/keybindingsRegistry';
-import { Registry } from 'vs/platform/registry/common/platform';
-import { TERMINAL_COMMAND_ID } from 'vs/workbench/contrib/terminal/common/terminal';
-import { IConfigurationRegistry, Extensions } from 'vs/platform/configuration/common/configurationRegistry';
-import { getTerminalShellConfiguration } from 'vs/workbench/contrib/terminal/common/terminalConfiguration';
+import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
+import { KeybindingWeight, KeybindingsRegistry } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
+import { ITerminalProfileResolverService, TerminalCommandId } from '../common/terminal.js';
+import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
+import { BrowserTerminalProfileResolverService } from './terminalProfileResolverService.js';
+import { TerminalContextKeys } from '../common/terminalContextKey.js';
 
-// Desktop shell configuration are registered in electron-browser as their default values rely
-// on process.env
-const configurationRegistry = Registry.as<IConfigurationRegistry>(Extensions.Configuration);
-configurationRegistry.registerConfiguration(getTerminalShellConfiguration());
+registerSingleton(ITerminalProfileResolverService, BrowserTerminalProfileResolverService, InstantiationType.Delayed);
 
 // Register standard external terminal keybinding as integrated terminal when in web as the
 // external terminal is not available
 KeybindingsRegistry.registerKeybindingRule({
-	id: TERMINAL_COMMAND_ID.NEW,
+	id: TerminalCommandId.New,
 	weight: KeybindingWeight.WorkbenchContrib,
-	when: undefined,
-	primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_C
+	when: TerminalContextKeys.notFocus,
+	primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyC
 });

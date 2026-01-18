@@ -3,68 +3,78 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
-import { WebviewThemeDataProvider } from 'vs/workbench/contrib/webview/browser/themeing';
-import { IWebviewService, Webview, WebviewContentOptions, WebviewElement, WebviewExtensionDescription, WebviewIcons, WebviewOptions, WebviewOverlay } from 'vs/workbench/contrib/webview/browser/webview';
-import { IFrameWebview } from 'vs/workbench/contrib/webview/browser/webviewElement';
-import { DynamicWebviewEditorOverlay } from './dynamicWebviewEditorOverlay';
-import { WebviewIconManager } from './webviewIconManager';
+import { Emitter } from '../../../../base/common/event.js';
+import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { WebviewThemeDataProvider } from './themeing.js';
+import { IOverlayWebview, IWebview, IWebviewElement, IWebviewService, WebviewInitInfo } from './webview.js';
+import { WebviewElement } from './webviewElement.js';
+import { OverlayWebview } from './overlayWebview.js';
 
-export class WebviewService implements IWebviewService {
+export class WebviewService extends Disposable implements IWebviewService {
 	declare readonly _serviceBrand: undefined;
 
 	protected readonly _webviewThemeDataProvider: WebviewThemeDataProvider;
 
-	private readonly _iconManager: WebviewIconManager;
-
 	constructor(
 		@IInstantiationService protected readonly _instantiationService: IInstantiationService,
 	) {
+		super();
 		this._webviewThemeDataProvider = this._instantiationService.createInstance(WebviewThemeDataProvider);
-		this._iconManager = this._instantiationService.createInstance(WebviewIconManager);
 	}
 
-	private _activeWebview?: Webview;
+	private _activeWebview?: IWebview;
+
 	public get activeWebview() { return this._activeWebview; }
 
-	createWebviewElement(
-		id: string,
-		options: WebviewOptions,
-		contentOptions: WebviewContentOptions,
-		extension: WebviewExtensionDescription | undefined,
-	): WebviewElement {
-		const webview = this._instantiationService.createInstance(IFrameWebview, id, options, contentOptions, extension, this._webviewThemeDataProvider);
-		this.addWebviewListeners(webview);
+	private _updateActiveWebview(value: IWebview | undefined) {
+		if (value !== this._activeWebview) {
+			this._activeWebview = value;
+			this._onDidChangeActiveWebview.fire(value);
+		}
+	}
+
+	private _webviews = new Set<IWebview>();
+
+	public get webviews(): Iterable<IWebview> {
+		return this._webviews.values();
+	}
+
+	private readonly _onDidChangeActiveWebview = this._register(new Emitter<IWebview | undefined>());
+	public readonly onDidChangeActiveWebview = this._onDidChangeActiveWebview.event;
+
+	createWebviewElement(initInfo: WebviewInitInfo): IWebviewElement {
+		const webview = this._instantiationService.createInstance(WebviewElement, initInfo, this._webviewThemeDataProvider);
+		this.registerNewWebview(webview);
 		return webview;
 	}
 
-	createWebviewOverlay(
-		id: string,
-		options: WebviewOptions,
-		contentOptions: WebviewContentOptions,
-		extension: WebviewExtensionDescription | undefined,
-	): WebviewOverlay {
-		const webview = this._instantiationService.createInstance(DynamicWebviewEditorOverlay, id, options, contentOptions, extension);
-		this.addWebviewListeners(webview);
+	createWebviewOverlay(initInfo: WebviewInitInfo): IOverlayWebview {
+		const webview = this._instantiationService.createInstance(OverlayWebview, initInfo);
+		this.registerNewWebview(webview);
 		return webview;
 	}
 
-	setIcons(id: string, iconPath: WebviewIcons | undefined): void {
-		this._iconManager.setIcons(id, iconPath);
-	}
+	protected registerNewWebview(webview: IWebview) {
+		this._webviews.add(webview);
 
-	protected addWebviewListeners(webview: Webview) {
-		webview.onDidFocus(() => {
-			this._activeWebview = webview;
-		});
+		const store = new DisposableStore();
+
+		store.add(webview.onDidFocus(() => {
+			this._updateActiveWebview(webview);
+		}));
 
 		const onBlur = () => {
 			if (this._activeWebview === webview) {
-				this._activeWebview = undefined;
+				this._updateActiveWebview(undefined);
 			}
 		};
 
-		webview.onDidBlur(onBlur);
-		webview.onDidDispose(onBlur);
+		store.add(webview.onDidBlur(onBlur));
+		store.add(webview.onDidDispose(() => {
+			onBlur();
+			store.dispose();
+			this._webviews.delete(webview);
+		}));
 	}
 }

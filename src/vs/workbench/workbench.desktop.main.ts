@@ -4,198 +4,181 @@
  *--------------------------------------------------------------------------------------------*/
 
 
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-//
-// NOTE: Please do NOT register services here. Use `registerSingleton()`
-//       from `workbench.common.main.ts` if the service is shared between
-//       desktop and web or `workbench.sandbox.main.ts` if the service
-//       is desktop only.
-//
-//       The `node` & `electron-browser` layer is deprecated for workbench!
-//
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+// #######################################################################
+// ###                                                                 ###
+// ### !!! PLEASE ADD COMMON IMPORTS INTO WORKBENCH.COMMON.MAIN.TS !!! ###
+// ###                                                                 ###
+// #######################################################################
 
+//#region --- workbench common
 
-//#region --- workbench common & sandbox
-
-import 'vs/workbench/workbench.sandbox.main';
+import './workbench.common.main.js';
 
 //#endregion
-
-
-//#region --- workbench actions
-
-import 'vs/workbench/electron-browser/actions/developerActions';
-
-//#endregion
-
-
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-//
-// NOTE: Please do NOT register services here. Use `registerSingleton()`
-//       from `workbench.common.main.ts` if the service is shared between
-//       desktop and web or `workbench.sandbox.main.ts` if the service
-//       is desktop only.
-//
-//       The `node` & `electron-browser` layer is deprecated for workbench!
-//
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 
 //#region --- workbench (desktop main)
 
-import 'vs/workbench/electron-browser/desktop.main';
+import './electron-sandbox/desktop.main.js';
+import './electron-sandbox/desktop.contribution.js';
+
+//#endregion
+
+
+//#region --- workbench parts
+
+import './electron-sandbox/parts/dialogs/dialog.contribution.js';
 
 //#endregion
 
 
 //#region --- workbench services
 
+import './services/textfile/electron-sandbox/nativeTextFileService.js';
+import './services/dialogs/electron-sandbox/fileDialogService.js';
+import './services/workspaces/electron-sandbox/workspacesService.js';
+import './services/menubar/electron-sandbox/menubarService.js';
+import './services/update/electron-sandbox/updateService.js';
+import './services/url/electron-sandbox/urlService.js';
+import './services/lifecycle/electron-sandbox/lifecycleService.js';
+import './services/title/electron-sandbox/titleService.js';
+import './services/host/electron-sandbox/nativeHostService.js';
+import './services/request/electron-sandbox/requestService.js';
+import './services/clipboard/electron-sandbox/clipboardService.js';
+import './services/contextmenu/electron-sandbox/contextmenuService.js';
+import './services/workspaces/electron-sandbox/workspaceEditingService.js';
+import './services/configurationResolver/electron-sandbox/configurationResolverService.js';
+import './services/accessibility/electron-sandbox/accessibilityService.js';
+import './services/keybinding/electron-sandbox/nativeKeyboardLayout.js';
+import './services/path/electron-sandbox/pathService.js';
+import './services/themes/electron-sandbox/nativeHostColorSchemeService.js';
+import './services/extensionManagement/electron-sandbox/extensionManagementService.js';
+import './services/encryption/electron-sandbox/encryptionService.js';
+import './services/secrets/electron-sandbox/secretStorageService.js';
+import './services/localization/electron-sandbox/languagePackService.js';
+import './services/telemetry/electron-sandbox/telemetryService.js';
+import './services/extensions/electron-sandbox/extensionHostStarter.js';
+import '../platform/extensionResourceLoader/common/extensionResourceLoaderService.js';
+import './services/localization/electron-sandbox/localeService.js';
+import './services/extensions/electron-sandbox/extensionsScannerService.js';
+import './services/extensionManagement/electron-sandbox/extensionManagementServerService.js';
+import './services/extensionManagement/electron-sandbox/extensionTipsService.js';
+import './services/userDataSync/electron-sandbox/userDataSyncService.js';
+import './services/userDataSync/electron-sandbox/userDataAutoSyncService.js';
+import './services/timer/electron-sandbox/timerService.js';
+import './services/environment/electron-sandbox/shellEnvironmentService.js';
+import './services/integrity/electron-sandbox/integrityService.js';
+import './services/workingCopy/electron-sandbox/workingCopyBackupService.js';
+import './services/checksum/electron-sandbox/checksumService.js';
+import '../platform/remote/electron-sandbox/sharedProcessTunnelService.js';
+import './services/tunnel/electron-sandbox/tunnelService.js';
+import '../platform/diagnostics/electron-sandbox/diagnosticsService.js';
+import '../platform/profiling/electron-sandbox/profilingService.js';
+import '../platform/telemetry/electron-sandbox/customEndpointTelemetryService.js';
+import '../platform/remoteTunnel/electron-sandbox/remoteTunnelService.js';
+import './services/files/electron-sandbox/elevatedFileService.js';
+import './services/search/electron-sandbox/searchService.js';
+import './services/workingCopy/electron-sandbox/workingCopyHistoryService.js';
+import './services/userDataSync/browser/userDataSyncEnablementService.js';
+import './services/extensions/electron-sandbox/nativeExtensionService.js';
+import '../platform/userDataProfile/electron-sandbox/userDataProfileStorageService.js';
+import './services/auxiliaryWindow/electron-sandbox/auxiliaryWindowService.js';
+import '../platform/extensionManagement/electron-sandbox/extensionsProfileScannerService.js';
 
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-//
-// NOTE: Please do NOT register services here. Use `registerSingleton()`
-//       from `workbench.common.main.ts` if the service is shared between
-//       desktop and web or `workbench.sandbox.main.ts` if the service
-//       is desktop only.
-//
-//       The `node` & `electron-browser` layer is deprecated for workbench!
-//
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+import { registerSingleton } from '../platform/instantiation/common/extensions.js';
+import { IUserDataInitializationService, UserDataInitializationService } from './services/userData/browser/userDataInit.js';
+import { SyncDescriptor } from '../platform/instantiation/common/descriptors.js';
 
+registerSingleton(IUserDataInitializationService, new SyncDescriptor(UserDataInitializationService, [[]], true));
 
-import 'vs/workbench/services/integrity/node/integrityService';
-import 'vs/workbench/services/search/electron-browser/searchService';
-import 'vs/workbench/services/output/electron-browser/outputChannelModelService';
-import 'vs/workbench/services/textfile/electron-browser/nativeTextFileService';
-import 'vs/workbench/services/keybinding/electron-browser/nativeKeymapService';
-import 'vs/workbench/services/extensions/electron-browser/extensionService';
-import 'vs/workbench/services/extensionManagement/electron-browser/extensionManagementServerService';
-import 'vs/workbench/services/extensionManagement/electron-browser/extensionTipsService';
-import 'vs/workbench/services/remote/electron-browser/remoteAgentServiceImpl';
-import 'vs/workbench/services/telemetry/electron-browser/telemetryService';
-import 'vs/workbench/services/backup/node/backupFileService';
-import 'vs/workbench/services/userDataSync/electron-browser/userDataSyncMachinesService';
-import 'vs/workbench/services/userDataSync/electron-browser/userDataSyncService';
-import 'vs/workbench/services/userDataSync/electron-browser/userDataSyncAccountService';
-import 'vs/workbench/services/userDataSync/electron-browser/userDataSyncStoreManagementService';
-import 'vs/workbench/services/userDataSync/electron-browser/userDataAutoSyncService';
-import 'vs/workbench/services/sharedProcess/electron-browser/sharedProcessService';
-import 'vs/workbench/services/localizations/electron-browser/localizationsService';
-import 'vs/workbench/services/diagnostics/electron-browser/diagnosticsService';
-
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-//
-// NOTE: Please do NOT register services here. Use `registerSingleton()`
-//       from `workbench.common.main.ts` if the service is shared between
-//       desktop and web or `workbench.sandbox.main.ts` if the service
-//       is desktop only.
-//
-//       The `node` & `electron-browser` layer is deprecated for workbench!
-//
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-
-import { registerSingleton } from 'vs/platform/instantiation/common/extensions';
-import { ITunnelService } from 'vs/platform/remote/common/tunnel';
-import { TunnelService } from 'vs/platform/remote/node/tunnelService';
-
-registerSingleton(ITunnelService, TunnelService);
 
 //#endregion
-
-
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-//
-// NOTE: Please do NOT register services here. Use `registerSingleton()`
-//       from `workbench.common.main.ts` if the service is shared between
-//       desktop and web or `workbench.sandbox.main.ts` if the service
-//       is desktop only.
-//
-//       The `node` & `electron-browser` layer is deprecated for workbench!
-//
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 
 //#region --- workbench contributions
 
-// Tags
-import 'vs/workbench/contrib/tags/electron-browser/workspaceTagsService';
-import 'vs/workbench/contrib/tags/electron-browser/tags.contribution';
+// Logs
+import './contrib/logs/electron-sandbox/logs.contribution.js';
 
-// Rapid Render Splash
-import 'vs/workbench/contrib/splash/electron-browser/partsSplash.contribution';
+// Localizations
+import './contrib/localization/electron-sandbox/localization.contribution.js';
 
-// Debug
-import 'vs/workbench/contrib/debug/node/debugHelperService';
-
-// Webview
-import 'vs/workbench/contrib/webview/electron-browser/webview.contribution';
-
-
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-//
-// NOTE: Please do NOT register services here. Use `registerSingleton()`
-//       from `workbench.common.main.ts` if the service is shared between
-//       desktop and web or `workbench.sandbox.main.ts` if the service
-//       is desktop only.
-//
-//       The `node` & `electron-browser` layer is deprecated for workbench!
-//
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-
-// Notebook
-import 'vs/workbench/contrib/notebook/electron-browser/notebook.contribution';
-
-// Extensions Management
-import 'vs/workbench/contrib/extensions/electron-browser/extensions.contribution';
-
-// Terminal
-import 'vs/workbench/contrib/terminal/electron-browser/terminal.contribution';
+// Explorer
+import './contrib/files/electron-sandbox/fileActions.contribution.js';
 
 // CodeEditor Contributions
-import 'vs/workbench/contrib/codeEditor/electron-browser/codeEditor.contribution';
+import './contrib/codeEditor/electron-sandbox/codeEditor.contribution.js';
 
-// External Terminal
-import 'vs/workbench/contrib/externalTerminal/node/externalTerminal.contribution';
+// Debug
+import './contrib/debug/electron-sandbox/extensionHostDebugService.js';
 
+// Extensions Management
+import './contrib/extensions/electron-sandbox/extensions.contribution.js';
 
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-//
-// NOTE: Please do NOT register services here. Use `registerSingleton()`
-//       from `workbench.common.main.ts` if the service is shared between
-//       desktop and web or `workbench.sandbox.main.ts` if the service
-//       is desktop only.
-//
-//       The `node` & `electron-browser` layer is deprecated for workbench!
-//
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+// Issues
+import './contrib/issue/electron-sandbox/issue.contribution.js';
 
+// Process
+import './contrib/issue/electron-sandbox/process.contribution.js';
 
+// Remote
+import './contrib/remote/electron-sandbox/remote.contribution.js';
+
+// Configuration Exporter
+import './contrib/configExporter/electron-sandbox/configurationExportHelper.contribution.js';
+
+// Terminal
+import './contrib/terminal/electron-sandbox/terminal.contribution.js';
+
+// Themes
+import './contrib/themes/browser/themes.test.contribution.js';
+import './services/themes/electron-sandbox/themes.contribution.js';
+// User Data Sync
+import './contrib/userDataSync/electron-sandbox/userDataSync.contribution.js';
+
+// Tags
+import './contrib/tags/electron-sandbox/workspaceTagsService.js';
+import './contrib/tags/electron-sandbox/tags.contribution.js';
 // Performance
-import 'vs/workbench/contrib/performance/electron-browser/performance.contribution';
-
-// CLI
-import 'vs/workbench/contrib/cli/node/cli.contribution';
+import './contrib/performance/electron-sandbox/performance.contribution.js';
 
 // Tasks
-import 'vs/workbench/contrib/tasks/electron-browser/taskService';
+import './contrib/tasks/electron-sandbox/taskService.js';
 
-// User Data Sync
-import 'vs/workbench/contrib/userDataSync/electron-browser/userDataSync.contribution';
+// External terminal
+import './contrib/externalTerminal/electron-sandbox/externalTerminal.contribution.js';
 
+// Webview
+import './contrib/webview/electron-sandbox/webview.contribution.js';
 
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-//
-// NOTE: Please do NOT register services here. Use `registerSingleton()`
-//       from `workbench.common.main.ts` if the service is shared between
-//       desktop and web or `workbench.sandbox.main.ts` if the service
-//       is desktop only.
-//
-//       The `node` & `electron-browser` layer is deprecated for workbench!
-//
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+// Splash
+import './contrib/splash/electron-sandbox/splash.contribution.js';
 
+// Local History
+import './contrib/localHistory/electron-sandbox/localHistory.contribution.js';
+
+// Merge Editor
+import './contrib/mergeEditor/electron-sandbox/mergeEditor.contribution.js';
+
+// Multi Diff Editor
+import './contrib/multiDiffEditor/browser/multiDiffEditor.contribution.js';
+
+// Remote Tunnel
+import './contrib/remoteTunnel/electron-sandbox/remoteTunnel.contribution.js';
+
+// Chat
+import './contrib/chat/electron-sandbox/chat.contribution.js';
+import './contrib/inlineChat/electron-sandbox/inlineChat.contribution.js';
+// Encryption
+import './contrib/encryption/electron-sandbox/encryption.contribution.js';
+
+// Emergency Alert
+import './contrib/emergencyAlert/electron-sandbox/emergencyAlert.contribution.js';
+
+// MCP
+import './contrib/mcp/electron-sandbox/mcp.contribution.js';
 
 //#endregion
+
+
+export { main } from './electron-sandbox/desktop.main.js';

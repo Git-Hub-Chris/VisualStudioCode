@@ -1,16 +1,25 @@
 {
 	"name": "vscode-web",
 	"version": "0.0.0",
+	"private": true,
 	"dependencies": {
-		"iconv-lite-umd": "0.6.8",
-		"jschardet": "2.2.1",
-		"semver-umd": "^5.5.7",
-		"tas-client-umd": "0.1.2",
-		"vscode-oniguruma": "1.3.1",
-		"vscode-textmate": "5.2.0",
-		"xterm": "4.10.0-beta.4",
-		"xterm-addon-search": "0.8.0-beta.3",
-		"xterm-addon-unicode11": "0.3.0-beta.3",
-		"xterm-addon-webgl": "0.10.0-beta.1"
+		"@microsoft/1ds-core-js": "^4.3.11",
+		"@microsoft/1ds-post-js": "^4.3.11",
+		"@vscode/iconv-lite-umd": "0.7.1",
+		"@vscode/tree-sitter-wasm": "^0.3.0",
+		"@vscode/vscode-languagedetection": "1.0.22",
+		"@xterm/addon-clipboard": "^0.3.0-beta.103",
+		"@xterm/addon-image": "^0.10.0-beta.103",
+		"@xterm/addon-ligatures": "^0.11.0-beta.103",
+		"@xterm/addon-progress": "^0.3.0-beta.103",
+		"@xterm/addon-search": "^0.17.0-beta.103",
+		"@xterm/addon-serialize": "^0.15.0-beta.103",
+		"@xterm/addon-unicode11": "^0.10.0-beta.103",
+		"@xterm/addon-webgl": "^0.20.0-beta.102",
+		"@xterm/xterm": "^6.0.0",
+		"jschardet": "3.1.4",
+		"tas-client-umd": "0.2.0",
+		"vscode-oniguruma": "2.0.1",
+		"vscode-textmate": "9.3.1"
 	}
 }

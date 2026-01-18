@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
+import * as fileSchemes from '../configuration/fileSchemes';
+import { looksLikeAbsoluteWindowsPath } from './fs';
 
 /**
  * Maps of file resources
@@ -12,12 +14,20 @@ import * as vscode from 'vscode';
  * file systems.
  */
 export class ResourceMap<T> {
-	private readonly _map = new Map<string, { resource: vscode.Uri, value: T }>();
+
+	private static readonly defaultPathNormalizer = (resource: vscode.Uri): string => {
+		if (resource.scheme === fileSchemes.file) {
+			return resource.fsPath;
+		}
+		return resource.toString(true);
+	};
+
+	private readonly _map = new Map<string, { readonly resource: vscode.Uri; value: T }>();
 
 	constructor(
-		private readonly _normalizePath: (resource: vscode.Uri) => string | undefined = (resource) => resource.fsPath,
+		protected readonly _normalizePath: (resource: vscode.Uri) => string | undefined = ResourceMap.defaultPathNormalizer,
 		protected readonly config: {
-			readonly onCaseInsenitiveFileSystem: boolean,
+			readonly onCaseInsensitiveFileSystem: boolean;
 		},
 	) { }
 
@@ -63,11 +73,11 @@ export class ResourceMap<T> {
 		this._map.clear();
 	}
 
-	public get values(): Iterable<T> {
-		return Array.from(this._map.values()).map(x => x.value);
+	public values(): Iterable<T> {
+		return Array.from(this._map.values(), x => x.value);
 	}
 
-	public get entries(): Iterable<{ resource: vscode.Uri, value: T }> {
+	public entries(): Iterable<{ resource: vscode.Uri; value: T }> {
 		return this._map.values();
 	}
 
@@ -80,13 +90,9 @@ export class ResourceMap<T> {
 	}
 
 	private isCaseInsensitivePath(path: string) {
-		if (isWindowsPath(path)) {
+		if (looksLikeAbsoluteWindowsPath(path)) {
 			return true;
 		}
-		return path[0] === '/' && this.config.onCaseInsenitiveFileSystem;
+		return path[0] === '/' && this.config.onCaseInsensitiveFileSystem;
 	}
-}
-
-function isWindowsPath(path: string): boolean {
-	return /^[a-zA-Z]:[\/\\]/.test(path);
 }

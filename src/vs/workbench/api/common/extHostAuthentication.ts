@@ -4,225 +4,144 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type * as vscode from 'vscode';
-import * as modes from 'vs/editor/common/modes';
-import { Emitter, Event } from 'vs/base/common/event';
-import { IMainContext, MainContext, MainThreadAuthenticationShape, ExtHostAuthenticationShape } from 'vs/workbench/api/common/extHost.protocol';
-import { Disposable } from 'vs/workbench/api/common/extHostTypes';
-import { IExtensionDescription, ExtensionIdentifier } from 'vs/platform/extensions/common/extensions';
+import { Emitter, Event } from '../../../base/common/event.js';
+import { MainContext, MainThreadAuthenticationShape, ExtHostAuthenticationShape } from './extHost.protocol.js';
+import { Disposable } from './extHostTypes.js';
+import { IExtensionDescription, ExtensionIdentifier } from '../../../platform/extensions/common/extensions.js';
+import { INTERNAL_AUTH_PROVIDER_PREFIX } from '../../services/authentication/common/authentication.js';
+import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
+import { IExtHostRpcService } from './extHostRpcService.js';
+
+export interface IExtHostAuthentication extends ExtHostAuthentication { }
+export const IExtHostAuthentication = createDecorator<IExtHostAuthentication>('IExtHostAuthentication');
+
+interface ProviderWithMetadata {
+	label: string;
+	provider: vscode.AuthenticationProvider;
+	options: vscode.AuthenticationProviderOptions;
+}
 
 export class ExtHostAuthentication implements ExtHostAuthenticationShape {
+
+	declare _serviceBrand: undefined;
+
 	private _proxy: MainThreadAuthenticationShape;
-	private _authenticationProviders: Map<string, vscode.AuthenticationProvider> = new Map<string, vscode.AuthenticationProvider>();
+	private _authenticationProviders: Map<string, ProviderWithMetadata> = new Map<string, ProviderWithMetadata>();
 
-	private _providerIds: string[] = [];
+	private _onDidChangeSessions = new Emitter<vscode.AuthenticationSessionsChangeEvent & { extensionIdFilter?: string[] }>();
+	private _getSessionTaskSingler = new TaskSingler<vscode.AuthenticationSession | undefined>();
 
-	private _providers: vscode.AuthenticationProviderInformation[] = [];
-
-	private _onDidChangeAuthenticationProviders = new Emitter<vscode.AuthenticationProvidersChangeEvent>();
-	readonly onDidChangeAuthenticationProviders: Event<vscode.AuthenticationProvidersChangeEvent> = this._onDidChangeAuthenticationProviders.event;
-
-	private _onDidChangeSessions = new Emitter<vscode.AuthenticationSessionsChangeEvent>();
-	readonly onDidChangeSessions: Event<vscode.AuthenticationSessionsChangeEvent> = this._onDidChangeSessions.event;
-
-	private _onDidChangePassword = new Emitter<void>();
-	readonly onDidChangePassword: Event<void> = this._onDidChangePassword.event;
-
-	constructor(mainContext: IMainContext) {
-		this._proxy = mainContext.getProxy(MainContext.MainThreadAuthentication);
+	constructor(
+		@IExtHostRpcService extHostRpc: IExtHostRpcService
+	) {
+		this._proxy = extHostRpc.getProxy(MainContext.MainThreadAuthentication);
 	}
 
-	$setProviders(providers: vscode.AuthenticationProviderInformation[]): Promise<void> {
-		this._providers = providers;
-		return Promise.resolve();
+	/**
+	 * This sets up an event that will fire when the auth sessions change with a built-in filter for the extensionId
+	 * if a session change only affects a specific extension.
+	 * @param extensionId The extension that is interested in the event.
+	 * @returns An event with a built-in filter for the extensionId
+	 */
+	getExtensionScopedSessionsEvent(extensionId: string): Event<vscode.AuthenticationSessionsChangeEvent> {
+		const normalizedExtensionId = extensionId.toLowerCase();
+		return Event.chain(this._onDidChangeSessions.event, ($) => $
+			.filter(e => !e.extensionIdFilter || e.extensionIdFilter.includes(normalizedExtensionId))
+			.map(e => ({ provider: e.provider }))
+		);
 	}
 
-	getProviderIds(): Promise<ReadonlyArray<string>> {
-		return this._proxy.$getProviderIds();
-	}
-
-	get providerIds(): string[] {
-		return this._providerIds;
-	}
-
-	get providers(): ReadonlyArray<vscode.AuthenticationProviderInformation> {
-		return Object.freeze(this._providers.slice());
-	}
-
-	async getSession(requestingExtension: IExtensionDescription, providerId: string, scopes: string[], options: vscode.AuthenticationGetSessionOptions & { createIfNone: true }): Promise<vscode.AuthenticationSession>;
-	async getSession(requestingExtension: IExtensionDescription, providerId: string, scopes: string[], options: vscode.AuthenticationGetSessionOptions = {}): Promise<vscode.AuthenticationSession | undefined> {
-		await this._proxy.$ensureProvider(providerId);
-		const provider = this._authenticationProviders.get(providerId);
-		const extensionName = requestingExtension.displayName || requestingExtension.name;
+	async getSession(requestingExtension: IExtensionDescription, providerId: string, scopes: readonly string[], options: vscode.AuthenticationGetSessionOptions & ({ createIfNone: true } | { forceNewSession: true } | { forceNewSession: vscode.AuthenticationForceNewSessionOptions })): Promise<vscode.AuthenticationSession>;
+	async getSession(requestingExtension: IExtensionDescription, providerId: string, scopes: readonly string[], options: vscode.AuthenticationGetSessionOptions & { forceNewSession: true }): Promise<vscode.AuthenticationSession>;
+	async getSession(requestingExtension: IExtensionDescription, providerId: string, scopes: readonly string[], options: vscode.AuthenticationGetSessionOptions & { forceNewSession: vscode.AuthenticationForceNewSessionOptions }): Promise<vscode.AuthenticationSession>;
+	async getSession(requestingExtension: IExtensionDescription, providerId: string, scopes: readonly string[], options: vscode.AuthenticationGetSessionOptions): Promise<vscode.AuthenticationSession | undefined>;
+	async getSession(requestingExtension: IExtensionDescription, providerId: string, scopes: readonly string[], options: vscode.AuthenticationGetSessionOptions = {}): Promise<vscode.AuthenticationSession | undefined> {
 		const extensionId = ExtensionIdentifier.toKey(requestingExtension.identifier);
-
-		if (!provider) {
+		const sortedScopes = [...scopes].sort().join(' ');
+		return await this._getSessionTaskSingler.getOrCreate(`${extensionId} ${providerId} ${sortedScopes}`, async () => {
+			await this._proxy.$ensureProvider(providerId);
+			const extensionName = requestingExtension.displayName || requestingExtension.name;
 			return this._proxy.$getSession(providerId, scopes, extensionId, extensionName, options);
-		}
-
-		const orderedScopes = scopes.sort().join(' ');
-		const sessions = (await provider.getSessions()).filter(session => session.scopes.slice().sort().join(' ') === orderedScopes);
-
-		if (sessions.length) {
-			if (!provider.supportsMultipleAccounts) {
-				const session = sessions[0];
-				const allowed = await this._proxy.$getSessionsPrompt(providerId, session.account.label, provider.label, extensionId, extensionName);
-				if (allowed) {
-					return session;
-				} else {
-					throw new Error('User did not consent to login.');
-				}
-			}
-
-			// On renderer side, confirm consent, ask user to choose between accounts if multiple sessions are valid
-			const selected = await this._proxy.$selectSession(providerId, provider.label, extensionId, extensionName, sessions, scopes, !!options.clearSessionPreference);
-			return sessions.find(session => session.id === selected.id);
-		} else {
-			if (options.createIfNone) {
-				const isAllowed = await this._proxy.$loginPrompt(provider.label, extensionName);
-				if (!isAllowed) {
-					throw new Error('User did not consent to login.');
-				}
-
-				const session = await provider.login(scopes);
-				await this._proxy.$setTrustedExtensionAndAccountPreference(providerId, session.account.label, extensionId, extensionName, session.id);
-				return session;
-			} else {
-				await this._proxy.$requestNewSession(providerId, scopes, extensionId, extensionName);
-				return undefined;
-			}
-		}
-	}
-
-	async logout(providerId: string, sessionId: string): Promise<void> {
-		const provider = this._authenticationProviders.get(providerId);
-		if (!provider) {
-			return this._proxy.$logout(providerId, sessionId);
-		}
-
-		return provider.logout(sessionId);
-	}
-
-	registerAuthenticationProvider(provider: vscode.AuthenticationProvider): vscode.Disposable {
-		if (this._authenticationProviders.get(provider.id)) {
-			throw new Error(`An authentication provider with id '${provider.id}' is already registered.`);
-		}
-
-		this._authenticationProviders.set(provider.id, provider);
-		if (!this._providerIds.includes(provider.id)) {
-			this._providerIds.push(provider.id);
-		}
-
-		if (!this._providers.find(p => p.id === provider.id)) {
-			this._providers.push({
-				id: provider.id,
-				label: provider.label
-			});
-		}
-
-		const listener = provider.onDidChangeSessions(e => {
-			this._proxy.$sendDidChangeSessions(provider.id, e);
 		});
+	}
 
-		this._proxy.$registerAuthenticationProvider(provider.id, provider.label, provider.supportsMultipleAccounts);
+	async getAccounts(providerId: string) {
+		await this._proxy.$ensureProvider(providerId);
+		return await this._proxy.$getAccounts(providerId);
+	}
+
+	async removeSession(providerId: string, sessionId: string): Promise<void> {
+		const providerData = this._authenticationProviders.get(providerId);
+		if (!providerData) {
+			return this._proxy.$removeSession(providerId, sessionId);
+		}
+
+		return providerData.provider.removeSession(sessionId);
+	}
+
+	registerAuthenticationProvider(id: string, label: string, provider: vscode.AuthenticationProvider, options?: vscode.AuthenticationProviderOptions): vscode.Disposable {
+		if (this._authenticationProviders.get(id)) {
+			throw new Error(`An authentication provider with id '${id}' is already registered.`);
+		}
+
+		this._authenticationProviders.set(id, { label, provider, options: options ?? { supportsMultipleAccounts: false } });
+		const listener = provider.onDidChangeSessions(e => this._proxy.$sendDidChangeSessions(id, e));
+		this._proxy.$registerAuthenticationProvider(id, label, options?.supportsMultipleAccounts ?? false);
 
 		return new Disposable(() => {
 			listener.dispose();
-			this._authenticationProviders.delete(provider.id);
-			const index = this._providerIds.findIndex(id => id === provider.id);
-			if (index > -1) {
-				this._providerIds.splice(index);
-			}
-
-			const i = this._providers.findIndex(p => p.id === provider.id);
-			if (i > -1) {
-				this._providers.splice(i);
-			}
-
-			this._proxy.$unregisterAuthenticationProvider(provider.id);
+			this._authenticationProviders.delete(id);
+			this._proxy.$unregisterAuthenticationProvider(id);
 		});
 	}
 
-	$login(providerId: string, scopes: string[]): Promise<modes.AuthenticationSession> {
-		const authProvider = this._authenticationProviders.get(providerId);
-		if (authProvider) {
-			return Promise.resolve(authProvider.login(scopes));
+	async $createSession(providerId: string, scopes: string[], options: vscode.AuthenticationProviderSessionOptions): Promise<vscode.AuthenticationSession> {
+		const providerData = this._authenticationProviders.get(providerId);
+		if (providerData) {
+			return await providerData.provider.createSession(scopes, options);
 		}
 
 		throw new Error(`Unable to find authentication provider with handle: ${providerId}`);
 	}
 
-	$logout(providerId: string, sessionId: string): Promise<void> {
-		const authProvider = this._authenticationProviders.get(providerId);
-		if (authProvider) {
-			return Promise.resolve(authProvider.logout(sessionId));
+	async $removeSession(providerId: string, sessionId: string): Promise<void> {
+		const providerData = this._authenticationProviders.get(providerId);
+		if (providerData) {
+			return await providerData.provider.removeSession(sessionId);
 		}
 
 		throw new Error(`Unable to find authentication provider with handle: ${providerId}`);
 	}
 
-	$getSessions(providerId: string): Promise<ReadonlyArray<modes.AuthenticationSession>> {
-		const authProvider = this._authenticationProviders.get(providerId);
-		if (authProvider) {
-			return Promise.resolve(authProvider.getSessions());
+	async $getSessions(providerId: string, scopes: ReadonlyArray<string> | undefined, options: vscode.AuthenticationProviderSessionOptions): Promise<ReadonlyArray<vscode.AuthenticationSession>> {
+		const providerData = this._authenticationProviders.get(providerId);
+		if (providerData) {
+			return await providerData.provider.getSessions(scopes, options);
 		}
 
 		throw new Error(`Unable to find authentication provider with handle: ${providerId}`);
 	}
 
-	async $getSessionAccessToken(providerId: string, sessionId: string): Promise<string> {
-		const authProvider = this._authenticationProviders.get(providerId);
-		if (authProvider) {
-			const sessions = await authProvider.getSessions();
-			const session = sessions.find(session => session.id === sessionId);
-			if (session) {
-				return session.accessToken;
-			}
-
-			throw new Error(`Unable to find session with id: ${sessionId}`);
+	$onDidChangeAuthenticationSessions(id: string, label: string, extensionIdFilter?: string[]) {
+		// Don't fire events for the internal auth providers
+		if (!id.startsWith(INTERNAL_AUTH_PROVIDER_PREFIX)) {
+			this._onDidChangeSessions.fire({ provider: { id, label }, extensionIdFilter });
 		}
-
-		throw new Error(`Unable to find authentication provider with handle: ${providerId}`);
-	}
-
-	$onDidChangeAuthenticationSessions(id: string, label: string, event: modes.AuthenticationSessionsChangeEvent) {
-		this._onDidChangeSessions.fire({ provider: { id, label }, ...event });
 		return Promise.resolve();
 	}
+}
 
-	$onDidChangeAuthenticationProviders(added: modes.AuthenticationProviderInformation[], removed: modes.AuthenticationProviderInformation[]) {
-		added.forEach(provider => {
-			if (!this._providers.some(p => p.id === provider.id)) {
-				this._providers.push(provider);
-			}
-		});
+class TaskSingler<T> {
+	private _inFlightPromises = new Map<string, Promise<T>>();
+	getOrCreate(key: string, promiseFactory: () => Promise<T>) {
+		const inFlight = this._inFlightPromises.get(key);
+		if (inFlight) {
+			return inFlight;
+		}
 
-		removed.forEach(p => {
-			const index = this._providers.findIndex(provider => provider.id === p.id);
-			if (index > -1) {
-				this._providers.splice(index);
-			}
-		});
+		const promise = promiseFactory().finally(() => this._inFlightPromises.delete(key));
+		this._inFlightPromises.set(key, promise);
 
-		this._onDidChangeAuthenticationProviders.fire({ added, removed });
-		return Promise.resolve();
-	}
-
-	async $onDidChangePassword(): Promise<void> {
-		this._onDidChangePassword.fire();
-	}
-
-	getPassword(requestingExtension: IExtensionDescription, key: string): Promise<string | undefined> {
-		const extensionId = ExtensionIdentifier.toKey(requestingExtension.identifier);
-		return this._proxy.$getPassword(extensionId, key);
-	}
-
-	setPassword(requestingExtension: IExtensionDescription, key: string, value: string): Promise<void> {
-		const extensionId = ExtensionIdentifier.toKey(requestingExtension.identifier);
-		return this._proxy.$setPassword(extensionId, key, value);
-	}
-
-	deletePassword(requestingExtension: IExtensionDescription, key: string): Promise<void> {
-		const extensionId = ExtensionIdentifier.toKey(requestingExtension.identifier);
-		return this._proxy.$deletePassword(extensionId, key);
+		return promise;
 	}
 }

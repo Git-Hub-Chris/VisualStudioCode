@@ -3,26 +3,33 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import severity from 'vs/base/common/severity';
-import * as dom from 'vs/base/browser/dom';
-import { IListAccessibilityProvider } from 'vs/base/browser/ui/list/listWidget';
-import { Variable } from 'vs/workbench/contrib/debug/common/debugModel';
-import { SimpleReplElement, RawObjectReplElement, ReplEvaluationInput, ReplEvaluationResult, ReplGroup } from 'vs/workbench/contrib/debug/common/replModel';
-import { CachedListVirtualDelegate } from 'vs/base/browser/ui/list/list';
-import { ITreeRenderer, ITreeNode, IAsyncDataSource } from 'vs/base/browser/ui/tree/tree';
-import { IEditorService } from 'vs/workbench/services/editor/common/editorService';
-import { renderExpressionValue, AbstractExpressionsRenderer, IExpressionTemplateData, renderVariable, IInputBoxOptions } from 'vs/workbench/contrib/debug/browser/baseDebugView';
-import { handleANSIOutput } from 'vs/workbench/contrib/debug/browser/debugANSIHandling';
-import { ILabelService } from 'vs/platform/label/common/label';
-import { LinkDetector } from 'vs/workbench/contrib/debug/browser/linkDetector';
-import { IContextViewService } from 'vs/platform/contextview/browser/contextView';
-import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { FuzzyScore, createMatches } from 'vs/base/common/filters';
-import { HighlightedLabel, IHighlight } from 'vs/base/browser/ui/highlightedlabel/highlightedLabel';
-import { IReplElementSource, IDebugService, IExpression, IReplElement, IDebugConfiguration, IDebugSession, IExpressionContainer } from 'vs/workbench/contrib/debug/common/debug';
-import { IDisposable, dispose } from 'vs/base/common/lifecycle';
-import { IThemeService } from 'vs/platform/theme/common/themeService';
-import { localize } from 'vs/nls';
+import * as dom from '../../../../base/browser/dom.js';
+import { CountBadge } from '../../../../base/browser/ui/countBadge/countBadge.js';
+import { HighlightedLabel, IHighlight } from '../../../../base/browser/ui/highlightedlabel/highlightedLabel.js';
+import { IManagedHover } from '../../../../base/browser/ui/hover/hover.js';
+import { getDefaultHoverDelegate } from '../../../../base/browser/ui/hover/hoverDelegateFactory.js';
+import { CachedListVirtualDelegate } from '../../../../base/browser/ui/list/list.js';
+import { IListAccessibilityProvider } from '../../../../base/browser/ui/list/listWidget.js';
+import { IAsyncDataSource, ITreeNode, ITreeRenderer } from '../../../../base/browser/ui/tree/tree.js';
+import { createMatches, FuzzyScore } from '../../../../base/common/filters.js';
+import { Disposable, DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
+import { basename } from '../../../../base/common/path.js';
+import severity from '../../../../base/common/severity.js';
+import { ThemeIcon } from '../../../../base/common/themables.js';
+import { localize } from '../../../../nls.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IContextViewService } from '../../../../platform/contextview/browser/contextView.js';
+import { IHoverService } from '../../../../platform/hover/browser/hover.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { ILabelService } from '../../../../platform/label/common/label.js';
+import { defaultCountBadgeStyles } from '../../../../platform/theme/browser/defaultStyles.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { IDebugConfiguration, IDebugService, IDebugSession, IExpression, IExpressionContainer, INestingReplElement, IReplElement, IReplElementSource, IReplOptions } from '../common/debug.js';
+import { Variable } from '../common/debugModel.js';
+import { RawObjectReplElement, ReplEvaluationInput, ReplEvaluationResult, ReplGroup, ReplOutputElement, ReplVariableElement } from '../common/replModel.js';
+import { AbstractExpressionsRenderer, IExpressionTemplateData, IInputBoxOptions } from './baseDebugView.js';
+import { DebugExpressionRenderer } from './debugExpressionRenderer.js';
+import { debugConsoleEvaluationInput } from './debugIcons.js';
 
 const $ = dom.$;
 
@@ -31,19 +38,24 @@ interface IReplEvaluationInputTemplateData {
 }
 
 interface IReplGroupTemplateData {
-	label: HighlightedLabel;
+	label: HTMLElement;
+	source: SourceWidget;
+	elementDisposable?: IDisposable;
 }
 
 interface IReplEvaluationResultTemplateData {
 	value: HTMLElement;
+	elementStore: DisposableStore;
 }
 
-interface ISimpleReplElementTemplateData {
+interface IOutputReplElementTemplateData {
 	container: HTMLElement;
+	count: CountBadge;
+	countContainer: HTMLElement;
 	value: HTMLElement;
-	source: HTMLElement;
+	source: SourceWidget;
 	getReplElementSource(): IReplElementSource | undefined;
-	toDispose: IDisposable[];
+	elementDisposable: DisposableStore;
 }
 
 interface IRawObjectReplTemplateData {
@@ -52,6 +64,7 @@ interface IRawObjectReplTemplateData {
 	name: HTMLElement;
 	value: HTMLElement;
 	label: HighlightedLabel;
+	elementStore: DisposableStore;
 }
 
 export class ReplEvaluationInputsRenderer implements ITreeRenderer<ReplEvaluationInput, FuzzyScore, IReplEvaluationInputTemplateData> {
@@ -62,9 +75,9 @@ export class ReplEvaluationInputsRenderer implements ITreeRenderer<ReplEvaluatio
 	}
 
 	renderTemplate(container: HTMLElement): IReplEvaluationInputTemplateData {
-		dom.append(container, $('span.arrow.codicon.codicon-arrow-small-right'));
+		dom.append(container, $('span.arrow' + ThemeIcon.asCSSSelector(debugConsoleEvaluationInput)));
 		const input = dom.append(container, $('.expression'));
-		const label = new HighlightedLabel(input, false);
+		const label = new HighlightedLabel(input);
 		return { label };
 	}
 
@@ -74,123 +87,148 @@ export class ReplEvaluationInputsRenderer implements ITreeRenderer<ReplEvaluatio
 	}
 
 	disposeTemplate(templateData: IReplEvaluationInputTemplateData): void {
-		// noop
+		templateData.label.dispose();
 	}
 }
 
 export class ReplGroupRenderer implements ITreeRenderer<ReplGroup, FuzzyScore, IReplGroupTemplateData> {
 	static readonly ID = 'replGroup';
 
+	constructor(
+		private readonly expressionRenderer: DebugExpressionRenderer,
+		@IInstantiationService private readonly instaService: IInstantiationService,
+	) { }
+
 	get templateId(): string {
 		return ReplGroupRenderer.ID;
 	}
 
-	renderTemplate(container: HTMLElement): IReplEvaluationInputTemplateData {
-		const input = dom.append(container, $('.expression'));
-		const label = new HighlightedLabel(input, false);
-		return { label };
+	renderTemplate(container: HTMLElement): IReplGroupTemplateData {
+		container.classList.add('group');
+		const expression = dom.append(container, $('.output.expression.value-and-source'));
+		const label = dom.append(expression, $('span.label'));
+		const source = this.instaService.createInstance(SourceWidget, expression);
+		return { label, source };
 	}
 
 	renderElement(element: ITreeNode<ReplGroup, FuzzyScore>, _index: number, templateData: IReplGroupTemplateData): void {
+
+		templateData.elementDisposable?.dispose();
 		const replGroup = element.element;
-		templateData.label.set(replGroup.name, createMatches(element.filterData));
+		dom.clearNode(templateData.label);
+		templateData.elementDisposable = this.expressionRenderer.renderValue(templateData.label, replGroup.name, { wasANSI: true, session: element.element.session });
+		templateData.source.setSource(replGroup.sourceData);
 	}
 
-	disposeTemplate(_templateData: IReplEvaluationInputTemplateData): void {
-		// noop
+	disposeTemplate(templateData: IReplGroupTemplateData): void {
+		templateData.elementDisposable?.dispose();
+		templateData.source.dispose();
 	}
 }
 
-export class ReplEvaluationResultsRenderer implements ITreeRenderer<ReplEvaluationResult, FuzzyScore, IReplEvaluationResultTemplateData> {
+export class ReplEvaluationResultsRenderer implements ITreeRenderer<ReplEvaluationResult | Variable, FuzzyScore, IReplEvaluationResultTemplateData> {
 	static readonly ID = 'replEvaluationResult';
 
 	get templateId(): string {
 		return ReplEvaluationResultsRenderer.ID;
 	}
 
-	constructor(private readonly linkDetector: LinkDetector) { }
+	constructor(
+		private readonly expressionRenderer: DebugExpressionRenderer,
+	) { }
 
 	renderTemplate(container: HTMLElement): IReplEvaluationResultTemplateData {
 		const output = dom.append(container, $('.evaluation-result.expression'));
 		const value = dom.append(output, $('span.value'));
 
-		return { value };
+		return { value, elementStore: new DisposableStore() };
 	}
 
-	renderElement(element: ITreeNode<ReplEvaluationResult, FuzzyScore>, index: number, templateData: IReplEvaluationResultTemplateData): void {
+	renderElement(element: ITreeNode<ReplEvaluationResult | Variable, FuzzyScore>, index: number, templateData: IReplEvaluationResultTemplateData): void {
+		templateData.elementStore.clear();
 		const expression = element.element;
-		renderExpressionValue(expression, templateData.value, {
-			showHover: false,
+		templateData.elementStore.add(this.expressionRenderer.renderValue(templateData.value, expression, {
 			colorize: true,
-			linkDetector: this.linkDetector
-		});
+			hover: false,
+			session: element.element.getSession(),
+		}));
 	}
 
 	disposeTemplate(templateData: IReplEvaluationResultTemplateData): void {
-		// noop
+		templateData.elementStore.dispose();
 	}
 }
 
-export class ReplSimpleElementsRenderer implements ITreeRenderer<SimpleReplElement, FuzzyScore, ISimpleReplElementTemplateData> {
-	static readonly ID = 'simpleReplElement';
+export class ReplOutputElementRenderer implements ITreeRenderer<ReplOutputElement, FuzzyScore, IOutputReplElementTemplateData> {
+	static readonly ID = 'outputReplElement';
 
 	constructor(
-		private readonly linkDetector: LinkDetector,
-		@IEditorService private readonly editorService: IEditorService,
-		@ILabelService private readonly labelService: ILabelService,
-		@IThemeService private readonly themeService: IThemeService
+		private readonly expressionRenderer: DebugExpressionRenderer,
+		@IInstantiationService private readonly instaService: IInstantiationService,
 	) { }
 
 	get templateId(): string {
-		return ReplSimpleElementsRenderer.ID;
+		return ReplOutputElementRenderer.ID;
 	}
 
-	renderTemplate(container: HTMLElement): ISimpleReplElementTemplateData {
-		const data: ISimpleReplElementTemplateData = Object.create(null);
+	renderTemplate(container: HTMLElement): IOutputReplElementTemplateData {
+		const data: IOutputReplElementTemplateData = Object.create(null);
 		container.classList.add('output');
 		const expression = dom.append(container, $('.output.expression.value-and-source'));
 
 		data.container = container;
-		data.value = dom.append(expression, $('span.value'));
-		data.source = dom.append(expression, $('.source'));
-		data.toDispose = [];
-		data.toDispose.push(dom.addDisposableListener(data.source, 'click', e => {
-			e.preventDefault();
-			e.stopPropagation();
-			const source = data.getReplElementSource();
-			if (source) {
-				source.source.openInEditor(this.editorService, {
-					startLineNumber: source.lineNumber,
-					startColumn: source.column,
-					endLineNumber: source.lineNumber,
-					endColumn: source.column
-				});
-			}
-		}));
+		data.countContainer = dom.append(expression, $('.count-badge-wrapper'));
+		data.count = new CountBadge(data.countContainer, {}, defaultCountBadgeStyles);
+		data.value = dom.append(expression, $('span.value.label'));
+		data.source = this.instaService.createInstance(SourceWidget, expression);
+		data.elementDisposable = new DisposableStore();
 
 		return data;
 	}
 
-	renderElement({ element }: ITreeNode<SimpleReplElement, FuzzyScore>, index: number, templateData: ISimpleReplElementTemplateData): void {
+	renderElement({ element }: ITreeNode<ReplOutputElement, FuzzyScore>, index: number, templateData: IOutputReplElementTemplateData): void {
+		templateData.elementDisposable.clear();
+		this.setElementCount(element, templateData);
+		templateData.elementDisposable.add(element.onDidChangeCount(() => this.setElementCount(element, templateData)));
 		// value
 		dom.clearNode(templateData.value);
 		// Reset classes to clear ansi decorations since templates are reused
 		templateData.value.className = 'value';
-		const result = handleANSIOutput(element.value, this.linkDetector, this.themeService, element.session);
-		templateData.value.appendChild(result);
+
+		const locationReference = element.expression?.valueLocationReference;
+		templateData.elementDisposable.add(this.expressionRenderer.renderValue(templateData.value, element.value, {
+			wasANSI: true,
+			session: element.session,
+			locationReference,
+			hover: false,
+		}));
 
 		templateData.value.classList.add((element.severity === severity.Warning) ? 'warn' : (element.severity === severity.Error) ? 'error' : (element.severity === severity.Ignore) ? 'ignore' : 'info');
-		templateData.source.textContent = element.sourceData ? `${element.sourceData.source.name}:${element.sourceData.lineNumber}` : '';
-		templateData.source.title = element.sourceData ? `${this.labelService.getUriLabel(element.sourceData.source.uri)}:${element.sourceData.lineNumber}` : '';
+		templateData.source.setSource(element.sourceData);
 		templateData.getReplElementSource = () => element.sourceData;
 	}
 
-	disposeTemplate(templateData: ISimpleReplElementTemplateData): void {
-		dispose(templateData.toDispose);
+	private setElementCount(element: ReplOutputElement, templateData: IOutputReplElementTemplateData): void {
+		if (element.count >= 2) {
+			templateData.count.setCount(element.count);
+			templateData.countContainer.hidden = false;
+		} else {
+			templateData.countContainer.hidden = true;
+		}
+	}
+
+	disposeTemplate(templateData: IOutputReplElementTemplateData): void {
+		templateData.source.dispose();
+		templateData.elementDisposable.dispose();
+		templateData.count.dispose();
+	}
+
+	disposeElement(_element: ITreeNode<ReplOutputElement, FuzzyScore>, _index: number, templateData: IOutputReplElementTemplateData): void {
+		templateData.elementDisposable.clear();
 	}
 }
 
-export class ReplVariablesRenderer extends AbstractExpressionsRenderer {
+export class ReplVariablesRenderer extends AbstractExpressionsRenderer<IExpression | ReplVariableElement> {
 
 	static readonly ID = 'replVariable';
 
@@ -199,16 +237,31 @@ export class ReplVariablesRenderer extends AbstractExpressionsRenderer {
 	}
 
 	constructor(
-		private readonly linkDetector: LinkDetector,
+		private readonly expressionRenderer: DebugExpressionRenderer,
 		@IDebugService debugService: IDebugService,
 		@IContextViewService contextViewService: IContextViewService,
-		@IThemeService themeService: IThemeService,
+		@IHoverService hoverService: IHoverService,
 	) {
-		super(debugService, contextViewService, themeService);
+		super(debugService, contextViewService, hoverService);
 	}
 
-	protected renderExpression(expression: IExpression, data: IExpressionTemplateData, highlights: IHighlight[]): void {
-		renderVariable(expression as Variable, data, true, highlights, this.linkDetector);
+	public renderElement(node: ITreeNode<IExpression | ReplVariableElement, FuzzyScore>, _index: number, data: IExpressionTemplateData): void {
+		const element = node.element;
+		data.elementDisposable.clear();
+		super.renderExpressionElement(element instanceof ReplVariableElement ? element.expression : element, node, data);
+	}
+
+	protected renderExpression(expression: IExpression | ReplVariableElement, data: IExpressionTemplateData, highlights: IHighlight[]): void {
+		const isReplVariable = expression instanceof ReplVariableElement;
+		if (isReplVariable || !expression.name) {
+			data.label.set('');
+			const value = isReplVariable ? expression.expression : expression;
+			data.elementDisposable.add(this.expressionRenderer.renderValue(data.value, value, { colorize: true, hover: false, session: expression.getSession() }));
+			data.expression.classList.remove('nested-variable');
+		} else {
+			data.elementDisposable.add(this.expressionRenderer.renderVariable(data, expression as Variable, { showChanged: true, highlights }));
+			data.expression.classList.toggle('nested-variable', isNestedVariable(expression));
+		}
 	}
 
 	protected getInputBoxOptions(expression: IExpression): IInputBoxOptions | undefined {
@@ -219,7 +272,9 @@ export class ReplVariablesRenderer extends AbstractExpressionsRenderer {
 export class ReplRawObjectsRenderer implements ITreeRenderer<RawObjectReplElement, FuzzyScore, IRawObjectReplTemplateData> {
 	static readonly ID = 'rawObject';
 
-	constructor(private readonly linkDetector: LinkDetector) { }
+	constructor(
+		private readonly expressionRenderer: DebugExpressionRenderer,
+	) { }
 
 	get templateId(): string {
 		return ReplRawObjectsRenderer.ID;
@@ -230,13 +285,15 @@ export class ReplRawObjectsRenderer implements ITreeRenderer<RawObjectReplElemen
 
 		const expression = dom.append(container, $('.output.expression'));
 		const name = dom.append(expression, $('span.name'));
-		const label = new HighlightedLabel(name, false);
+		const label = new HighlightedLabel(name);
 		const value = dom.append(expression, $('span.value'));
 
-		return { container, expression, name, label, value };
+		return { container, expression, name, label, value, elementStore: new DisposableStore() };
 	}
 
 	renderElement(node: ITreeNode<RawObjectReplElement, FuzzyScore>, index: number, templateData: IRawObjectReplTemplateData): void {
+		templateData.elementStore.clear();
+
 		// key
 		const element = node.element;
 		templateData.label.set(element.name ? `${element.name}:` : '', createMatches(node.filterData));
@@ -247,24 +304,32 @@ export class ReplRawObjectsRenderer implements ITreeRenderer<RawObjectReplElemen
 		}
 
 		// value
-		renderExpressionValue(element.value, templateData.value, {
-			showHover: false,
-			linkDetector: this.linkDetector
-		});
+		templateData.elementStore.add(this.expressionRenderer.renderValue(templateData.value, element.value, {
+			hover: false,
+			session: node.element.getSession(),
+		}));
 	}
 
 	disposeTemplate(templateData: IRawObjectReplTemplateData): void {
-		// noop
+		templateData.elementStore.dispose();
+		templateData.label.dispose();
 	}
+}
+
+function isNestedVariable(element: IReplElement) {
+	return element instanceof Variable && (element.parent instanceof ReplEvaluationResult || element.parent instanceof Variable);
 }
 
 export class ReplDelegate extends CachedListVirtualDelegate<IReplElement> {
 
-	constructor(private configurationService: IConfigurationService) {
+	constructor(
+		private readonly configurationService: IConfigurationService,
+		private readonly replOptions: IReplOptions
+	) {
 		super();
 	}
 
-	getHeight(element: IReplElement): number {
+	override getHeight(element: IReplElement): number {
 		const config = this.configurationService.getValue<IDebugConfiguration>('debug');
 
 		if (!config.console.wordWrap) {
@@ -274,26 +339,28 @@ export class ReplDelegate extends CachedListVirtualDelegate<IReplElement> {
 		return super.getHeight(element);
 	}
 
+	/**
+	 * With wordWrap enabled, this is an estimate. With wordWrap disabled, this is the real height that the list will use.
+	 */
 	protected estimateHeight(element: IReplElement, ignoreValueLength = false): number {
-		const config = this.configurationService.getValue<IDebugConfiguration>('debug');
-		const rowHeight = Math.ceil(1.4 * config.console.fontSize);
-		const countNumberOfLines = (str: string) => Math.max(1, (str && str.match(/\r\n|\n/g) || []).length);
+		const lineHeight = this.replOptions.replConfiguration.lineHeight;
+		const countNumberOfLines = (str: string) => str.match(/\n/g)?.length ?? 0;
 		const hasValue = (e: any): e is { value: string } => typeof e.value === 'string';
 
-		// Calculate a rough overestimation for the height
-		// For every 30 characters increase the number of lines needed
-		if (hasValue(element)) {
-			let value = element.value;
-			let valueRows = countNumberOfLines(value) + (ignoreValueLength ? 0 : Math.floor(value.length / 30));
+		if (hasValue(element) && !isNestedVariable(element)) {
+			const value = element.value;
+			const valueRows = countNumberOfLines(value)
+				+ (ignoreValueLength ? 0 : Math.floor(value.length / 70)) // Make an estimate for wrapping
+				+ (element instanceof ReplOutputElement ? 0 : 1); // A SimpleReplElement ends in \n if it's a complete line
 
-			return valueRows * rowHeight;
+			return Math.max(valueRows, 1) * lineHeight;
 		}
 
-		return rowHeight;
+		return lineHeight;
 	}
 
 	getTemplateId(element: IReplElement): string {
-		if (element instanceof Variable && element.name) {
+		if (element instanceof Variable || element instanceof ReplVariableElement) {
 			return ReplVariablesRenderer.ID;
 		}
 		if (element instanceof ReplEvaluationResult) {
@@ -302,9 +369,8 @@ export class ReplDelegate extends CachedListVirtualDelegate<IReplElement> {
 		if (element instanceof ReplEvaluationInput) {
 			return ReplEvaluationInputsRenderer.ID;
 		}
-		if (element instanceof SimpleReplElement || (element instanceof Variable && !element.name)) {
-			// Variable with no name is a top level variable which should be rendered like a repl element #17404
-			return ReplSimpleElementsRenderer.ID;
+		if (element instanceof ReplOutputElement) {
+			return ReplOutputElementRenderer.ID;
 		}
 		if (element instanceof ReplGroup) {
 			return ReplGroupRenderer.ID;
@@ -314,6 +380,10 @@ export class ReplDelegate extends CachedListVirtualDelegate<IReplElement> {
 	}
 
 	hasDynamicHeight(element: IReplElement): boolean {
+		if (isNestedVariable(element)) {
+			// Nested variables should always be in one line #111843
+			return false;
+		}
 		// Empty elements should not have dynamic height since they will be invisible
 		return element.toString().length > 0;
 	}
@@ -330,21 +400,15 @@ export class ReplDataSource implements IAsyncDataSource<IDebugSession, IReplElem
 			return true;
 		}
 
-		return !!(<IExpressionContainer | ReplGroup>element).hasChildren;
+		return !!(<IExpressionContainer | INestingReplElement>element).hasChildren;
 	}
 
 	getChildren(element: IReplElement | IDebugSession): Promise<IReplElement[]> {
 		if (isDebugSession(element)) {
 			return Promise.resolve(element.getReplElements());
 		}
-		if (element instanceof RawObjectReplElement) {
-			return element.getChildren();
-		}
-		if (element instanceof ReplGroup) {
-			return Promise.resolve(element.getChildren());
-		}
 
-		return (<IExpression>element).getChildren();
+		return Promise.resolve((<IExpression | INestingReplElement>element).getChildren());
 	}
 }
 
@@ -358,16 +422,53 @@ export class ReplAccessibilityProvider implements IListAccessibilityProvider<IRe
 		if (element instanceof Variable) {
 			return localize('replVariableAriaLabel', "Variable {0}, value {1}", element.name, element.value);
 		}
-		if (element instanceof SimpleReplElement || element instanceof ReplEvaluationInput || element instanceof ReplEvaluationResult) {
-			return localize('replValueOutputAriaLabel', "{0}", element.value);
+		if (element instanceof ReplOutputElement || element instanceof ReplEvaluationInput || element instanceof ReplEvaluationResult) {
+			return element.value + (element instanceof ReplOutputElement && element.count > 1 ? localize({ key: 'occurred', comment: ['Front will the value of the debug console element. Placeholder will be replaced by a number which represents occurrance count.'] },
+				", occurred {0} times", element.count) : '');
 		}
 		if (element instanceof RawObjectReplElement) {
 			return localize('replRawObjectAriaLabel', "Debug console variable {0}, value {1}", element.name, element.value);
 		}
 		if (element instanceof ReplGroup) {
-			return localize('replGroup', "Debug console group {0}, read eval print loop, debug", element.name);
+			return localize('replGroup', "Debug console group {0}", element.name);
 		}
 
 		return '';
+	}
+}
+
+class SourceWidget extends Disposable {
+	private readonly el: HTMLElement;
+	private source?: IReplElementSource;
+	private hover?: IManagedHover;
+
+	constructor(container: HTMLElement,
+		@IEditorService editorService: IEditorService,
+		@IHoverService private readonly hoverService: IHoverService,
+		@ILabelService private readonly labelService: ILabelService,
+	) {
+		super();
+		this.el = dom.append(container, $('.source'));
+		this._register(dom.addDisposableListener(this.el, 'click', e => {
+			e.preventDefault();
+			e.stopPropagation();
+			if (this.source) {
+				this.source.source.openInEditor(editorService, {
+					startLineNumber: this.source.lineNumber,
+					startColumn: this.source.column,
+					endLineNumber: this.source.lineNumber,
+					endColumn: this.source.column
+				});
+			}
+		}));
+
+	}
+
+	public setSource(source?: IReplElementSource) {
+		this.source = source;
+		this.el.textContent = source ? `${basename(source.source.name)}:${source.lineNumber}` : '';
+
+		this.hover ??= this._register(this.hoverService.setupManagedHover(getDefaultHoverDelegate('mouse'), this.el, ''));
+		this.hover.update(source ? `${this.labelService.getUriLabel(source.source.uri)}:${source.lineNumber}` : '');
 	}
 }

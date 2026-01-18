@@ -3,63 +3,75 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IProductConfiguration } from 'vs/platform/product/common/productService';
-import { isWeb } from 'vs/base/common/platform';
-import { env } from 'vs/base/common/process';
-import { FileAccess } from 'vs/base/common/network';
-import { dirname, joinPath } from 'vs/base/common/resources';
+import { env } from '../../../base/common/process.js';
+import { IProductConfiguration } from '../../../base/common/product.js';
+import { ISandboxConfiguration } from '../../../base/parts/sandbox/common/sandboxTypes.js';
 
+/**
+ * @deprecated It is preferred that you use `IProductService` if you can. This
+ * allows web embedders to override our defaults. But for things like `product.quality`,
+ * the use is fine because that property is not overridable.
+ */
 let product: IProductConfiguration;
 
-// Web or Native (sandbox TODO@sandbox need to add all properties of product.json)
-if (isWeb || typeof require === 'undefined' || typeof require.__$__nodeRequire !== 'function') {
-
-	// Built time configuration (do NOT modify)
-	product = { /*BUILD->INSERT_PRODUCT_CONFIGURATION*/ } as IProductConfiguration;
-
-	// Running out of sources
-	if (Object.keys(product).length === 0) {
-		Object.assign(product, {
-			version: '1.51.0-dev',
-			nameShort: isWeb ? 'Code Web - OSS Dev' : 'Code - OSS Dev',
-			nameLong: isWeb ? 'Code Web - OSS Dev' : 'Code - OSS Dev',
-			applicationName: 'code-oss',
-			dataFolderName: '.vscode-oss',
-			urlProtocol: 'code-oss',
-			reportIssueUrl: 'https://github.com/microsoft/vscode/issues/new',
-			licenseName: 'MIT',
-			licenseUrl: 'https://github.com/microsoft/vscode/blob/master/LICENSE.txt',
-			extensionAllowedProposedApi: [
-				'ms-vscode.vscode-js-profile-flame',
-				'ms-vscode.vscode-js-profile-table',
-				'ms-vscode.references-view',
-				'ms-vscode.github-browser'
-			],
-		});
+// Native sandbox environment
+const vscodeGlobal = (globalThis as any).vscode;
+if (typeof vscodeGlobal !== 'undefined' && typeof vscodeGlobal.context !== 'undefined') {
+	const configuration: ISandboxConfiguration | undefined = vscodeGlobal.context.configuration();
+	if (configuration) {
+		product = configuration.product;
+	} else {
+		throw new Error('Sandbox: unable to resolve product configuration from preload script.');
 	}
 }
-
-// Native (non-sandboxed)
-else {
-
-	// Obtain values from product.json and package.json
-	const rootPath = dirname(FileAccess.asFileUri('', require));
-
-	product = require.__$__nodeRequire(joinPath(rootPath, 'product.json').fsPath);
-	const pkg = require.__$__nodeRequire(joinPath(rootPath, 'package.json').fsPath) as { version: string; };
+// _VSCODE environment
+else if (globalThis._VSCODE_PRODUCT_JSON && globalThis._VSCODE_PACKAGE_JSON) {
+	// Obtain values from product.json and package.json-data
+	product = globalThis._VSCODE_PRODUCT_JSON as unknown as IProductConfiguration;
 
 	// Running out of sources
 	if (env['VSCODE_DEV']) {
 		Object.assign(product, {
 			nameShort: `${product.nameShort} Dev`,
 			nameLong: `${product.nameLong} Dev`,
-			dataFolderName: `${product.dataFolderName}-dev`
+			dataFolderName: `${product.dataFolderName}-dev`,
+			serverDataFolderName: product.serverDataFolderName ? `${product.serverDataFolderName}-dev` : undefined
 		});
 	}
 
-	Object.assign(product, {
-		version: pkg.version
-	});
+	// Version is added during built time, but we still
+	// want to have it running out of sources so we
+	// read it from package.json only when we need it.
+	if (!product.version) {
+		const pkg = globalThis._VSCODE_PACKAGE_JSON as { version: string };
+
+		Object.assign(product, {
+			version: pkg.version
+		});
+	}
+}
+
+// Web environment or unknown
+else {
+
+	// Built time configuration (do NOT modify)
+	product = { /*BUILD->INSERT_PRODUCT_CONFIGURATION*/ } as any;
+
+	// Running out of sources
+	if (Object.keys(product).length === 0) {
+		Object.assign(product, {
+			version: '1.95.0-dev',
+			nameShort: 'Code - OSS Dev',
+			nameLong: 'Code - OSS Dev',
+			applicationName: 'code-oss',
+			dataFolderName: '.vscode-oss',
+			urlProtocol: 'code-oss',
+			reportIssueUrl: 'https://github.com/microsoft/vscode/issues/new',
+			licenseName: 'MIT',
+			licenseUrl: 'https://github.com/microsoft/vscode/blob/main/LICENSE.txt',
+			serverLicenseUrl: 'https://github.com/microsoft/vscode/blob/main/LICENSE.txt'
+		});
+	}
 }
 
 export default product;

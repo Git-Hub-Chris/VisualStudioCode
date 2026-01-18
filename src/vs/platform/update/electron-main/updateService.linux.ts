@@ -3,35 +3,33 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import product from 'vs/platform/product/common/product';
-import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { ILifecycleMainService } from 'vs/platform/lifecycle/electron-main/lifecycleMainService';
-import { State, IUpdate, AvailableForDownload, UpdateType } from 'vs/platform/update/common/update';
-import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
-import { IEnvironmentMainService } from 'vs/platform/environment/electron-main/environmentMainService';
-import { ILogService } from 'vs/platform/log/common/log';
-import { createUpdateURL, AbstractUpdateService, UpdateNotAvailableClassification } from 'vs/platform/update/electron-main/abstractUpdateService';
-import { IRequestService, asJson } from 'vs/platform/request/common/request';
-import { shell } from 'electron';
-import { CancellationToken } from 'vs/base/common/cancellation';
+import { CancellationToken } from '../../../base/common/cancellation.js';
+import { IConfigurationService } from '../../configuration/common/configuration.js';
+import { IEnvironmentMainService } from '../../environment/electron-main/environmentMainService.js';
+import { ILifecycleMainService } from '../../lifecycle/electron-main/lifecycleMainService.js';
+import { ILogService } from '../../log/common/log.js';
+import { INativeHostMainService } from '../../native/electron-main/nativeHostMainService.js';
+import { IProductService } from '../../product/common/productService.js';
+import { asJson, IRequestService } from '../../request/common/request.js';
+import { AvailableForDownload, IUpdate, State, UpdateType } from '../common/update.js';
+import { AbstractUpdateService, createUpdateURL } from './abstractUpdateService.js';
 
 export class LinuxUpdateService extends AbstractUpdateService {
-
-	declare readonly _serviceBrand: undefined;
 
 	constructor(
 		@ILifecycleMainService lifecycleMainService: ILifecycleMainService,
 		@IConfigurationService configurationService: IConfigurationService,
-		@ITelemetryService private readonly telemetryService: ITelemetryService,
-		@IEnvironmentMainService environmentService: IEnvironmentMainService,
+		@IEnvironmentMainService environmentMainService: IEnvironmentMainService,
 		@IRequestService requestService: IRequestService,
-		@ILogService logService: ILogService
+		@ILogService logService: ILogService,
+		@INativeHostMainService private readonly nativeHostMainService: INativeHostMainService,
+		@IProductService productService: IProductService
 	) {
-		super(lifecycleMainService, configurationService, environmentService, requestService, logService);
+		super(lifecycleMainService, configurationService, environmentMainService, requestService, logService, productService);
 	}
 
 	protected buildUpdateFeedUrl(quality: string): string {
-		return createUpdateURL(`linux-${process.arch}`, quality);
+		return createUpdateURL(`linux-${process.arch}`, quality, this.productService);
 	}
 
 	protected doCheckForUpdates(context: any): void {
@@ -44,8 +42,6 @@ export class LinuxUpdateService extends AbstractUpdateService {
 			.then<IUpdate | null>(asJson)
 			.then(update => {
 				if (!update || !update.url || !update.version || !update.productVersion) {
-					this.telemetryService.publicLog2<{ explicit: boolean }, UpdateNotAvailableClassification>('update:notAvailable', { explicit: !!context });
-
 					this.setState(State.Idle(UpdateType.Archive));
 				} else {
 					this.setState(State.AvailableForDownload(update));
@@ -53,20 +49,19 @@ export class LinuxUpdateService extends AbstractUpdateService {
 			})
 			.then(undefined, err => {
 				this.logService.error(err);
-				this.telemetryService.publicLog2<{ explicit: boolean }, UpdateNotAvailableClassification>('update:notAvailable', { explicit: !!context });
 				// only show message when explicitly checking for updates
 				const message: string | undefined = !!context ? (err.message || err) : undefined;
 				this.setState(State.Idle(UpdateType.Archive, message));
 			});
 	}
 
-	protected async doDownloadUpdate(state: AvailableForDownload): Promise<void> {
+	protected override async doDownloadUpdate(state: AvailableForDownload): Promise<void> {
 		// Use the download URL if available as we don't currently detect the package type that was
 		// installed and the website download page is more useful than the tarball generally.
-		if (product.downloadUrl && product.downloadUrl.length > 0) {
-			shell.openExternal(product.downloadUrl);
+		if (this.productService.downloadUrl && this.productService.downloadUrl.length > 0) {
+			this.nativeHostMainService.openExternal(undefined, this.productService.downloadUrl);
 		} else if (state.update.url) {
-			shell.openExternal(state.update.url);
+			this.nativeHostMainService.openExternal(undefined, state.update.url);
 		}
 
 		this.setState(State.Idle(UpdateType.Archive));

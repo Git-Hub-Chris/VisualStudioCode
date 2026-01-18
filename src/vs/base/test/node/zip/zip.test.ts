@@ -3,26 +3,32 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as assert from 'assert';
-import * as path from 'vs/base/common/path';
-import * as os from 'os';
-import { extract } from 'vs/base/node/zip';
-import { generateUuid } from 'vs/base/common/uuid';
-import { rimraf, exists } from 'vs/base/node/pfs';
-import { getPathFromAmdModule } from 'vs/base/common/amd';
-import { createCancelablePromise } from 'vs/base/common/async';
-
-const fixtures = getPathFromAmdModule(require, './fixtures');
+import * as fs from 'fs';
+import assert from 'assert';
+import { tmpdir } from 'os';
+import { createCancelablePromise } from '../../../common/async.js';
+import { FileAccess } from '../../../common/network.js';
+import * as path from '../../../common/path.js';
+import { Promises } from '../../../node/pfs.js';
+import { extract } from '../../../node/zip.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../common/utils.js';
+import { getRandomTestPath } from '../testUtils.js';
 
 suite('Zip', () => {
 
-	test('extract should handle directories', () => {
-		const fixture = path.join(fixtures, 'extract.zip');
-		const target = path.join(os.tmpdir(), generateUuid());
+	ensureNoDisposablesAreLeakedInTestSuite();
 
-		return createCancelablePromise(token => extract(fixture, target, {}, token)
-			.then(() => exists(path.join(target, 'extension')))
-			.then(exists => assert(exists))
-			.then(() => rimraf(target)));
+	test('extract should handle directories', async () => {
+		const testDir = getRandomTestPath(tmpdir(), 'vsctests', 'zip');
+		await fs.promises.mkdir(testDir, { recursive: true });
+
+		const fixtures = FileAccess.asFileUri('vs/base/test/node/zip/fixtures').fsPath;
+		const fixture = path.join(fixtures, 'extract.zip');
+
+		await createCancelablePromise(token => extract(fixture, testDir, {}, token));
+		const doesExist = await Promises.exists(path.join(testDir, 'extension'));
+		assert(doesExist);
+
+		await Promises.rm(testDir);
 	});
 });

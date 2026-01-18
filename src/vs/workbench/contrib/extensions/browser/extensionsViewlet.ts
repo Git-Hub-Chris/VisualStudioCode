@@ -3,84 +3,105 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import 'vs/css!./media/extensionsViewlet';
-import { localize } from 'vs/nls';
-import { timeout, Delayer } from 'vs/base/common/async';
-import { isPromiseCanceledError } from 'vs/base/common/errors';
-import { IWorkbenchContribution } from 'vs/workbench/common/contributions';
-import { Disposable, MutableDisposable } from 'vs/base/common/lifecycle';
-import { Event as EventOf, Emitter } from 'vs/base/common/event';
-import { IAction, Action, Separator, SubmenuAction } from 'vs/base/common/actions';
-import { IViewlet } from 'vs/workbench/common/viewlet';
-import { IViewletService } from 'vs/workbench/services/viewlet/browser/viewlet';
-import { append, $, Dimension, hide, show } from 'vs/base/browser/dom';
-import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
-import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
-import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
-import { IExtensionsWorkbenchService, IExtensionsViewPaneContainer, VIEWLET_ID, AutoUpdateConfigurationKey, CloseExtensionDetailsOnViewChangeKey } from '../common/extensions';
-import {
-	ClearExtensionsInputAction, ChangeSortAction, UpdateAllAction, CheckForUpdatesAction, DisableAllAction, EnableAllAction,
-	EnableAutoUpdateAction, DisableAutoUpdateAction, ShowBuiltInExtensionsAction, InstallVSIXAction, SearchCategoryAction,
-	RecentlyPublishedExtensionsAction, ShowInstalledExtensionsAction, ShowOutdatedExtensionsAction, ShowDisabledExtensionsAction,
-	ShowEnabledExtensionsAction, PredefinedExtensionFilterAction
-} from 'vs/workbench/contrib/extensions/browser/extensionsActions';
-import { IExtensionManagementService, IExtensionGalleryService } from 'vs/platform/extensionManagement/common/extensionManagement';
-import { IWorkbenchExtensionEnablementService, IExtensionManagementServerService, IExtensionManagementServer } from 'vs/workbench/services/extensionManagement/common/extensionManagement';
-import { ExtensionsInput } from 'vs/workbench/contrib/extensions/common/extensionsInput';
-import { ExtensionsListView, EnabledExtensionsView, DisabledExtensionsView, RecommendedExtensionsView, WorkspaceRecommendedExtensionsView, BuiltInFeatureExtensionsView, BuiltInThemesExtensionsView, BuiltInProgrammingLanguageExtensionsView, ServerExtensionsView, DefaultRecommendedExtensionsView, OutdatedExtensionsView, InstalledExtensionsView, SearchBuiltInExtensionsView } from 'vs/workbench/contrib/extensions/browser/extensionsViews';
-import { IProgressService, ProgressLocation } from 'vs/platform/progress/common/progress';
-import { IEditorGroupsService } from 'vs/workbench/services/editor/common/editorGroupsService';
-import Severity from 'vs/base/common/severity';
-import { IActivityService, NumberBadge } from 'vs/workbench/services/activity/common/activity';
-import { IThemeService } from 'vs/platform/theme/common/themeService';
-import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { IViewsRegistry, IViewDescriptor, Extensions, ViewContainer, IViewDescriptorService, IAddedViewDescriptorRef } from 'vs/workbench/common/views';
-import { IStorageService, StorageScope } from 'vs/platform/storage/common/storage';
-import { IWorkspaceContextService } from 'vs/platform/workspace/common/workspace';
-import { IContextKeyService, ContextKeyExpr, RawContextKey, IContextKey } from 'vs/platform/contextkey/common/contextkey';
-import { IContextMenuService } from 'vs/platform/contextview/browser/contextView';
-import { getMaliciousExtensionsSet } from 'vs/platform/extensionManagement/common/extensionManagementUtil';
-import { ILogService } from 'vs/platform/log/common/log';
-import { INotificationService } from 'vs/platform/notification/common/notification';
-import { IHostService } from 'vs/workbench/services/host/browser/host';
-import { IWorkbenchLayoutService } from 'vs/workbench/services/layout/browser/layoutService';
-import { ViewPane, ViewPaneContainer } from 'vs/workbench/browser/parts/views/viewPaneContainer';
-import { Query } from 'vs/workbench/contrib/extensions/common/extensionQuery';
-import { SuggestEnabledInput, attachSuggestEnabledInputBoxStyler } from 'vs/workbench/contrib/codeEditor/browser/suggestEnabledInput/suggestEnabledInput';
-import { alert } from 'vs/base/browser/ui/aria/aria';
-import { createErrorWithActions } from 'vs/base/common/errorsWithActions';
-import { ExtensionType, EXTENSION_CATEGORIES } from 'vs/platform/extensions/common/extensions';
-import { Registry } from 'vs/platform/registry/common/platform';
-import { ILabelService } from 'vs/platform/label/common/label';
-import { MementoObject } from 'vs/workbench/common/memento';
-import { SyncDescriptor } from 'vs/platform/instantiation/common/descriptors';
-import { IPreferencesService } from 'vs/workbench/services/preferences/common/preferences';
-import { DragAndDropObserver } from 'vs/workbench/browser/dnd';
-import { URI } from 'vs/base/common/uri';
-import { SIDE_BAR_DRAG_AND_DROP_BACKGROUND } from 'vs/workbench/common/theme';
-import { IWorkbenchEnvironmentService } from 'vs/workbench/services/environment/common/environmentService';
-import { WorkbenchStateContext } from 'vs/workbench/browser/contextkeys';
+import './media/extensionsViewlet.css';
+import { localize, localize2 } from '../../../../nls.js';
+import { timeout, Delayer } from '../../../../base/common/async.js';
+import { isCancellationError } from '../../../../base/common/errors.js';
+import { createErrorWithActions } from '../../../../base/common/errorMessage.js';
+import { IWorkbenchContribution } from '../../../common/contributions.js';
+import { Disposable, DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
+import { Event } from '../../../../base/common/event.js';
+import { Action } from '../../../../base/common/actions.js';
+import { append, $, Dimension, hide, show, DragAndDropObserver, trackFocus, addDisposableListener, EventType, clearNode } from '../../../../base/browser/dom.js';
+import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
+import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { IExtensionService } from '../../../services/extensions/common/extensions.js';
+import { IExtensionsWorkbenchService, IExtensionsViewPaneContainer, VIEWLET_ID, CloseExtensionDetailsOnViewChangeKey, INSTALL_EXTENSION_FROM_VSIX_COMMAND_ID, WORKSPACE_RECOMMENDATIONS_VIEW_ID, AutoCheckUpdatesConfigurationKey, OUTDATED_EXTENSIONS_VIEW_ID, CONTEXT_HAS_GALLERY, extensionsSearchActionsMenu, AutoRestartConfigurationKey, ExtensionRuntimeActionType } from '../common/extensions.js';
+import { InstallLocalExtensionsInRemoteAction, InstallRemoteExtensionsInLocalAction } from './extensionsActions.js';
+import { IExtensionManagementService, ILocalExtension } from '../../../../platform/extensionManagement/common/extensionManagement.js';
+import { IWorkbenchExtensionEnablementService, IExtensionManagementServerService, IExtensionManagementServer } from '../../../services/extensionManagement/common/extensionManagement.js';
+import { ExtensionsInput } from '../common/extensionsInput.js';
+import { ExtensionsListView, EnabledExtensionsView, DisabledExtensionsView, RecommendedExtensionsView, WorkspaceRecommendedExtensionsView, ServerInstalledExtensionsView, DefaultRecommendedExtensionsView, UntrustedWorkspaceUnsupportedExtensionsView, UntrustedWorkspacePartiallySupportedExtensionsView, VirtualWorkspaceUnsupportedExtensionsView, VirtualWorkspacePartiallySupportedExtensionsView, DefaultPopularExtensionsView, DeprecatedExtensionsView, SearchMarketplaceExtensionsView, RecentlyUpdatedExtensionsView, OutdatedExtensionsView, StaticQueryExtensionsView, NONE_CATEGORY } from './extensionsViews.js';
+import { IProgressService, ProgressLocation } from '../../../../platform/progress/common/progress.js';
+import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
+import Severity from '../../../../base/common/severity.js';
+import { IActivityService, IBadge, NumberBadge, WarningBadge } from '../../../services/activity/common/activity.js';
+import { IThemeService } from '../../../../platform/theme/common/themeService.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IViewsRegistry, IViewDescriptor, Extensions, ViewContainer, IViewDescriptorService, IAddedViewDescriptorRef, ViewContainerLocation } from '../../../common/views.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IContextKeyService, ContextKeyExpr, RawContextKey, IContextKey } from '../../../../platform/contextkey/common/contextkey.js';
+import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
+import { INotificationService, NotificationPriority } from '../../../../platform/notification/common/notification.js';
+import { IHostService } from '../../../services/host/browser/host.js';
+import { IWorkbenchLayoutService } from '../../../services/layout/browser/layoutService.js';
+import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
+import { ViewPane } from '../../../browser/parts/views/viewPane.js';
+import { Query } from '../common/extensionQuery.js';
+import { SuggestEnabledInput } from '../../codeEditor/browser/suggestEnabledInput/suggestEnabledInput.js';
+import { alert } from '../../../../base/browser/ui/aria/aria.js';
+import { EXTENSION_CATEGORIES } from '../../../../platform/extensions/common/extensions.js';
+import { Registry } from '../../../../platform/registry/common/platform.js';
+import { ILabelService } from '../../../../platform/label/common/label.js';
+import { MementoObject } from '../../../common/memento.js';
+import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
+import { IPreferencesService } from '../../../services/preferences/common/preferences.js';
+import { SIDE_BAR_DRAG_AND_DROP_BACKGROUND } from '../../../common/theme.js';
+import { VirtualWorkspaceContext, WorkbenchStateContext } from '../../../common/contextkeys.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { installLocalInRemoteIcon } from './extensionsIcons.js';
+import { registerAction2, Action2, MenuId } from '../../../../platform/actions/common/actions.js';
+import { IPaneComposite } from '../../../common/panecomposite.js';
+import { IPaneCompositePartService } from '../../../services/panecomposite/browser/panecomposite.js';
+import { coalesce } from '../../../../base/common/arrays.js';
+import { extractEditorsAndFilesDropData } from '../../../../platform/dnd/browser/dnd.js';
+import { extname } from '../../../../base/common/resources.js';
+import { ILocalizedString } from '../../../../platform/action/common/action.js';
+import { registerNavigableContainer } from '../../../browser/actions/widgetNavigationCommands.js';
+import { MenuWorkbenchToolBar } from '../../../../platform/actions/browser/toolbar.js';
+import { createActionViewItem } from '../../../../platform/actions/browser/menuEntryActionViewItem.js';
+import { SeverityIcon } from '../../../../base/browser/ui/severityIcon/severityIcon.js';
+import { StandardKeyboardEvent } from '../../../../base/browser/keyboardEvent.js';
+import { KeyCode } from '../../../../base/common/keyCodes.js';
+import { ThemeIcon } from '../../../../base/common/themables.js';
+import { Codicon } from '../../../../base/common/codicons.js';
 
-const DefaultViewsContext = new RawContextKey<boolean>('defaultExtensionViews', true);
-const SearchMarketplaceExtensionsContext = new RawContextKey<boolean>('searchMarketplaceExtensions', false);
-const SearchIntalledExtensionsContext = new RawContextKey<boolean>('searchInstalledExtensions', false);
+export const DefaultViewsContext = new RawContextKey<boolean>('defaultExtensionViews', true);
+export const ExtensionsSortByContext = new RawContextKey<string>('extensionsSortByValue', '');
+export const SearchMarketplaceExtensionsContext = new RawContextKey<boolean>('searchMarketplaceExtensions', false);
+export const SearchHasTextContext = new RawContextKey<boolean>('extensionSearchHasText', false);
+const InstalledExtensionsContext = new RawContextKey<boolean>('installedExtensions', false);
+const SearchInstalledExtensionsContext = new RawContextKey<boolean>('searchInstalledExtensions', false);
+const SearchRecentlyUpdatedExtensionsContext = new RawContextKey<boolean>('searchRecentlyUpdatedExtensions', false);
+const SearchExtensionUpdatesContext = new RawContextKey<boolean>('searchExtensionUpdates', false);
 const SearchOutdatedExtensionsContext = new RawContextKey<boolean>('searchOutdatedExtensions', false);
 const SearchEnabledExtensionsContext = new RawContextKey<boolean>('searchEnabledExtensions', false);
 const SearchDisabledExtensionsContext = new RawContextKey<boolean>('searchDisabledExtensions', false);
 const HasInstalledExtensionsContext = new RawContextKey<boolean>('hasInstalledExtensions', true);
-const BuiltInExtensionsContext = new RawContextKey<boolean>('builtInExtensions', false);
+export const BuiltInExtensionsContext = new RawContextKey<boolean>('builtInExtensions', false);
 const SearchBuiltInExtensionsContext = new RawContextKey<boolean>('searchBuiltInExtensions', false);
-const RecommendedExtensionsContext = new RawContextKey<boolean>('recommendedExtensions', false);
+const SearchUnsupportedWorkspaceExtensionsContext = new RawContextKey<boolean>('searchUnsupportedWorkspaceExtensions', false);
+const SearchDeprecatedExtensionsContext = new RawContextKey<boolean>('searchDeprecatedExtensions', false);
+export const RecommendedExtensionsContext = new RawContextKey<boolean>('recommendedExtensions', false);
+const SortByUpdateDateContext = new RawContextKey<boolean>('sortByUpdateDate', false);
+export const ExtensionsSearchValueContext = new RawContextKey<string>('extensionsSearchValue', '');
 
-export class ExtensionsViewletViewsContribution implements IWorkbenchContribution {
+const REMOTE_CATEGORY: ILocalizedString = localize2({ key: 'remote', comment: ['Remote as in remote machine'] }, "Remote");
+
+export class ExtensionsViewletViewsContribution extends Disposable implements IWorkbenchContribution {
 
 	private readonly container: ViewContainer;
 
 	constructor(
 		@IExtensionManagementServerService private readonly extensionManagementServerService: IExtensionManagementServerService,
 		@ILabelService private readonly labelService: ILabelService,
-		@IViewDescriptorService viewDescriptorService: IViewDescriptorService
+		@IViewDescriptorService viewDescriptorService: IViewDescriptorService,
+		@IContextKeyService private readonly contextKeyService: IContextKeyService
 	) {
+		super();
+
 		this.container = viewDescriptorService.getViewContainerById(VIEWLET_ID)!;
 		this.registerViews();
 	}
@@ -100,25 +121,17 @@ export class ExtensionsViewletViewsContribution implements IWorkbenchContributio
 		/* Built-in extensions views */
 		viewDescriptors.push(...this.createBuiltinExtensionsViewDescriptors());
 
+		/* Trust Required extensions views */
+		viewDescriptors.push(...this.createUnsupportedWorkspaceExtensionsViewDescriptors());
+
+		/* Other Local Filtered extensions views */
+		viewDescriptors.push(...this.createOtherLocalFilteredExtensionsViewDescriptors());
+
 		Registry.as<IViewsRegistry>(Extensions.ViewsRegistry).registerViews(viewDescriptors, this.container);
 	}
 
 	private createDefaultExtensionsViewDescriptors(): IViewDescriptor[] {
 		const viewDescriptors: IViewDescriptor[] = [];
-
-		/*
-		 * Default popular extensions view
-		 * Separate view for popular extensions required as we need to show popular and recommended sections
-		 * in the default view when there is no search text, and user has no installed extensions.
-		 */
-		viewDescriptors.push({
-			id: 'workbench.views.extensions.popular',
-			name: localize('popularExtensions', "Popular"),
-			ctorDescriptor: new SyncDescriptor(ExtensionsListView),
-			when: ContextKeyExpr.and(ContextKeyExpr.has('defaultExtensionViews'), ContextKeyExpr.not('hasInstalledExtensions')),
-			weight: 60,
-			order: 1,
-		});
 
 		/*
 		 * Default installed extensions views - Shows all user installed extensions.
@@ -127,33 +140,98 @@ export class ExtensionsViewletViewsContribution implements IWorkbenchContributio
 		if (this.extensionManagementServerService.localExtensionManagementServer) {
 			servers.push(this.extensionManagementServerService.localExtensionManagementServer);
 		}
-		if (this.extensionManagementServerService.webExtensionManagementServer) {
-			servers.push(this.extensionManagementServerService.webExtensionManagementServer);
-		}
 		if (this.extensionManagementServerService.remoteExtensionManagementServer) {
 			servers.push(this.extensionManagementServerService.remoteExtensionManagementServer);
 		}
+		if (this.extensionManagementServerService.webExtensionManagementServer) {
+			servers.push(this.extensionManagementServerService.webExtensionManagementServer);
+		}
 		const getViewName = (viewTitle: string, server: IExtensionManagementServer): string => {
-			if (servers.length) {
-				const serverLabel = server === this.extensionManagementServerService.webExtensionManagementServer && !this.extensionManagementServerService.localExtensionManagementServer ? localize('local', "Local") : server.label;
-				return servers.length > 1 ? `${serverLabel} - ${viewTitle}` : viewTitle;
-			}
-			return viewTitle;
+			return servers.length > 1 ? `${server.label} - ${viewTitle}` : viewTitle;
 		};
+		let installedWebExtensionsContextChangeEvent = Event.None;
+		if (this.extensionManagementServerService.webExtensionManagementServer && this.extensionManagementServerService.remoteExtensionManagementServer) {
+			const interestingContextKeys = new Set();
+			interestingContextKeys.add('hasInstalledWebExtensions');
+			installedWebExtensionsContextChangeEvent = Event.filter(this.contextKeyService.onDidChangeContext, e => e.affectsSome(interestingContextKeys));
+		}
+		const serverLabelChangeEvent = Event.any(this.labelService.onDidChangeFormatters, installedWebExtensionsContextChangeEvent);
 		for (const server of servers) {
 			const getInstalledViewName = (): string => getViewName(localize('installed', "Installed"), server);
-			const onDidChangeServerLabel: EventOf<void> = EventOf.map(this.labelService.onDidChangeFormatters, () => undefined);
+			const onDidChangeTitle = Event.map<void, string>(serverLabelChangeEvent, () => getInstalledViewName());
+			const id = servers.length > 1 ? `workbench.views.extensions.${server.id}.installed` : `workbench.views.extensions.installed`;
+			/* Installed extensions view */
 			viewDescriptors.push({
-				id: servers.length > 1 ? `workbench.views.extensions.${server.id}.installed` : `workbench.views.extensions.installed`,
-				get name() { return getInstalledViewName(); },
-				ctorDescriptor: new SyncDescriptor(ServerExtensionsView, [server, EventOf.map<void, string>(onDidChangeServerLabel, () => getInstalledViewName())]),
-				when: ContextKeyExpr.and(ContextKeyExpr.has('defaultExtensionViews'), ContextKeyExpr.has('hasInstalledExtensions')),
+				id,
+				get name() {
+					return {
+						value: getInstalledViewName(),
+						original: getViewName('Installed', server)
+					};
+				},
 				weight: 100,
-				order: 2,
-				/* Installed extensions views shall not be hidden when there are more than one server */
+				order: 1,
+				when: ContextKeyExpr.and(DefaultViewsContext),
+				ctorDescriptor: new SyncDescriptor(ServerInstalledExtensionsView, [{ server, flexibleHeight: true, onDidChangeTitle }]),
+				/* Installed extensions views shall not be allowed to hidden when there are more than one server */
 				canToggleVisibility: servers.length === 1
 			});
+
+			if (server === this.extensionManagementServerService.remoteExtensionManagementServer && this.extensionManagementServerService.localExtensionManagementServer) {
+				this._register(registerAction2(class InstallLocalExtensionsInRemoteAction2 extends Action2 {
+					constructor() {
+						super({
+							id: 'workbench.extensions.installLocalExtensions',
+							get title() {
+								return localize2('select and install local extensions', "Install Local Extensions in '{0}'...", server.label);
+							},
+							category: REMOTE_CATEGORY,
+							icon: installLocalInRemoteIcon,
+							f1: true,
+							menu: {
+								id: MenuId.ViewTitle,
+								when: ContextKeyExpr.equals('view', id),
+								group: 'navigation',
+							}
+						});
+					}
+					run(accessor: ServicesAccessor): Promise<void> {
+						return accessor.get(IInstantiationService).createInstance(InstallLocalExtensionsInRemoteAction).run();
+					}
+				}));
+			}
 		}
+
+		if (this.extensionManagementServerService.localExtensionManagementServer && this.extensionManagementServerService.remoteExtensionManagementServer) {
+			this._register(registerAction2(class InstallRemoteExtensionsInLocalAction2 extends Action2 {
+				constructor() {
+					super({
+						id: 'workbench.extensions.actions.installLocalExtensionsInRemote',
+						title: localize2('install remote in local', 'Install Remote Extensions Locally...'),
+						category: REMOTE_CATEGORY,
+						f1: true
+					});
+				}
+				run(accessor: ServicesAccessor): Promise<void> {
+					return accessor.get(IInstantiationService).createInstance(InstallRemoteExtensionsInLocalAction, 'workbench.extensions.actions.installLocalExtensionsInRemote').run();
+				}
+			}));
+		}
+
+		/*
+		 * Default popular extensions view
+		 * Separate view for popular extensions required as we need to show popular and recommended sections
+		 * in the default view when there is no search text, and user has no installed extensions.
+		 */
+		viewDescriptors.push({
+			id: 'workbench.views.extensions.popular',
+			name: localize2('popularExtensions', "Popular"),
+			ctorDescriptor: new SyncDescriptor(DefaultPopularExtensionsView, [{ hideBadge: true }]),
+			when: ContextKeyExpr.and(DefaultViewsContext, ContextKeyExpr.not('hasInstalledExtensions'), CONTEXT_HAS_GALLERY),
+			weight: 60,
+			order: 2,
+			canToggleVisibility: false
+		});
 
 		/*
 		 * Default recommended extensions view
@@ -162,9 +240,9 @@ export class ExtensionsViewletViewsContribution implements IWorkbenchContributio
 		 */
 		viewDescriptors.push({
 			id: 'extensions.recommendedList',
-			name: localize('recommendedExtensions', "Recommended"),
-			ctorDescriptor: new SyncDescriptor(DefaultRecommendedExtensionsView),
-			when: ContextKeyExpr.and(ContextKeyExpr.has('defaultExtensionViews'), ContextKeyExpr.not('config.extensions.showRecommendationsOnlyOnDemand')),
+			name: localize2('recommendedExtensions', "Recommended"),
+			ctorDescriptor: new SyncDescriptor(DefaultRecommendedExtensionsView, [{ flexibleHeight: true }]),
+			when: ContextKeyExpr.and(DefaultViewsContext, SortByUpdateDateContext.negate(), ContextKeyExpr.not('config.extensions.showRecommendationsOnlyOnDemand'), CONTEXT_HAS_GALLERY),
 			weight: 40,
 			order: 3,
 			canToggleVisibility: true
@@ -178,9 +256,9 @@ export class ExtensionsViewletViewsContribution implements IWorkbenchContributio
 			 */
 			viewDescriptors.push({
 				id: 'workbench.views.extensions.enabled',
-				name: localize('enabledExtensions', "Enabled"),
-				ctorDescriptor: new SyncDescriptor(EnabledExtensionsView),
-				when: ContextKeyExpr.and(ContextKeyExpr.has('defaultExtensionViews'), ContextKeyExpr.has('hasInstalledExtensions')),
+				name: localize2('enabledExtensions', "Enabled"),
+				ctorDescriptor: new SyncDescriptor(EnabledExtensionsView, [{}]),
+				when: ContextKeyExpr.and(DefaultViewsContext, ContextKeyExpr.has('hasInstalledExtensions')),
 				hideByDefault: true,
 				weight: 40,
 				order: 4,
@@ -193,9 +271,9 @@ export class ExtensionsViewletViewsContribution implements IWorkbenchContributio
 			 */
 			viewDescriptors.push({
 				id: 'workbench.views.extensions.disabled',
-				name: localize('disabledExtensions', "Disabled"),
-				ctorDescriptor: new SyncDescriptor(DisabledExtensionsView),
-				when: ContextKeyExpr.and(ContextKeyExpr.has('defaultExtensionViews'), ContextKeyExpr.has('hasInstalledExtensions')),
+				name: localize2('disabledExtensions', "Disabled"),
+				ctorDescriptor: new SyncDescriptor(DisabledExtensionsView, [{}]),
+				when: ContextKeyExpr.and(DefaultViewsContext, ContextKeyExpr.has('hasInstalledExtensions')),
 				hideByDefault: true,
 				weight: 10,
 				order: 5,
@@ -215,8 +293,8 @@ export class ExtensionsViewletViewsContribution implements IWorkbenchContributio
 		 */
 		viewDescriptors.push({
 			id: 'workbench.views.extensions.marketplace',
-			name: localize('marketPlace', "Marketplace"),
-			ctorDescriptor: new SyncDescriptor(ExtensionsListView),
+			name: localize2('marketPlace', "Marketplace"),
+			ctorDescriptor: new SyncDescriptor(SearchMarketplaceExtensionsView, [{}]),
 			when: ContextKeyExpr.and(ContextKeyExpr.has('searchMarketplaceExtensions')),
 		});
 
@@ -225,9 +303,20 @@ export class ExtensionsViewletViewsContribution implements IWorkbenchContributio
 		 */
 		viewDescriptors.push({
 			id: 'workbench.views.extensions.searchInstalled',
-			name: localize('installed', "Installed"),
-			ctorDescriptor: new SyncDescriptor(InstalledExtensionsView),
-			when: ContextKeyExpr.and(ContextKeyExpr.has('searchInstalledExtensions')),
+			name: localize2('installed', "Installed"),
+			ctorDescriptor: new SyncDescriptor(ExtensionsListView, [{}]),
+			when: ContextKeyExpr.or(ContextKeyExpr.has('searchInstalledExtensions'), ContextKeyExpr.has('installedExtensions')),
+		});
+
+		/*
+		 * View used for searching recently updated extensions
+		 */
+		viewDescriptors.push({
+			id: 'workbench.views.extensions.searchRecentlyUpdated',
+			name: localize2('recently updated', "Recently Updated"),
+			ctorDescriptor: new SyncDescriptor(RecentlyUpdatedExtensionsView, [{}]),
+			when: ContextKeyExpr.or(SearchExtensionUpdatesContext, ContextKeyExpr.has('searchRecentlyUpdatedExtensions')),
+			order: 2,
 		});
 
 		/*
@@ -235,8 +324,8 @@ export class ExtensionsViewletViewsContribution implements IWorkbenchContributio
 		 */
 		viewDescriptors.push({
 			id: 'workbench.views.extensions.searchEnabled',
-			name: localize('enabled', "Enabled"),
-			ctorDescriptor: new SyncDescriptor(EnabledExtensionsView),
+			name: localize2('enabled', "Enabled"),
+			ctorDescriptor: new SyncDescriptor(ExtensionsListView, [{}]),
 			when: ContextKeyExpr.and(ContextKeyExpr.has('searchEnabledExtensions')),
 		});
 
@@ -245,8 +334,8 @@ export class ExtensionsViewletViewsContribution implements IWorkbenchContributio
 		 */
 		viewDescriptors.push({
 			id: 'workbench.views.extensions.searchDisabled',
-			name: localize('disabled', "Disabled"),
-			ctorDescriptor: new SyncDescriptor(DisabledExtensionsView),
+			name: localize2('disabled', "Disabled"),
+			ctorDescriptor: new SyncDescriptor(ExtensionsListView, [{}]),
 			when: ContextKeyExpr.and(ContextKeyExpr.has('searchDisabledExtensions')),
 		});
 
@@ -254,10 +343,11 @@ export class ExtensionsViewletViewsContribution implements IWorkbenchContributio
 		 * View used for searching outdated extensions
 		 */
 		viewDescriptors.push({
-			id: 'workbench.views.extensions.searchOutdated',
-			name: localize('outdated', "Outdated"),
-			ctorDescriptor: new SyncDescriptor(OutdatedExtensionsView),
-			when: ContextKeyExpr.and(ContextKeyExpr.has('searchOutdatedExtensions')),
+			id: OUTDATED_EXTENSIONS_VIEW_ID,
+			name: localize2('availableUpdates', "Available Updates"),
+			ctorDescriptor: new SyncDescriptor(OutdatedExtensionsView, [{}]),
+			when: ContextKeyExpr.or(SearchExtensionUpdatesContext, ContextKeyExpr.has('searchOutdatedExtensions')),
+			order: 1,
 		});
 
 		/*
@@ -265,9 +355,19 @@ export class ExtensionsViewletViewsContribution implements IWorkbenchContributio
 		 */
 		viewDescriptors.push({
 			id: 'workbench.views.extensions.searchBuiltin',
-			name: localize('builtin', "Builtin"),
-			ctorDescriptor: new SyncDescriptor(SearchBuiltInExtensionsView),
+			name: localize2('builtin', "Builtin"),
+			ctorDescriptor: new SyncDescriptor(ExtensionsListView, [{}]),
 			when: ContextKeyExpr.and(ContextKeyExpr.has('searchBuiltInExtensions')),
+		});
+
+		/*
+		 * View used for searching workspace unsupported extensions
+		 */
+		viewDescriptors.push({
+			id: 'workbench.views.extensions.searchWorkspaceUnsupported',
+			name: localize2('workspaceUnsupported', "Workspace Unsupported"),
+			ctorDescriptor: new SyncDescriptor(ExtensionsListView, [{}]),
+			when: ContextKeyExpr.and(ContextKeyExpr.has('searchWorkspaceUnsupportedExtensions')),
 		});
 
 		return viewDescriptors;
@@ -277,17 +377,17 @@ export class ExtensionsViewletViewsContribution implements IWorkbenchContributio
 		const viewDescriptors: IViewDescriptor[] = [];
 
 		viewDescriptors.push({
-			id: 'workbench.views.extensions.workspaceRecommendations',
-			name: localize('workspaceRecommendedExtensions', "Workspace Recommendations"),
-			ctorDescriptor: new SyncDescriptor(WorkspaceRecommendedExtensionsView),
+			id: WORKSPACE_RECOMMENDATIONS_VIEW_ID,
+			name: localize2('workspaceRecommendedExtensions', "Workspace Recommendations"),
+			ctorDescriptor: new SyncDescriptor(WorkspaceRecommendedExtensionsView, [{}]),
 			when: ContextKeyExpr.and(ContextKeyExpr.has('recommendedExtensions'), WorkbenchStateContext.notEqualsTo('empty')),
 			order: 1
 		});
 
 		viewDescriptors.push({
 			id: 'workbench.views.extensions.otherRecommendations',
-			name: localize('otherRecommendedExtensions', "Other Recommendations"),
-			ctorDescriptor: new SyncDescriptor(RecommendedExtensionsView),
+			name: localize2('otherRecommendedExtensions', "Other Recommendations"),
+			ctorDescriptor: new SyncDescriptor(RecommendedExtensionsView, [{}]),
 			when: ContextKeyExpr.has('recommendedExtensions'),
 			order: 2
 		});
@@ -298,25 +398,76 @@ export class ExtensionsViewletViewsContribution implements IWorkbenchContributio
 	private createBuiltinExtensionsViewDescriptors(): IViewDescriptor[] {
 		const viewDescriptors: IViewDescriptor[] = [];
 
+		const configuredCategories = ['themes', 'programming languages'];
+		const otherCategories = EXTENSION_CATEGORIES.filter(c => !configuredCategories.includes(c.toLowerCase()));
+		otherCategories.push(NONE_CATEGORY);
+		const otherCategoriesQuery = `${otherCategories.map(c => `category:"${c}"`).join(' ')} ${configuredCategories.map(c => `category:"-${c}"`).join(' ')}`;
 		viewDescriptors.push({
 			id: 'workbench.views.extensions.builtinFeatureExtensions',
-			name: localize('builtinFeatureExtensions', "Features"),
-			ctorDescriptor: new SyncDescriptor(BuiltInFeatureExtensionsView),
+			name: localize2('builtinFeatureExtensions', "Features"),
+			ctorDescriptor: new SyncDescriptor(StaticQueryExtensionsView, [{ query: `@builtin ${otherCategoriesQuery}` }]),
 			when: ContextKeyExpr.has('builtInExtensions'),
 		});
 
 		viewDescriptors.push({
 			id: 'workbench.views.extensions.builtinThemeExtensions',
-			name: localize('builtInThemesExtensions', "Themes"),
-			ctorDescriptor: new SyncDescriptor(BuiltInThemesExtensionsView),
+			name: localize2('builtInThemesExtensions', "Themes"),
+			ctorDescriptor: new SyncDescriptor(StaticQueryExtensionsView, [{ query: `@builtin category:themes` }]),
 			when: ContextKeyExpr.has('builtInExtensions'),
 		});
 
 		viewDescriptors.push({
 			id: 'workbench.views.extensions.builtinProgrammingLanguageExtensions',
-			name: localize('builtinProgrammingLanguageExtensions', "Programming Languages"),
-			ctorDescriptor: new SyncDescriptor(BuiltInProgrammingLanguageExtensionsView),
+			name: localize2('builtinProgrammingLanguageExtensions', "Programming Languages"),
+			ctorDescriptor: new SyncDescriptor(StaticQueryExtensionsView, [{ query: `@builtin category:"programming languages"` }]),
 			when: ContextKeyExpr.has('builtInExtensions'),
+		});
+
+		return viewDescriptors;
+	}
+
+	private createUnsupportedWorkspaceExtensionsViewDescriptors(): IViewDescriptor[] {
+		const viewDescriptors: IViewDescriptor[] = [];
+
+		viewDescriptors.push({
+			id: 'workbench.views.extensions.untrustedUnsupportedExtensions',
+			name: localize2('untrustedUnsupportedExtensions', "Disabled in Restricted Mode"),
+			ctorDescriptor: new SyncDescriptor(UntrustedWorkspaceUnsupportedExtensionsView, [{}]),
+			when: ContextKeyExpr.and(SearchUnsupportedWorkspaceExtensionsContext),
+		});
+
+		viewDescriptors.push({
+			id: 'workbench.views.extensions.untrustedPartiallySupportedExtensions',
+			name: localize2('untrustedPartiallySupportedExtensions', "Limited in Restricted Mode"),
+			ctorDescriptor: new SyncDescriptor(UntrustedWorkspacePartiallySupportedExtensionsView, [{}]),
+			when: ContextKeyExpr.and(SearchUnsupportedWorkspaceExtensionsContext),
+		});
+
+		viewDescriptors.push({
+			id: 'workbench.views.extensions.virtualUnsupportedExtensions',
+			name: localize2('virtualUnsupportedExtensions', "Disabled in Virtual Workspaces"),
+			ctorDescriptor: new SyncDescriptor(VirtualWorkspaceUnsupportedExtensionsView, [{}]),
+			when: ContextKeyExpr.and(VirtualWorkspaceContext, SearchUnsupportedWorkspaceExtensionsContext),
+		});
+
+		viewDescriptors.push({
+			id: 'workbench.views.extensions.virtualPartiallySupportedExtensions',
+			name: localize2('virtualPartiallySupportedExtensions', "Limited in Virtual Workspaces"),
+			ctorDescriptor: new SyncDescriptor(VirtualWorkspacePartiallySupportedExtensionsView, [{}]),
+			when: ContextKeyExpr.and(VirtualWorkspaceContext, SearchUnsupportedWorkspaceExtensionsContext),
+		});
+
+		return viewDescriptors;
+	}
+
+	private createOtherLocalFilteredExtensionsViewDescriptors(): IViewDescriptor[] {
+		const viewDescriptors: IViewDescriptor[] = [];
+
+		viewDescriptors.push({
+			id: 'workbench.views.extensions.deprecatedExtensions',
+			name: localize2('deprecated', "Deprecated"),
+			ctorDescriptor: new SyncDescriptor(DeprecatedExtensionsView, [{}]),
+			when: ContextKeyExpr.and(SearchDeprecatedExtensionsContext),
 		});
 
 		return viewDescriptors;
@@ -326,24 +477,32 @@ export class ExtensionsViewletViewsContribution implements IWorkbenchContributio
 
 export class ExtensionsViewPaneContainer extends ViewPaneContainer implements IExtensionsViewPaneContainer {
 
-	private readonly _onSearchChange: Emitter<string> = this._register(new Emitter<string>());
-	private readonly onSearchChange: EventOf<string> = this._onSearchChange.event;
-	private defaultViewsContextKey: IContextKey<boolean>;
-	private searchMarketplaceExtensionsContextKey: IContextKey<boolean>;
-	private searchInstalledExtensionsContextKey: IContextKey<boolean>;
-	private searchOutdatedExtensionsContextKey: IContextKey<boolean>;
-	private searchEnabledExtensionsContextKey: IContextKey<boolean>;
-	private searchDisabledExtensionsContextKey: IContextKey<boolean>;
-	private hasInstalledExtensionsContextKey: IContextKey<boolean>;
-	private builtInExtensionsContextKey: IContextKey<boolean>;
-	private searchBuiltInExtensionsContextKey: IContextKey<boolean>;
-	private recommendedExtensionsContextKey: IContextKey<boolean>;
+	private readonly extensionsSearchValueContextKey: IContextKey<string>;
+	private readonly defaultViewsContextKey: IContextKey<boolean>;
+	private readonly sortByContextKey: IContextKey<string>;
+	private readonly searchMarketplaceExtensionsContextKey: IContextKey<boolean>;
+	private readonly searchHasTextContextKey: IContextKey<boolean>;
+	private readonly sortByUpdateDateContextKey: IContextKey<boolean>;
+	private readonly installedExtensionsContextKey: IContextKey<boolean>;
+	private readonly searchInstalledExtensionsContextKey: IContextKey<boolean>;
+	private readonly searchRecentlyUpdatedExtensionsContextKey: IContextKey<boolean>;
+	private readonly searchExtensionUpdatesContextKey: IContextKey<boolean>;
+	private readonly searchOutdatedExtensionsContextKey: IContextKey<boolean>;
+	private readonly searchEnabledExtensionsContextKey: IContextKey<boolean>;
+	private readonly searchDisabledExtensionsContextKey: IContextKey<boolean>;
+	private readonly hasInstalledExtensionsContextKey: IContextKey<boolean>;
+	private readonly builtInExtensionsContextKey: IContextKey<boolean>;
+	private readonly searchBuiltInExtensionsContextKey: IContextKey<boolean>;
+	private readonly searchWorkspaceUnsupportedExtensionsContextKey: IContextKey<boolean>;
+	private readonly searchDeprecatedExtensionsContextKey: IContextKey<boolean>;
+	private readonly recommendedExtensionsContextKey: IContextKey<boolean>;
 
 	private searchDelayer: Delayer<void>;
 	private root: HTMLElement | undefined;
+	private header: HTMLElement | undefined;
 	private searchBox: SuggestEnabledInput | undefined;
+	private notificationContainer: HTMLElement | undefined;
 	private readonly searchViewletState: MementoObject;
-	private readonly sortActions: ChangeSortAction[];
 
 	constructor(
 		@IWorkbenchLayoutService layoutService: IWorkbenchLayoutService,
@@ -351,26 +510,37 @@ export class ExtensionsViewPaneContainer extends ViewPaneContainer implements IE
 		@IProgressService private readonly progressService: IProgressService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IEditorGroupsService private readonly editorGroupService: IEditorGroupsService,
-		@IExtensionManagementService private readonly extensionManagementService: IExtensionManagementService,
-		@IExtensionGalleryService private readonly extensionGalleryService: IExtensionGalleryService,
+		@IExtensionsWorkbenchService private readonly extensionsWorkbenchService: IExtensionsWorkbenchService,
+		@IExtensionManagementServerService private readonly extensionManagementServerService: IExtensionManagementServerService,
 		@INotificationService private readonly notificationService: INotificationService,
-		@IViewletService private readonly viewletService: IViewletService,
+		@IPaneCompositePartService private readonly paneCompositeService: IPaneCompositePartService,
 		@IThemeService themeService: IThemeService,
 		@IConfigurationService configurationService: IConfigurationService,
 		@IStorageService storageService: IStorageService,
 		@IWorkspaceContextService contextService: IWorkspaceContextService,
-		@IContextKeyService contextKeyService: IContextKeyService,
+		@IContextKeyService private readonly contextKeyService: IContextKeyService,
 		@IContextMenuService contextMenuService: IContextMenuService,
 		@IExtensionService extensionService: IExtensionService,
 		@IViewDescriptorService viewDescriptorService: IViewDescriptorService,
 		@IPreferencesService private readonly preferencesService: IPreferencesService,
+		@ICommandService private readonly commandService: ICommandService,
+		@ILogService logService: ILogService,
 	) {
-		super(VIEWLET_ID, { mergeViewWithContainerWhenSingleView: true }, instantiationService, configurationService, layoutService, contextMenuService, telemetryService, extensionService, themeService, storageService, contextService, viewDescriptorService);
+		super(VIEWLET_ID, { mergeViewWithContainerWhenSingleView: true }, instantiationService, configurationService, layoutService, contextMenuService, telemetryService, extensionService, themeService, storageService, contextService, viewDescriptorService, logService);
 
 		this.searchDelayer = new Delayer(500);
+		this.extensionsSearchValueContextKey = ExtensionsSearchValueContext.bindTo(contextKeyService);
 		this.defaultViewsContextKey = DefaultViewsContext.bindTo(contextKeyService);
+		this.sortByContextKey = ExtensionsSortByContext.bindTo(contextKeyService);
 		this.searchMarketplaceExtensionsContextKey = SearchMarketplaceExtensionsContext.bindTo(contextKeyService);
-		this.searchInstalledExtensionsContextKey = SearchIntalledExtensionsContext.bindTo(contextKeyService);
+		this.searchHasTextContextKey = SearchHasTextContext.bindTo(contextKeyService);
+		this.sortByUpdateDateContextKey = SortByUpdateDateContext.bindTo(contextKeyService);
+		this.installedExtensionsContextKey = InstalledExtensionsContext.bindTo(contextKeyService);
+		this.searchInstalledExtensionsContextKey = SearchInstalledExtensionsContext.bindTo(contextKeyService);
+		this.searchRecentlyUpdatedExtensionsContextKey = SearchRecentlyUpdatedExtensionsContext.bindTo(contextKeyService);
+		this.searchExtensionUpdatesContextKey = SearchExtensionUpdatesContext.bindTo(contextKeyService);
+		this.searchWorkspaceUnsupportedExtensionsContextKey = SearchUnsupportedWorkspaceExtensionsContext.bindTo(contextKeyService);
+		this.searchDeprecatedExtensionsContextKey = SearchDeprecatedExtensionsContext.bindTo(contextKeyService);
 		this.searchOutdatedExtensionsContextKey = SearchOutdatedExtensionsContext.bindTo(contextKeyService);
 		this.searchEnabledExtensionsContextKey = SearchEnabledExtensionsContext.bindTo(contextKeyService);
 		this.searchDisabledExtensionsContextKey = SearchDisabledExtensionsContext.bindTo(contextKeyService);
@@ -378,28 +548,16 @@ export class ExtensionsViewPaneContainer extends ViewPaneContainer implements IE
 		this.builtInExtensionsContextKey = BuiltInExtensionsContext.bindTo(contextKeyService);
 		this.searchBuiltInExtensionsContextKey = SearchBuiltInExtensionsContext.bindTo(contextKeyService);
 		this.recommendedExtensionsContextKey = RecommendedExtensionsContext.bindTo(contextKeyService);
-		this._register(this.viewletService.onDidViewletOpen(this.onViewletOpen, this));
-		this.searchViewletState = this.getMemento(StorageScope.WORKSPACE);
-
-		this.extensionManagementService.getInstalled().then(result => {
-			this.hasInstalledExtensionsContextKey.set(result.some(r => !r.isBuiltin));
-		});
-
-		this._register(this.configurationService.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration(AutoUpdateConfigurationKey)) {
-				this.updateTitleArea();
-			}
-		}, this));
-
-		this.sortActions = [
-			this._register(this.instantiationService.createInstance(ChangeSortAction, 'extensions.sort.install', localize('sort by installs', "Install Count"), this.onSearchChange, 'installs')),
-			this._register(this.instantiationService.createInstance(ChangeSortAction, 'extensions.sort.rating', localize('sort by rating', "Rating"), this.onSearchChange, 'rating')),
-			this._register(this.instantiationService.createInstance(ChangeSortAction, 'extensions.sort.name', localize('sort by name', "Name"), this.onSearchChange, 'name')),
-			this._register(this.instantiationService.createInstance(ChangeSortAction, 'extensions.sort.publishedDate', localize('sort by date', "Published Date"), this.onSearchChange, 'publishedDate')),
-		];
+		this._register(this.paneCompositeService.onDidPaneCompositeOpen(e => { if (e.viewContainerLocation === ViewContainerLocation.Sidebar) { this.onViewletOpen(e.composite); } }, this));
+		this._register(extensionsWorkbenchService.onReset(() => this.refresh()));
+		this.searchViewletState = this.getMemento(StorageScope.WORKSPACE, StorageTarget.MACHINE);
 	}
 
-	create(parent: HTMLElement): void {
+	get searchValue(): string | undefined {
+		return this.searchBox?.getValue();
+	}
+
+	override create(parent: HTMLElement): void {
 		parent.classList.add('extensions-viewlet');
 		this.root = parent;
 
@@ -408,11 +566,14 @@ export class ExtensionsViewPaneContainer extends ViewPaneContainer implements IE
 		overlay.style.backgroundColor = overlayBackgroundColor;
 		hide(overlay);
 
-		const header = append(this.root, $('.header'));
+		this.header = append(this.root, $('.header'));
 		const placeholder = localize('searchExtensions', "Search Extensions in Marketplace");
+
 		const searchValue = this.searchViewletState['query.value'] ? this.searchViewletState['query.value'] : '';
 
-		this.searchBox = this._register(this.instantiationService.createInstance(SuggestEnabledInput, `${VIEWLET_ID}.searchbox`, header, {
+		const searchContainer = append(this.header, $('.extensions-search-container'));
+
+		this.searchBox = this._register(this.instantiationService.createInstance(SuggestEnabledInput, `${VIEWLET_ID}.searchbox`, searchContainer, {
 			triggerCharacters: ['@'],
 			sortKey: (item: string) => {
 				if (item.indexOf(':') === -1) { return 'a'; }
@@ -423,28 +584,32 @@ export class ExtensionsViewPaneContainer extends ViewPaneContainer implements IE
 			provideResults: (query: string) => Query.suggestions(query)
 		}, placeholder, 'extensions:searchinput', { placeholderText: placeholder, value: searchValue }));
 
+		this.notificationContainer = append(this.header, $('.notification-container.hidden', { 'tabindex': '0' }));
+		this.renderNotificaiton();
+		this._register(this.extensionsWorkbenchService.onDidChangeExtensionsNotification(() => this.renderNotificaiton()));
+
+		this.updateInstalledExtensionsContexts();
 		if (this.searchBox.getValue()) {
 			this.triggerSearch();
 		}
 
-		this._register(attachSuggestEnabledInputBoxStyler(this.searchBox, this.themeService));
-
 		this._register(this.searchBox.onInputDidChange(() => {
+			this.sortByContextKey.set(Query.parse(this.searchBox?.getValue() ?? '').sortBy);
 			this.triggerSearch();
-			this._onSearchChange.fire(this.searchBox!.getValue());
 		}, this));
 
 		this._register(this.searchBox.onShouldFocusResults(() => this.focusListView(), this));
 
-		this._register(this.onDidChangeVisibility(visible => {
-			if (visible) {
-				this.searchBox!.focus();
-			}
+		const controlElement = append(searchContainer, $('.extensions-search-actions-container'));
+		this._register(this.instantiationService.createInstance(MenuWorkbenchToolBar, controlElement, extensionsSearchActionsMenu, {
+			toolbarOptions: {
+				primaryGroup: () => true,
+			},
+			actionViewItemProvider: (action, options) => createActionViewItem(this.instantiationService, action, options)
 		}));
 
 		// Register DragAndDrop support
 		this._register(new DragAndDropObserver(this.root, {
-			onDragEnd: (e: DragEvent) => undefined,
 			onDragEnter: (e: DragEvent) => {
 				if (this.isSupportedDragElement(e)) {
 					show(overlay);
@@ -464,18 +629,13 @@ export class ExtensionsViewPaneContainer extends ViewPaneContainer implements IE
 				if (this.isSupportedDragElement(e)) {
 					hide(overlay);
 
-					if (e.dataTransfer && e.dataTransfer.files.length > 0) {
-						let vsixPaths: URI[] = [];
-						for (let index = 0; index < e.dataTransfer.files.length; index++) {
-							const path = e.dataTransfer.files.item(index)!.path;
-							if (path.indexOf('.vsix') !== -1) {
-								vsixPaths.push(URI.file(path));
-							}
-						}
+					const vsixs = coalesce((await this.instantiationService.invokeFunction(accessor => extractEditorsAndFilesDropData(accessor, e)))
+						.map(editor => editor.resource && extname(editor.resource) === '.vsix' ? editor.resource : undefined));
 
+					if (vsixs.length > 0) {
 						try {
 							// Attempt to install the extension(s)
-							await this.instantiationService.createInstance(InstallVSIXAction, InstallVSIXAction.ID, InstallVSIXAction.LABEL).run(vsixPaths);
+							await this.commandService.executeCommand(INSTALL_EXTENSION_FROM_VSIX_COMMAND_ID, vsixs);
 						}
 						catch (err) {
 							this.notificationService.error(err);
@@ -486,91 +646,120 @@ export class ExtensionsViewPaneContainer extends ViewPaneContainer implements IE
 		}));
 
 		super.create(append(this.root, $('.extensions')));
+
+		const focusTracker = this._register(trackFocus(this.root));
+		const isSearchBoxFocused = () => this.searchBox?.inputWidget.hasWidgetFocus();
+		this._register(registerNavigableContainer({
+			name: 'extensionsView',
+			focusNotifiers: [focusTracker],
+			focusNextWidget: () => {
+				if (isSearchBoxFocused()) {
+					this.focusListView();
+				}
+			},
+			focusPreviousWidget: () => {
+				if (!isSearchBoxFocused()) {
+					this.searchBox?.focus();
+				}
+			}
+		}));
 	}
 
-	focus(): void {
-		if (this.searchBox) {
-			this.searchBox.focus();
-		}
+	override focus(): void {
+		super.focus();
+		this.searchBox?.focus();
 	}
 
-	layout(dimension: Dimension): void {
+	private _dimension: Dimension | undefined;
+	override layout(dimension: Dimension): void {
+		this._dimension = dimension;
 		if (this.root) {
-			this.root.classList.toggle('narrow', dimension.width <= 300);
+			this.root.classList.toggle('narrow', dimension.width <= 250);
+			this.root.classList.toggle('mini', dimension.width <= 200);
 		}
-		if (this.searchBox) {
-			this.searchBox.layout({ height: 20, width: dimension.width - 34 });
-		}
-		super.layout(new Dimension(dimension.width, dimension.height - 41));
+		this.searchBox?.layout(new Dimension(dimension.width - 34 - /*padding*/8 - (24 * 2), 20));
+		const searchBoxHeight = 20 + 21 /*margin*/;
+		const headerHeight = this.header && !!this.notificationContainer?.childNodes.length ? this.notificationContainer.clientHeight + searchBoxHeight + 10 /*margin*/ : searchBoxHeight;
+		this.header!.style.height = `${headerHeight}px`;
+		super.layout(new Dimension(dimension.width, dimension.height - headerHeight));
 	}
 
-	getOptimalWidth(): number {
+	override getOptimalWidth(): number {
 		return 400;
 	}
 
-	getActions(): IAction[] {
-		const filterActions: IAction[] = [];
-
-		// Local extensions filters
-		filterActions.push(...[
-			this.instantiationService.createInstance(ShowBuiltInExtensionsAction, ShowBuiltInExtensionsAction.ID, localize('builtin filter', "Built-in")),
-			this.instantiationService.createInstance(ShowInstalledExtensionsAction, ShowInstalledExtensionsAction.ID, localize('installed filter', "Installed")),
-			this.instantiationService.createInstance(ShowEnabledExtensionsAction, ShowEnabledExtensionsAction.ID, localize('enabled filter', "Enabled")),
-			this.instantiationService.createInstance(ShowDisabledExtensionsAction, ShowDisabledExtensionsAction.ID, localize('disabled filter', "Disabled")),
-			this.instantiationService.createInstance(ShowOutdatedExtensionsAction, ShowOutdatedExtensionsAction.ID, localize('outdated filter', "Outdated")),
-		]);
-
-		if (this.extensionGalleryService.isEnabled()) {
-			const galleryFilterActions = [
-				this.instantiationService.createInstance(PredefinedExtensionFilterAction, 'extensions.filter.featured', localize('featured filter', "Featured"), '@featured'),
-				this.instantiationService.createInstance(PredefinedExtensionFilterAction, 'extensions.filter.popular', localize('most popular filter', "Most Popular"), '@popular'),
-				this.instantiationService.createInstance(PredefinedExtensionFilterAction, 'extensions.filter.recommended', localize('most popular recommended', "Recommended"), '@recommended'),
-				this.instantiationService.createInstance(RecentlyPublishedExtensionsAction, RecentlyPublishedExtensionsAction.ID, localize('recently published filter', "Recently Published")),
-				new Separator(),
-				new SubmenuAction('workbench.extensions.action.filterExtensionsByCategory', localize('filter by category', "Category"), EXTENSION_CATEGORIES.map(category => this.instantiationService.createInstance(SearchCategoryAction, `extensions.actions.searchByCategory.${category}`, category, category))),
-				new Separator(),
-			];
-			filterActions.splice(0, 0, ...galleryFilterActions);
-			filterActions.push(...[
-				new Separator(),
-				new SubmenuAction('workbench.extensions.action.sortBy', localize('sorty by', "Sort By"), this.sortActions),
-			]);
+	search(value: string): void {
+		if (this.searchBox && this.searchBox.getValue() !== value) {
+			this.searchBox.setValue(value);
 		}
-
-		return [
-			new SubmenuAction('workbench.extensions.action.filterExtensions', localize('filterExtensions', "Filter Extensions..."), filterActions, 'codicon-filter'),
-			this.instantiationService.createInstance(ClearExtensionsInputAction, ClearExtensionsInputAction.ID, ClearExtensionsInputAction.LABEL, this.onSearchChange, this.searchBox ? this.searchBox.getValue() : ''),
-		];
 	}
 
-	getSecondaryActions(): IAction[] {
-		const actions: IAction[] = [];
+	async refresh(): Promise<void> {
+		await this.updateInstalledExtensionsContexts();
+		this.doSearch(true);
+		if (this.configurationService.getValue(AutoCheckUpdatesConfigurationKey)) {
+			this.extensionsWorkbenchService.checkForUpdates();
+		}
+	}
 
-		actions.push(this.instantiationService.createInstance(CheckForUpdatesAction, CheckForUpdatesAction.ID, CheckForUpdatesAction.LABEL));
-		if (this.configurationService.getValue(AutoUpdateConfigurationKey)) {
-			actions.push(this.instantiationService.createInstance(DisableAutoUpdateAction, DisableAutoUpdateAction.ID, DisableAutoUpdateAction.LABEL));
+	private readonly notificationDisposables = this._register(new MutableDisposable<DisposableStore>());
+	private renderNotificaiton(): void {
+		if (!this.notificationContainer) {
+			return;
+		}
+
+		clearNode(this.notificationContainer);
+		this.notificationDisposables.value = new DisposableStore();
+		const status = this.extensionsWorkbenchService.getExtensionsNotification();
+		const query = status?.extensions.map(extension => `@id:${extension.identifier.id}`).join(' ');
+		if (status && (query === this.searchBox?.getValue() || !this.searchMarketplaceExtensionsContextKey.get())) {
+			this.notificationContainer.setAttribute('aria-label', status.message);
+			this.notificationContainer.classList.remove('hidden');
+			const messageContainer = append(this.notificationContainer, $('.message-container'));
+			append(messageContainer, $('span')).className = SeverityIcon.className(status.severity);
+			append(messageContainer, $('span.message', undefined, status.message));
+			const showAction = append(messageContainer,
+				$('span.message-text-action', {
+					'tabindex': '0',
+					'role': 'button',
+					'aria-label': `${status.message}. ${localize('click show', "Click to Show")}`
+				}, localize('show', "Show")));
+			this.notificationDisposables.value.add(addDisposableListener(showAction, EventType.CLICK, () => this.search(query ?? '')));
+			this.notificationDisposables.value.add(addDisposableListener(showAction, EventType.KEY_DOWN, (e: KeyboardEvent) => {
+				const standardKeyboardEvent = new StandardKeyboardEvent(e);
+				if (standardKeyboardEvent.keyCode === KeyCode.Enter || standardKeyboardEvent.keyCode === KeyCode.Space) {
+					this.search(query ?? '');
+				}
+				standardKeyboardEvent.stopPropagation();
+			}));
+			const dismissAction = append(this.notificationContainer,
+				$(`span.message-action${ThemeIcon.asCSSSelector(Codicon.close)}`, {
+					'tabindex': '0',
+					'role': 'button',
+					'aria-label': localize('dismiss', "Dismiss"),
+					'title': localize('dismiss', "Dismiss")
+				}));
+			this.notificationDisposables.value.add(addDisposableListener(dismissAction, EventType.CLICK, () => status.dismiss()));
+			this.notificationDisposables.value.add(addDisposableListener(dismissAction, EventType.KEY_DOWN, (e: KeyboardEvent) => {
+				const standardKeyboardEvent = new StandardKeyboardEvent(e);
+				if (standardKeyboardEvent.keyCode === KeyCode.Enter || standardKeyboardEvent.keyCode === KeyCode.Space) {
+					status.dismiss();
+				}
+				standardKeyboardEvent.stopPropagation();
+			}));
 		} else {
-			actions.push(this.instantiationService.createInstance(UpdateAllAction, UpdateAllAction.ID, UpdateAllAction.LABEL), this.instantiationService.createInstance(EnableAutoUpdateAction, EnableAutoUpdateAction.ID, EnableAutoUpdateAction.LABEL));
+			this.notificationContainer.removeAttribute('aria-label');
+			this.notificationContainer.classList.add('hidden');
 		}
 
-		actions.push(new Separator());
-		actions.push(this.instantiationService.createInstance(EnableAllAction, EnableAllAction.ID, EnableAllAction.LABEL));
-		actions.push(this.instantiationService.createInstance(DisableAllAction, DisableAllAction.ID, DisableAllAction.LABEL));
-
-		actions.push(new Separator());
-		actions.push(this.instantiationService.createInstance(InstallVSIXAction, InstallVSIXAction.ID, InstallVSIXAction.LABEL));
-
-		return actions;
+		if (this._dimension) {
+			this.layout(this._dimension);
+		}
 	}
 
-	search(value: string, refresh: boolean = false): void {
-		if (this.searchBox) {
-			if (this.searchBox.getValue() !== value) {
-				this.searchBox.setValue(value);
-			} else if (refresh) {
-				this.doSearch();
-			}
-		}
+	private async updateInstalledExtensionsContexts(): Promise<void> {
+		const result = await this.extensionsWorkbenchService.queryLocal();
+		this.hasInstalledExtensionsContextKey.set(result.some(r => !r.isBuiltin));
 	}
 
 	private triggerSearch(): void {
@@ -580,16 +769,16 @@ export class ExtensionsViewPaneContainer extends ViewPaneContainer implements IE
 	private normalizedQuery(): string {
 		return this.searchBox
 			? this.searchBox.getValue()
+				.trim()
 				.replace(/@category/g, 'category')
 				.replace(/@tag:/g, 'tag:')
 				.replace(/@ext:/g, 'ext:')
 				.replace(/@featured/g, 'featured')
-				.replace(/@web/g, 'tag:"__web_extension"')
-				.replace(/@popular/g, '@sort:installs')
+				.replace(/@popular/g, this.extensionManagementServerService.webExtensionManagementServer && !this.extensionManagementServerService.localExtensionManagementServer && !this.extensionManagementServerService.remoteExtensionManagementServer ? '@web' : '@popular')
 			: '';
 	}
 
-	saveState(): void {
+	protected override saveState(): void {
 		const value = this.searchBox ? this.searchBox.getValue() : '';
 		if (ExtensionsListView.isLocalExtensionsQuery(value)) {
 			this.searchViewletState['query.value'] = value;
@@ -599,26 +788,38 @@ export class ExtensionsViewPaneContainer extends ViewPaneContainer implements IE
 		super.saveState();
 	}
 
-	private doSearch(): Promise<void> {
+	private doSearch(refresh?: boolean): Promise<void> {
 		const value = this.normalizedQuery();
-		const isRecommendedExtensionsQuery = ExtensionsListView.isRecommendedExtensionsQuery(value);
-		this.searchInstalledExtensionsContextKey.set(ExtensionsListView.isInstalledExtensionsQuery(value));
-		this.searchOutdatedExtensionsContextKey.set(ExtensionsListView.isOutdatedExtensionsQuery(value));
-		this.searchEnabledExtensionsContextKey.set(ExtensionsListView.isEnabledExtensionsQuery(value));
-		this.searchDisabledExtensionsContextKey.set(ExtensionsListView.isDisabledExtensionsQuery(value));
-		this.searchBuiltInExtensionsContextKey.set(ExtensionsListView.isSearchBuiltInExtensionsQuery(value));
-		this.builtInExtensionsContextKey.set(ExtensionsListView.isBuiltInExtensionsQuery(value));
-		this.recommendedExtensionsContextKey.set(isRecommendedExtensionsQuery);
-		this.searchMarketplaceExtensionsContextKey.set(!!value && !ExtensionsListView.isLocalExtensionsQuery(value) && !isRecommendedExtensionsQuery);
-		this.defaultViewsContextKey.set(!value);
+		this.contextKeyService.bufferChangeEvents(() => {
+			const isRecommendedExtensionsQuery = ExtensionsListView.isRecommendedExtensionsQuery(value);
+			this.searchHasTextContextKey.set(value.trim() !== '');
+			this.extensionsSearchValueContextKey.set(value);
+			this.installedExtensionsContextKey.set(ExtensionsListView.isInstalledExtensionsQuery(value));
+			this.searchInstalledExtensionsContextKey.set(ExtensionsListView.isSearchInstalledExtensionsQuery(value));
+			this.searchRecentlyUpdatedExtensionsContextKey.set(ExtensionsListView.isSearchRecentlyUpdatedQuery(value) && !ExtensionsListView.isSearchExtensionUpdatesQuery(value));
+			this.searchOutdatedExtensionsContextKey.set(ExtensionsListView.isOutdatedExtensionsQuery(value) && !ExtensionsListView.isSearchExtensionUpdatesQuery(value));
+			this.searchExtensionUpdatesContextKey.set(ExtensionsListView.isSearchExtensionUpdatesQuery(value));
+			this.searchEnabledExtensionsContextKey.set(ExtensionsListView.isEnabledExtensionsQuery(value));
+			this.searchDisabledExtensionsContextKey.set(ExtensionsListView.isDisabledExtensionsQuery(value));
+			this.searchBuiltInExtensionsContextKey.set(ExtensionsListView.isSearchBuiltInExtensionsQuery(value));
+			this.searchWorkspaceUnsupportedExtensionsContextKey.set(ExtensionsListView.isSearchWorkspaceUnsupportedExtensionsQuery(value));
+			this.searchDeprecatedExtensionsContextKey.set(ExtensionsListView.isSearchDeprecatedExtensionsQuery(value));
+			this.builtInExtensionsContextKey.set(ExtensionsListView.isBuiltInExtensionsQuery(value));
+			this.recommendedExtensionsContextKey.set(isRecommendedExtensionsQuery);
+			this.searchMarketplaceExtensionsContextKey.set(!!value && !ExtensionsListView.isLocalExtensionsQuery(value) && !isRecommendedExtensionsQuery);
+			this.sortByUpdateDateContextKey.set(ExtensionsListView.isSortUpdateDateQuery(value));
+			this.defaultViewsContextKey.set(!value || ExtensionsListView.isSortInstalledExtensionsQuery(value));
+		});
+
+		this.renderNotificaiton();
 
 		return this.progress(Promise.all(this.panes.map(view =>
-			(<ExtensionsListView>view).show(this.normalizedQuery())
+			(<ExtensionsListView>view).show(this.normalizedQuery(), refresh)
 				.then(model => this.alertSearchResult(model.length, view.id))
 		))).then(() => undefined);
 	}
 
-	protected onDidAddViewDescriptors(added: IAddedViewDescriptorRef[]): ViewPane[] {
+	protected override onDidAddViewDescriptors(added: IAddedViewDescriptorRef[]): ViewPane[] {
 		const addedViews = super.onDidAddViewDescriptors(added);
 		this.progress(Promise.all(addedViews.map(addedView =>
 			(<ExtensionsListView>addedView).show(this.normalizedQuery())
@@ -634,14 +835,14 @@ export class ExtensionsViewPaneContainer extends ViewPaneContainer implements IE
 				break;
 			case 1:
 				if (view) {
-					alert(localize('extensionFoundInSection', "1 extension found in the {0} section.", view.name));
+					alert(localize('extensionFoundInSection', "1 extension found in the {0} section.", view.name.value));
 				} else {
 					alert(localize('extensionFound', "1 extension found."));
 				}
 				break;
 			default:
 				if (view) {
-					alert(localize('extensionsFoundInSection', "{0} extensions found in the {1} section.", count, view.name));
+					alert(localize('extensionsFoundInSection', "{0} extensions found in the {1} section.", count, view.name.value));
 				} else {
 					alert(localize('extensionsFound', "{0} extensions found.", count));
 				}
@@ -649,17 +850,23 @@ export class ExtensionsViewPaneContainer extends ViewPaneContainer implements IE
 		}
 	}
 
-	private count(): number {
-		return this.panes.reduce((count, view) => (<ExtensionsListView>view).count() + count, 0);
+	private getFirstExpandedPane(): ExtensionsListView | undefined {
+		for (const pane of this.panes) {
+			if (pane.isExpanded() && pane instanceof ExtensionsListView) {
+				return pane;
+			}
+		}
+		return undefined;
 	}
 
 	private focusListView(): void {
-		if (this.count() > 0) {
-			this.panes[0].focus();
+		const pane = this.getFirstExpandedPane();
+		if (pane && pane.count() > 0) {
+			pane.focus();
 		}
 	}
 
-	private onViewletOpen(viewlet: IViewlet): void {
+	private onViewletOpen(viewlet: IPaneComposite): void {
 		if (!viewlet || viewlet.getId() === VIEWLET_ID) {
 			return;
 		}
@@ -680,18 +887,16 @@ export class ExtensionsViewPaneContainer extends ViewPaneContainer implements IE
 	}
 
 	private onError(err: Error): void {
-		if (isPromiseCanceledError(err)) {
+		if (isCancellationError(err)) {
 			return;
 		}
 
 		const message = err && err.message || '';
 
 		if (/ECONNREFUSED/.test(message)) {
-			const error = createErrorWithActions(localize('suggestProxyError', "Marketplace returned 'ECONNREFUSED'. Please check the 'http.proxy' setting."), {
-				actions: [
-					new Action('open user settings', localize('open user settings', "Open User Settings"), undefined, true, () => this.preferencesService.openGlobalSettings())
-				]
-			});
+			const error = createErrorWithActions(localize('suggestProxyError', "Marketplace returned 'ECONNREFUSED'. Please check the 'http.proxy' setting."), [
+				new Action('open user settings', localize('open user settings', "Open User Settings"), undefined, true, () => this.preferencesService.openUserSettings())
+			]);
 
 			this.notificationService.error(error);
 			return;
@@ -717,19 +922,46 @@ export class StatusUpdater extends Disposable implements IWorkbenchContribution 
 	constructor(
 		@IActivityService private readonly activityService: IActivityService,
 		@IExtensionsWorkbenchService private readonly extensionsWorkbenchService: IExtensionsWorkbenchService,
-		@IWorkbenchExtensionEnablementService private readonly extensionEnablementService: IWorkbenchExtensionEnablementService
+		@IWorkbenchExtensionEnablementService private readonly extensionEnablementService: IWorkbenchExtensionEnablementService,
+		@IConfigurationService private readonly configurationService: IConfigurationService
 	) {
 		super();
-		this._register(extensionsWorkbenchService.onChange(this.onServiceChange, this));
+		this.onServiceChange();
+		this._register(Event.any(Event.debounce(extensionsWorkbenchService.onChange, () => undefined, 100, undefined, undefined, undefined, this._store), extensionsWorkbenchService.onDidChangeExtensionsNotification)(this.onServiceChange, this));
 	}
 
 	private onServiceChange(): void {
 		this.badgeHandle.clear();
+		let badge: IBadge | undefined;
 
-		const outdated = this.extensionsWorkbenchService.outdated.reduce((r, e) => r + (this.extensionEnablementService.isEnabled(e.local!) ? 1 : 0), 0);
-		if (outdated > 0) {
-			const badge = new NumberBadge(outdated, n => localize('outdatedExtensions', '{0} Outdated Extensions', n));
-			this.badgeHandle.value = this.activityService.showViewContainerActivity(VIEWLET_ID, { badge, clazz: 'extensions-badge count-badge' });
+		const extensionsNotification = this.extensionsWorkbenchService.getExtensionsNotification();
+		if (extensionsNotification) {
+			if (extensionsNotification.severity === Severity.Warning) {
+				badge = new WarningBadge(() => extensionsNotification.message);
+			}
+		}
+
+		else {
+			const actionRequired = this.configurationService.getValue(AutoRestartConfigurationKey) === true ? [] : this.extensionsWorkbenchService.installed.filter(e => e.runtimeState !== undefined);
+			const outdated = this.extensionsWorkbenchService.outdated.reduce((r, e) => r + (this.extensionEnablementService.isEnabled(e.local!) && !actionRequired.includes(e) ? 1 : 0), 0);
+			const newBadgeNumber = outdated + actionRequired.length;
+			if (newBadgeNumber > 0) {
+				let msg = '';
+				if (outdated) {
+					msg += outdated === 1 ? localize('extensionToUpdate', '{0} requires update', outdated) : localize('extensionsToUpdate', '{0} require update', outdated);
+				}
+				if (outdated > 0 && actionRequired.length > 0) {
+					msg += ', ';
+				}
+				if (actionRequired.length) {
+					msg += actionRequired.length === 1 ? localize('extensionToReload', '{0} requires restart', actionRequired.length) : localize('extensionsToReload', '{0} require restart', actionRequired.length);
+				}
+				badge = new NumberBadge(newBadgeNumber, () => msg);
+			}
+		}
+
+		if (badge) {
+			this.badgeHandle.value = this.activityService.showViewContainerActivity(VIEWLET_ID, { badge });
 		}
 	}
 }
@@ -738,14 +970,12 @@ export class MaliciousExtensionChecker implements IWorkbenchContribution {
 
 	constructor(
 		@IExtensionManagementService private readonly extensionsManagementService: IExtensionManagementService,
+		@IExtensionsWorkbenchService private readonly extensionsWorkbenchService: IExtensionsWorkbenchService,
 		@IHostService private readonly hostService: IHostService,
 		@ILogService private readonly logService: ILogService,
 		@INotificationService private readonly notificationService: INotificationService,
-		@IWorkbenchEnvironmentService private readonly environmentService: IWorkbenchEnvironmentService
 	) {
-		if (!this.environmentService.disableExtensions) {
-			this.loopCheckForMaliciousExtensions();
-		}
+		this.loopCheckForMaliciousExtensions();
 	}
 
 	private loopCheckForMaliciousExtensions(): void {
@@ -754,30 +984,36 @@ export class MaliciousExtensionChecker implements IWorkbenchContribution {
 			.then(() => this.loopCheckForMaliciousExtensions());
 	}
 
-	private checkForMaliciousExtensions(): Promise<void> {
-		return this.extensionsManagementService.getExtensionsReport().then(report => {
-			const maliciousSet = getMaliciousExtensionsSet(report);
-
-			return this.extensionsManagementService.getInstalled(ExtensionType.User).then(installed => {
-				const maliciousExtensions = installed
-					.filter(e => maliciousSet.has(e.identifier.id));
-
-				if (maliciousExtensions.length) {
-					return Promise.all(maliciousExtensions.map(e => this.extensionsManagementService.uninstall(e, true).then(() => {
-						this.notificationService.prompt(
-							Severity.Warning,
-							localize('malicious warning', "We have uninstalled '{0}' which was reported to be problematic.", e.identifier.id),
-							[{
-								label: localize('reloadNow', "Reload Now"),
-								run: () => this.hostService.reload()
-							}],
-							{ sticky: true }
-						);
-					})));
-				} else {
-					return Promise.resolve(undefined);
+	private async checkForMaliciousExtensions(): Promise<void> {
+		try {
+			const maliciousExtensions: ILocalExtension[] = [];
+			let shouldRestartExtensions = false;
+			let shouldReloadWindow = false;
+			for (const extension of this.extensionsWorkbenchService.installed) {
+				if (extension.isMalicious && extension.local) {
+					maliciousExtensions.push(extension.local);
+					shouldRestartExtensions = shouldRestartExtensions || extension.runtimeState?.action === ExtensionRuntimeActionType.RestartExtensions;
+					shouldReloadWindow = shouldReloadWindow || extension.runtimeState?.action === ExtensionRuntimeActionType.ReloadWindow;
 				}
-			}).then(() => undefined);
-		}, err => this.logService.error(err));
+			}
+			if (maliciousExtensions.length) {
+				await this.extensionsManagementService.uninstallExtensions(maliciousExtensions.map(e => ({ extension: e, options: { remove: true } })));
+				this.notificationService.prompt(
+					Severity.Warning,
+					localize('malicious warning', "The following extensions were found to be problematic and have been uninstalled: {0}", maliciousExtensions.map(e => e.identifier.id).join(', ')),
+					shouldRestartExtensions || shouldReloadWindow ? [{
+						label: shouldRestartExtensions ? localize('restartNow', "Restart Extensions") : localize('reloadNow', "Reload Now"),
+						run: () => shouldRestartExtensions ? this.extensionsWorkbenchService.updateRunningExtensions() : this.hostService.reload()
+					}] : [],
+					{
+						sticky: true,
+						priority: NotificationPriority.URGENT
+					}
+				);
+			}
+
+		} catch (err) {
+			this.logService.error(err);
+		}
 	}
 }
