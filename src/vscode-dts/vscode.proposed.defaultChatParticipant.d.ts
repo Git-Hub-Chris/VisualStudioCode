@@ -3,12 +3,17 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+// version: 3
+
 declare module 'vscode' {
 
-	export type ChatWelcomeMessageContent = string | MarkdownString;
+	export interface ChatWelcomeMessageContent {
+		icon: ThemeIcon;
+		title: string;
+		message: MarkdownString;
+	}
 
 	export interface ChatWelcomeMessageProvider {
-		provideWelcomeMessage(location: ChatLocation, token: CancellationToken): ProviderResult<ChatWelcomeMessageContent[]>;
 		provideSampleQuestions?(location: ChatLocation, token: CancellationToken): ProviderResult<ChatFollowup[]>;
 	}
 
@@ -21,12 +26,14 @@ declare module 'vscode' {
 		icon?: Uri;
 	}
 
-	export interface ChatParticipant {
+	export interface ChatTitleProvider {
 		/**
-		 * When true, this participant is invoked by default when no other participant is being invoked
+		 * TODO@API Should this take a ChatResult like the followup provider, or just take a new ChatContext that includes the current message as history?
 		 */
-		isDefault?: boolean;
+		provideChatTitle(context: ChatContext, token: CancellationToken): ProviderResult<string>;
+	}
 
+	export interface ChatParticipant {
 		/**
 		 * When true, this participant is invoked when the user submits their query using ctrl/cmd+enter
 		 * TODO@API name
@@ -49,6 +56,8 @@ declare module 'vscode' {
 		helpTextPostfix?: string | MarkdownString;
 
 		welcomeMessageProvider?: ChatWelcomeMessageProvider;
+		welcomeMessageContent?: ChatWelcomeMessageContent;
+		titleProvider?: ChatTitleProvider;
 		requester?: ChatRequesterInformation;
 	}
 }

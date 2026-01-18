@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import type { Event } from 'vs/base/common/event';
-import type { IDisposable } from 'vs/base/common/lifecycle';
-import type * as webviewMessages from 'vs/workbench/contrib/notebook/browser/view/renderers/webviewMessages';
-import type { NotebookCellMetadata } from 'vs/workbench/contrib/notebook/common/notebookCommon';
+import type { Event } from '../../../../../../base/common/event.js';
+import type { IDisposable } from '../../../../../../base/common/lifecycle.js';
+import type * as webviewMessages from './webviewMessages.js';
+import type { NotebookCellMetadata } from '../../../common/notebookCommon.js';
 import type * as rendererApi from 'vscode-notebook-renderer';
 
 // !! IMPORTANT !! ----------------------------------------------------------------------------------
@@ -18,6 +18,43 @@ import type * as rendererApi from 'vscode-notebook-renderer';
 // !! IMPORTANT !! everything must be in-line within the webviewPreloads
 // function. Imports are not allowed. This is stringified and injected into
 // the webview.
+
+// Minimal HTML sanitizer implementation using browser's DOMParser, 
+// which removes <script> and dangerous attributes. For strong security 
+// consider DOMPurify. Here we use basic sanitization to mitigate XSS risk.
+function sanitizeHTML(dirty: string): string {
+	const parser = new DOMParser();
+	const doc = parser.parseFromString(dirty, 'text/html');
+
+	// Remove script/style/iframe tags
+	const forbiddenTags = ['script', 'style', 'iframe', 'object', 'embed'];
+	for (const tag of forbiddenTags) {
+		const elements = doc.getElementsByTagName(tag);
+		while (elements.length > 0) {
+			elements[0].remove();
+		}
+	}
+
+	// Remove dangerous attributes
+	function sanitizeElement(el: Element) {
+		const dangerousAttrs = ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'srcdoc', 'onmouseenter', 'onmouseleave'];
+		for (const attr of dangerousAttrs) {
+			if (el.hasAttribute(attr)) {
+				el.removeAttribute(attr);
+			}
+		}
+
+		// Recursively sanitize children
+		for (const child of Array.from(el.children)) {
+			sanitizeElement(child);
+		}
+	}
+	for (const el of Array.from(doc.body.children)) {
+		sanitizeElement(el);
+	}
+
+	return doc.body.innerHTML;
+}
 
 declare module globalThis {
 	const acquireVsCodeApi: () => ({
@@ -187,6 +224,11 @@ async function webviewPreloads(ctx: PreloadContext) {
 		}, 0);
 	};
 
+	const isEditableElement = (element: Element) => {
+		return element.tagName.toLowerCase() === 'input' || element.tagName.toLowerCase() === 'textarea'
+			|| ('editContext' in element && !!element.editContext);
+	};
+
 	// check if an input element is focused within the output element
 	const checkOutputInputFocus = (e: FocusEvent) => {
 		lastFocusedOutput = getOutputContainer(e);
@@ -196,7 +238,7 @@ async function webviewPreloads(ctx: PreloadContext) {
 		}
 
 		const id = lastFocusedOutput?.id;
-		if (id && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA' || activeElement.tagName === 'SELECT')) {
+		if (id && (isEditableElement(activeElement) || activeElement.tagName === 'SELECT')) {
 			postNotebookMessage<webviewMessages.IOutputInputFocusMessage>('outputInputFocus', { inputFocused: true, id });
 
 			activeElement.addEventListener('blur', () => {
@@ -303,7 +345,7 @@ async function webviewPreloads(ctx: PreloadContext) {
 			return;
 		}
 		const activeElement = window.document.activeElement;
-		if (activeElement?.tagName === 'INPUT' || activeElement?.tagName === 'TEXTAREA') {
+		if (activeElement && isEditableElement(activeElement)) {
 			(activeElement as HTMLInputElement).select();
 		}
 	};
@@ -329,7 +371,7 @@ async function webviewPreloads(ctx: PreloadContext) {
 			return;
 		}
 		const activeElement = window.document.activeElement;
-		if (activeElement?.tagName === 'INPUT' || activeElement?.tagName === 'TEXTAREA') {
+		if (activeElement && isEditableElement(activeElement)) {
 			// Leave for default behavior.
 			return;
 		}
@@ -357,7 +399,7 @@ async function webviewPreloads(ctx: PreloadContext) {
 			return;
 		}
 		const activeElement = window.document.activeElement;
-		if (activeElement?.tagName === 'INPUT' || activeElement?.tagName === 'TEXTAREA') {
+		if (activeElement && isEditableElement(activeElement)) {
 			// The input element will handle this.
 			return;
 		}
@@ -461,7 +503,7 @@ async function webviewPreloads(ctx: PreloadContext) {
 					id,
 					height,
 					init: update.init,
-					isOutput: update.isOutput,
+					isOutput: update.isOutput
 				});
 			} else {
 				this.pending.set(id, {
@@ -483,6 +525,11 @@ async function webviewPreloads(ctx: PreloadContext) {
 			this.pending.clear();
 		}
 	};
+
+	function elementHasContent(height: number) {
+		// we need to account for a potential 1px top and bottom border on a child within the output container
+		return height > 2.1;
+	}
 
 	const resizeObserver = new class {
 
@@ -519,23 +566,23 @@ async function webviewPreloads(ctx: PreloadContext) {
 						continue;
 					}
 
-					const newHeight = entry.contentRect.height;
+					const hasContent = elementHasContent(entry.contentRect.height);
 					const shouldUpdatePadding =
-						(newHeight !== 0 && observedElementInfo.lastKnownPadding === 0) ||
-						(newHeight === 0 && observedElementInfo.lastKnownPadding !== 0);
+						(hasContent && observedElementInfo.lastKnownPadding === 0) ||
+						(!hasContent && observedElementInfo.lastKnownPadding !== 0);
 
 					if (shouldUpdatePadding) {
 						// Do not update dimension in resize observer
 						window.requestAnimationFrame(() => {
-							if (newHeight !== 0) {
+							if (hasContent) {
 								entry.target.style.padding = `${ctx.style.outputNodePadding}px ${ctx.style.outputNodePadding}px ${ctx.style.outputNodePadding}px ${ctx.style.outputNodeLeftPadding}px`;
 							} else {
 								entry.target.style.padding = `0px`;
 							}
-							this.updateHeight(observedElementInfo, entry.target.offsetHeight);
+							this.updateHeight(observedElementInfo, hasContent ? entry.target.offsetHeight : 0);
 						});
 					} else {
-						this.updateHeight(observedElementInfo, entry.target.offsetHeight);
+						this.updateHeight(observedElementInfo, hasContent ? entry.target.offsetHeight : 0);
 					}
 				}
 			});
@@ -691,7 +738,7 @@ async function webviewPreloads(ctx: PreloadContext) {
 				focusableElement.tabIndex = -1;
 				postNotebookMessage<webviewMessages.IOutputInputFocusMessage>('outputInputFocus', { inputFocused: false, id });
 			} else {
-				const inputFocused = focusableElement.tagName === 'INPUT' || focusableElement.tagName === 'TEXTAREA';
+				const inputFocused = isEditableElement(focusableElement);
 				postNotebookMessage<webviewMessages.IOutputInputFocusMessage>('outputInputFocus', { inputFocused, id });
 			}
 
@@ -2414,6 +2461,62 @@ async function webviewPreloads(ctx: PreloadContext) {
 		}
 	}();
 
+	// --- Begin DOMPurify Minimal Implementation ---
+	// NOTE: In a production scenario, the full DOMPurify min.js should be included here or loaded up-front wherever allowed. This is a minimal, very basic, example for the notebook webview context.
+	function sanitizeHTML(dirty) {
+		// Ensure we only ever process strings to avoid unexpected DOM parsing behavior
+		if (dirty === undefined || dirty === null) {
+			dirty = '';
+		} else if (typeof dirty !== 'string') {
+			dirty = String(dirty);
+		}
+
+		const template = document.createElement('template');
+		template.innerHTML = dirty;
+
+		// Remove potentially dangerous elements
+		const forbiddenTags = [
+			'script', 'style', 'iframe', 'object', 'embed', 'link', 'base', 'meta', 'form', 'input', 'button'
+		];
+		forbiddenTags.forEach(tag => {
+			for (const el of Array.from(template.content.querySelectorAll(tag))) {
+				el.remove();
+			}
+		});
+
+		// Remove event handler attributes (on*), style, srcdoc, javascript: URLs
+		for (const el of template.content.querySelectorAll('*')) {
+			for (const attr of Array.from(el.attributes)) {
+				const name = attr.name;
+				const value = attr.value;
+
+				// Remove inline event handlers
+				if (/^on/i.test(name)) {
+					el.removeAttribute(name);
+					continue;
+				}
+				// Remove style attributes (CSS attacks)
+				if (/^style$/i.test(name)) {
+					el.removeAttribute(name);
+					continue;
+				}
+				// Remove srcdoc attribute
+				if (/^srcdoc$/i.test(name)) {
+					el.removeAttribute(name);
+					continue;
+				}
+				// Remove javascript: URIs in src/href/data attrs
+				if (/^(src|href|data)$/i.test(name) &&
+					/^javascript:/i.test(value.trim())) {
+					el.removeAttribute(name);
+					continue;
+				}
+			}
+		}
+		return template.innerHTML;
+	}
+	// --- End DOMPurify Minimal Implementation ---
+
 	class MarkdownCodeBlock {
 		private static pendingCodeBlocksToHighlight = new Map<string, HTMLElement>();
 
@@ -2422,8 +2525,10 @@ async function webviewPreloads(ctx: PreloadContext) {
 			if (!el) {
 				return;
 			}
-			const trustedHtml = ttPolicy?.createHTML(html) ?? html;
-			el.innerHTML = trustedHtml as string; // CodeQL [SM03712] The rendered content comes from VS Code's tokenizer and is considered safe
+			// Sanitize untrusted HTML before injecting
+			const safeHtml = sanitizeHTML(html);
+			const trustedHtml = ttPolicy?.createHTML(safeHtml) ?? safeHtml;
+			el.innerHTML = trustedHtml as string; // safeHtml is sanitized
 			const root = el.getRootNode();
 			if (root instanceof ShadowRoot) {
 				if (!root.adoptedStyleSheets.includes(tokenizationStyle)) {
@@ -2723,20 +2828,20 @@ async function webviewPreloads(ctx: PreloadContext) {
 
 			if (!!data.executionId && !!data.rendererId) {
 				let outputSize: number | undefined = undefined;
-				let mimeType: string | undefined = undefined;
 				if (data.content.type === 1 /* extension */) {
 					outputSize = data.content.output.valueBytes.length;
-					mimeType = data.content.output.mime;
 				}
 
-				postNotebookMessage<webviewMessages.IPerformanceMessage>('notebookPerformanceMessage', {
-					cellId: data.cellId,
-					executionId: data.executionId,
-					duration: Date.now() - startTime,
-					rendererId: data.rendererId,
-					outputSize,
-					mimeType
-				});
+				// Only send performance messages for non-empty outputs up to a certain size
+				if (outputSize !== undefined && outputSize > 0 && outputSize < 100 * 1024) {
+					postNotebookMessage<webviewMessages.IPerformanceMessage>('notebookPerformanceMessage', {
+						cellId: data.cellId,
+						executionId: data.executionId,
+						duration: Date.now() - startTime,
+						rendererId: data.rendererId,
+						outputSize
+					});
+				}
 			}
 		}
 
@@ -2755,10 +2860,6 @@ async function webviewPreloads(ctx: PreloadContext) {
 
 			this.element.style.visibility = '';
 			this.element.style.top = `${top}px`;
-
-			dimensionUpdater.updateHeight(outputId, outputContainer.element.offsetHeight, {
-				isOutput: true,
-			});
 		}
 
 		public hide() {
@@ -2911,8 +3012,9 @@ async function webviewPreloads(ctx: PreloadContext) {
 
 			this._content = { preferredRendererId, preloadErrors };
 			if (content.type === 0 /* RenderOutputType.Html */) {
-				const trustedHtml = ttPolicy?.createHTML(content.htmlContent) ?? content.htmlContent;
-				this.element.innerHTML = trustedHtml as string;  // CodeQL [SM03712] The content comes from renderer extensions, not from direct user input.
+				const sanitizedHtml = sanitizeHTML(content.htmlContent);
+				const trustedHtml = ttPolicy?.createHTML(sanitizedHtml) ?? sanitizedHtml;
+				this.element.innerHTML = trustedHtml as string;
 			} else if (preloadErrors.some(e => e instanceof Error)) {
 				const errors = preloadErrors.filter((e): e is Error => e instanceof Error);
 				showRenderError(`Error loading preloads`, this.element, errors);
@@ -2941,17 +3043,26 @@ async function webviewPreloads(ctx: PreloadContext) {
 
 			const offsetHeight = this.element.offsetHeight;
 			const cps = document.defaultView!.getComputedStyle(this.element);
-			if (offsetHeight !== 0 && cps.padding === '0px') {
-				// we set padding to zero if the output height is zero (then we can have a zero-height output DOM node)
+			const verticalPadding = parseFloat(cps.paddingTop) + parseFloat(cps.paddingBottom);
+			const contentHeight = offsetHeight - verticalPadding;
+			if (elementHasContent(contentHeight) && cps.padding === '0px') {
+				// we set padding to zero if the output has no content (then we can have a zero-height output DOM node)
 				// thus we need to ensure the padding is accounted when updating the init height of the output
 				dimensionUpdater.updateHeight(this.outputId, offsetHeight + ctx.style.outputNodePadding * 2, {
 					isOutput: true,
-					init: true,
+					init: true
 				});
 
 				this.element.style.padding = `${ctx.style.outputNodePadding}px ${ctx.style.outputNodePadding}px ${ctx.style.outputNodePadding}px ${ctx.style.outputNodeLeftPadding}`;
-			} else {
+			} else if (elementHasContent(contentHeight)) {
 				dimensionUpdater.updateHeight(this.outputId, this.element.offsetHeight, {
+					isOutput: true,
+					init: true
+				});
+				this.element.style.padding = `0 ${ctx.style.outputNodePadding}px 0 ${ctx.style.outputNodeLeftPadding}`;
+			} else {
+				// we have a zero-height output DOM node
+				dimensionUpdater.updateHeight(this.outputId, 0, {
 					isOutput: true,
 					init: true,
 				});
