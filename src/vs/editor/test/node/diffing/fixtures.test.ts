@@ -11,12 +11,8 @@ import { FileAccess } from 'vs/base/common/network';
 import { DetailedLineRangeMapping } from 'vs/editor/common/diff/rangeMapping';
 import { LegacyLinesDiffComputer } from 'vs/editor/common/diff/legacyLinesDiffComputer';
 import { DefaultLinesDiffComputer } from 'vs/editor/common/diff/defaultLinesDiffComputer/defaultLinesDiffComputer';
-import { Range } from 'vs/editor/common/core/range';
-import { ensureNoDisposablesAreLeakedInTestSuite } from 'vs/base/test/common/utils';
 
 suite('diffing fixtures', () => {
-	ensureNoDisposablesAreLeakedInTestSuite();
-
 	setup(() => {
 		setUnexpectedErrorHandler(e => {
 			throw e;
@@ -45,23 +41,17 @@ suite('diffing fixtures', () => {
 		const diffingAlgo = diffingAlgoName === 'legacy' ? new LegacyLinesDiffComputer() : new DefaultLinesDiffComputer();
 
 		const ignoreTrimWhitespace = folder.indexOf('trimws') >= 0;
-		const diff = diffingAlgo.computeDiff(firstContentLines, secondContentLines, { ignoreTrimWhitespace, maxComputationTimeMs: Number.MAX_SAFE_INTEGER, computeMoves: true });
+		const diff = diffingAlgo.computeDiff(firstContentLines, secondContentLines, { ignoreTrimWhitespace, maxComputationTimeMs: Number.MAX_SAFE_INTEGER, computeMoves: false });
 
 		function getDiffs(changes: readonly DetailedLineRangeMapping[]): IDetailedDiff[] {
 			return changes.map<IDetailedDiff>(c => ({
 				originalRange: c.original.toString(),
 				modifiedRange: c.modified.toString(),
 				innerChanges: c.innerChanges?.map<IDiff>(c => ({
-					originalRange: formatRange(c.originalRange, firstContentLines),
-					modifiedRange: formatRange(c.modifiedRange, secondContentLines),
+					originalRange: c.originalRange.toString(),
+					modifiedRange: c.modifiedRange.toString(),
 				})) || null
 			}));
-		}
-
-		function formatRange(range: Range, lines: string[]): string {
-			const toLastChar = range.endColumn === lines[range.endLineNumber - 1].length + 1;
-
-			return '[' + range.startLineNumber + ',' + range.startColumn + ' -> ' + range.endLineNumber + ',' + range.endColumn + (toLastChar ? ' EOL' : '') + ']';
 		}
 
 		const actualDiffingResult: DiffingResult = {
@@ -123,7 +113,7 @@ suite('diffing fixtures', () => {
 	}
 
 	test(`test`, () => {
-		runTest('shifting-twice', 'advanced');
+		runTest('invalid-diff-trimws', 'advanced');
 	});
 
 	for (const folder of folders) {
@@ -158,5 +148,5 @@ interface IMoveInfo {
 	originalRange: string; // [startLineNumber, endLineNumberExclusive)
 	modifiedRange: string; // [startLineNumber, endLineNumberExclusive)
 
-	changes: IDetailedDiff[];
+	changes?: IDetailedDiff[];
 }

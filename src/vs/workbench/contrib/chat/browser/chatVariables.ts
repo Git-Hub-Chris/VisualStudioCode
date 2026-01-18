@@ -3,91 +3,53 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { coalesce } from 'vs/base/common/arrays';
-import { CancellationToken } from 'vs/base/common/cancellation';
-import { onUnexpectedExternalError } from 'vs/base/common/errors';
-import { Iterable } from 'vs/base/common/iterator';
-import { IDisposable, toDisposable } from 'vs/base/common/lifecycle';
-import { IChatWidgetService } from 'vs/workbench/contrib/chat/browser/chat';
-import { ChatDynamicVariableModel } from 'vs/workbench/contrib/chat/browser/contrib/chatDynamicVariables';
-import { IChatModel, IChatRequestVariableData, IChatRequestVariableEntry } from 'vs/workbench/contrib/chat/common/chatModel';
-import { ChatRequestDynamicVariablePart, ChatRequestVariablePart, IParsedChatRequest } from 'vs/workbench/contrib/chat/common/chatParserTypes';
-import { IChatContentReference } from 'vs/workbench/contrib/chat/common/chatService';
-import { IChatRequestVariableValue, IChatVariableData, IChatVariableResolver, IChatVariableResolverProgress, IChatVariablesService, IDynamicVariable } from 'vs/workbench/contrib/chat/common/chatVariables';
-
-interface IChatData {
-	data: IChatVariableData;
-	resolver: IChatVariableResolver;
-}
+import { coalesce } from '../../../../base/common/arrays.js';
+import { URI } from '../../../../base/common/uri.js';
+import { Location } from '../../../../editor/common/languages.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
+import { IChatRequestVariableData, IChatRequestVariableEntry } from '../common/chatModel.js';
+import { ChatRequestDynamicVariablePart, ChatRequestToolPart, IParsedChatRequest } from '../common/chatParserTypes.js';
+import { IChatVariablesService, IDynamicVariable } from '../common/chatVariables.js';
+import { ChatAgentLocation, ChatConfiguration } from '../common/constants.js';
+import { IChatWidgetService, showChatView, showEditsView } from './chat.js';
+import { ChatDynamicVariableModel } from './contrib/chatDynamicVariables.js';
 
 export class ChatVariablesService implements IChatVariablesService {
 	declare _serviceBrand: undefined;
 
-	private _resolver = new Map<string, IChatData>();
-
 	constructor(
-		@IChatWidgetService private readonly chatWidgetService: IChatWidgetService
+		@IChatWidgetService private readonly chatWidgetService: IChatWidgetService,
+		@IViewsService private readonly viewsService: IViewsService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 	) {
 	}
 
-	async resolveVariables(prompt: IParsedChatRequest, model: IChatModel, progress: (part: IChatVariableResolverProgress) => void, token: CancellationToken): Promise<IChatRequestVariableData> {
+	resolveVariables(prompt: IParsedChatRequest, attachedContextVariables: IChatRequestVariableEntry[] | undefined): IChatRequestVariableData {
 		let resolvedVariables: IChatRequestVariableEntry[] = [];
-		const jobs: Promise<any>[] = [];
 
 		prompt.parts
 			.forEach((part, i) => {
-				if (part instanceof ChatRequestVariablePart) {
-					const data = this._resolver.get(part.variableName.toLowerCase());
-					if (data) {
-						const references: IChatContentReference[] = [];
-						const variableProgressCallback = (item: IChatVariableResolverProgress) => {
-							if (item.kind === 'reference') {
-								references.push(item);
-								return;
-							}
-							progress(item);
-						};
-						jobs.push(data.resolver(prompt.text, part.variableArg, model, variableProgressCallback, token).then(values => {
-							resolvedVariables[i] = { name: part.variableName, range: part.range, values: values ?? [], references };
-						}).catch(onUnexpectedExternalError));
-					}
-				} else if (part instanceof ChatRequestDynamicVariablePart) {
-					resolvedVariables[i] = { name: part.referenceText, range: part.range, values: part.data };
+				if (part instanceof ChatRequestDynamicVariablePart || part instanceof ChatRequestToolPart) {
+					resolvedVariables[i] = part.toVariableEntry();
 				}
 			});
 
-		await Promise.allSettled(jobs);
-
-		resolvedVariables = coalesce(resolvedVariables);
+		// Make array not sparse
+		resolvedVariables = coalesce<IChatRequestVariableEntry>(resolvedVariables);
 
 		// "reverse", high index first so that replacement is simple
 		resolvedVariables.sort((a, b) => b.range!.start - a.range!.start);
 
+		if (attachedContextVariables) {
+			// attachments not in the prompt
+			resolvedVariables.push(...attachedContextVariables);
+		}
+
+
 		return {
 			variables: resolvedVariables,
 		};
-	}
-
-	async resolveVariable(variableName: string, promptText: string, model: IChatModel, progress: (part: IChatVariableResolverProgress) => void, token: CancellationToken): Promise<IChatRequestVariableValue[]> {
-		const data = this._resolver.get(variableName.toLowerCase());
-		if (!data) {
-			return Promise.resolve([]);
-		}
-
-		return (await data.resolver(promptText, undefined, model, progress, token)) ?? [];
-	}
-
-	hasVariable(name: string): boolean {
-		return this._resolver.has(name.toLowerCase());
-	}
-
-	getVariable(name: string): IChatVariableData | undefined {
-		return this._resolver.get(name.toLowerCase())?.data;
-	}
-
-	getVariables(): Iterable<Readonly<IChatVariableData>> {
-		const all = Iterable.map(this._resolver.values(), data => data.data);
-		return Iterable.filter(all, data => !data.hidden);
 	}
 
 	getDynamicVariables(sessionId: string): ReadonlyArray<IDynamicVariable> {
@@ -108,14 +70,30 @@ export class ChatVariablesService implements IChatVariablesService {
 		return model.variables;
 	}
 
-	registerVariable(data: IChatVariableData, resolver: IChatVariableResolver): IDisposable {
-		const key = data.name.toLowerCase();
-		if (this._resolver.has(key)) {
-			throw new Error(`A chat variable with the name '${data.name}' already exists.`);
+	async attachContext(name: string, value: string | URI | Location, location: ChatAgentLocation) {
+		if (location !== ChatAgentLocation.Panel && location !== ChatAgentLocation.EditingSession) {
+			return;
 		}
-		this._resolver.set(key, { data, resolver });
-		return toDisposable(() => {
-			this._resolver.delete(key);
-		});
+
+		const unifiedViewEnabled = !!this.configurationService.getValue(ChatConfiguration.UnifiedChatView);
+		const widget = location === ChatAgentLocation.EditingSession && !unifiedViewEnabled
+			? await showEditsView(this.viewsService)
+			: (this.chatWidgetService.lastFocusedWidget ?? await showChatView(this.viewsService));
+		if (!widget || !widget.viewModel) {
+			return;
+		}
+
+		const key = name.toLowerCase();
+		if (key === 'file' && typeof value !== 'string') {
+			const uri = URI.isUri(value) ? value : value.uri;
+			const range = 'range' in value ? value.range : undefined;
+			widget.attachmentModel.addFile(uri, range);
+			return;
+		}
+
+		if (key === 'folder' && URI.isUri(value)) {
+			widget.attachmentModel.addFolder(value);
+			return;
+		}
 	}
 }

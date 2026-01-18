@@ -3,24 +3,25 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable, DisposableStore, toDisposable } from 'vs/base/common/lifecycle';
-import { ICodeEditor } from 'vs/editor/browser/editorBrowser';
-import { ILanguageFeaturesService } from 'vs/editor/common/services/languageFeatures';
-import { CancellationToken, CancellationTokenSource, } from 'vs/base/common/cancellation';
-import { EditorOption } from 'vs/editor/common/config/editorOptions';
-import { RunOnceScheduler } from 'vs/base/common/async';
-import { Range } from 'vs/editor/common/core/range';
-import { binarySearch } from 'vs/base/common/arrays';
-import { Event, Emitter } from 'vs/base/common/event';
-import { ILanguageConfigurationService } from 'vs/editor/common/languages/languageConfigurationRegistry';
-import { StickyModelProvider, IStickyModelProvider } from 'vs/editor/contrib/stickyScroll/browser/stickyScrollModelProvider';
-import { StickyElement, StickyModel, StickyRange } from 'vs/editor/contrib/stickyScroll/browser/stickyScrollElement';
+import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
+import { ICodeEditor } from '../../../browser/editorBrowser.js';
+import { ILanguageFeaturesService } from '../../../common/services/languageFeatures.js';
+import { CancellationToken, CancellationTokenSource, } from '../../../../base/common/cancellation.js';
+import { EditorOption } from '../../../common/config/editorOptions.js';
+import { RunOnceScheduler } from '../../../../base/common/async.js';
+import { Range } from '../../../common/core/range.js';
+import { binarySearch } from '../../../../base/common/arrays.js';
+import { Event, Emitter } from '../../../../base/common/event.js';
+import { ILanguageConfigurationService } from '../../../common/languages/languageConfigurationRegistry.js';
+import { StickyModelProvider, IStickyModelProvider } from './stickyScrollModelProvider.js';
+import { StickyElement, StickyModel, StickyRange } from './stickyScrollElement.js';
 
 export class StickyLineCandidate {
 	constructor(
 		public readonly startLineNumber: number,
 		public readonly endLineNumber: number,
-		public readonly nestingDepth: number,
+		public readonly top: number,
+		public readonly height: number,
 	) { }
 }
 
@@ -150,6 +151,7 @@ export class StickyLineCandidateProvider extends Disposable implements IStickyLi
 		outlineModel: StickyElement,
 		result: StickyLineCandidate[],
 		depth: number,
+		top: number,
 		lastStartLineNumber: number
 	): void {
 		if (outlineModel.children.length === 0) {
@@ -177,11 +179,12 @@ export class StickyLineCandidateProvider extends Disposable implements IStickyLi
 				const childEndLine = child.range.endLineNumber;
 				if (range.startLineNumber <= childEndLine + 1 && childStartLine - 1 <= range.endLineNumber && childStartLine !== lastLine) {
 					lastLine = childStartLine;
-					result.push(new StickyLineCandidate(childStartLine, childEndLine - 1, depth + 1));
-					this.getCandidateStickyLinesIntersectingFromStickyModel(range, child, result, depth + 1, childStartLine);
+					const lineHeight = this._editor.getOption(EditorOption.lineHeight);
+					result.push(new StickyLineCandidate(childStartLine, childEndLine - 1, top, lineHeight));
+					this.getCandidateStickyLinesIntersectingFromStickyModel(range, child, result, depth + 1, top + lineHeight, childStartLine);
 				}
 			} else {
-				this.getCandidateStickyLinesIntersectingFromStickyModel(range, child, result, depth, lastStartLineNumber);
+				this.getCandidateStickyLinesIntersectingFromStickyModel(range, child, result, depth, top, lastStartLineNumber);
 			}
 		}
 	}
@@ -191,7 +194,7 @@ export class StickyLineCandidateProvider extends Disposable implements IStickyLi
 			return [];
 		}
 		let stickyLineCandidates: StickyLineCandidate[] = [];
-		this.getCandidateStickyLinesIntersectingFromStickyModel(range, this._model.element, stickyLineCandidates, 0, -1);
+		this.getCandidateStickyLinesIntersectingFromStickyModel(range, this._model.element, stickyLineCandidates, 0, 0, -1);
 		const hiddenRanges: Range[] | undefined = this._editor._getViewModel()?.getHiddenAreas();
 
 		if (hiddenRanges) {
