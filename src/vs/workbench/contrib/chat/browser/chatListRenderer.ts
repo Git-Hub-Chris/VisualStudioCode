@@ -3,76 +3,64 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as dom from '../../../../base/browser/dom.js';
-import { renderFormattedText } from '../../../../base/browser/formattedTextRenderer.js';
-import { StandardKeyboardEvent } from '../../../../base/browser/keyboardEvent.js';
-import { IActionViewItemOptions } from '../../../../base/browser/ui/actionbar/actionViewItems.js';
-import { DropdownMenuActionViewItem, IDropdownMenuActionViewItemOptions } from '../../../../base/browser/ui/dropdown/dropdownActionViewItem.js';
-import { getDefaultHoverDelegate } from '../../../../base/browser/ui/hover/hoverDelegateFactory.js';
-import { IListVirtualDelegate } from '../../../../base/browser/ui/list/list.js';
-import { ITreeNode, ITreeRenderer } from '../../../../base/browser/ui/tree/tree.js';
-import { IAction } from '../../../../base/common/actions.js';
-import { coalesce, distinct } from '../../../../base/common/arrays.js';
-import { Codicon } from '../../../../base/common/codicons.js';
-import { Emitter, Event } from '../../../../base/common/event.js';
-import { FuzzyScore } from '../../../../base/common/filters.js';
-import { MarkdownString } from '../../../../base/common/htmlContent.js';
-import { Iterable } from '../../../../base/common/iterator.js';
-import { KeyCode } from '../../../../base/common/keyCodes.js';
-import { Disposable, DisposableStore, IDisposable, dispose, thenIfNotDisposed, toDisposable } from '../../../../base/common/lifecycle.js';
-import { ResourceMap } from '../../../../base/common/map.js';
-import { FileAccess } from '../../../../base/common/network.js';
-import { clamp } from '../../../../base/common/numbers.js';
-import { autorun } from '../../../../base/common/observable.js';
-import { ThemeIcon } from '../../../../base/common/themables.js';
-import { URI } from '../../../../base/common/uri.js';
-import { MarkdownRenderer } from '../../../../editor/browser/widget/markdownRenderer/browser/markdownRenderer.js';
-import { localize } from '../../../../nls.js';
-import { IMenuEntryActionViewItemOptions, createActionViewItem } from '../../../../platform/actions/browser/menuEntryActionViewItem.js';
-import { MenuWorkbenchToolBar } from '../../../../platform/actions/browser/toolbar.js';
-import { MenuId, MenuItemAction } from '../../../../platform/actions/common/actions.js';
-import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
-import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
-import { IHoverService } from '../../../../platform/hover/browser/hover.js';
-import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
-import { ServiceCollection } from '../../../../platform/instantiation/common/serviceCollection.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
-import { ColorScheme } from '../../../../platform/theme/common/theme.js';
-import { IThemeService } from '../../../../platform/theme/common/themeService.js';
-import { IWorkbenchIssueService } from '../../issue/common/issue.js';
-import { annotateSpecialMarkdownContent } from '../common/annotations.js';
-import { ChatAgentLocation, IChatAgentMetadata } from '../common/chatAgents.js';
-import { ChatContextKeys } from '../common/chatContextKeys.js';
-import { IChatRequestVariableEntry, IChatTextEditGroup } from '../common/chatModel.js';
-import { chatSubcommandLeader } from '../common/chatParserTypes.js';
-import { ChatAgentVoteDirection, ChatAgentVoteDownReason, ChatErrorLevel, IChatConfirmation, IChatContentReference, IChatFollowup, IChatMarkdownContent, IChatTask, IChatToolInvocation, IChatToolInvocationSerialized, IChatTreeData, IChatUndoStop } from '../common/chatService.js';
-import { IChatCodeCitations, IChatReferences, IChatRendererContent, IChatRequestViewModel, IChatResponseViewModel, IChatWorkingProgress, isRequestVM, isResponseVM } from '../common/chatViewModel.js';
-import { getNWords } from '../common/chatWordCounter.js';
-import { CodeBlockModelCollection } from '../common/codeBlockModelCollection.js';
-import { MarkUnhelpfulActionId } from './actions/chatTitleActions.js';
-import { ChatTreeItem, IChatCodeBlockInfo, IChatFileTreeInfo, IChatListItemRendererOptions, IChatWidgetService } from './chat.js';
-import { ChatAgentHover, getChatAgentHoverOptions } from './chatAgentHover.js';
-import { ChatAgentCommandContentPart } from './chatContentParts/chatAgentCommandContentPart.js';
-import { ChatAttachmentsContentPart } from './chatContentParts/chatAttachmentsContentPart.js';
-import { ChatCodeCitationContentPart } from './chatContentParts/chatCodeCitationContentPart.js';
-import { ChatCommandButtonContentPart } from './chatContentParts/chatCommandContentPart.js';
-import { ChatConfirmationContentPart } from './chatContentParts/chatConfirmationContentPart.js';
-import { IChatContentPart, IChatContentPartRenderContext } from './chatContentParts/chatContentParts.js';
-import { ChatMarkdownContentPart, EditorPool, IChatMarkdownContentPartOptions } from './chatContentParts/chatMarkdownContentPart.js';
-import { ChatProgressContentPart, ChatWorkingProgressContentPart } from './chatContentParts/chatProgressContentPart.js';
-import { ChatQuotaExceededPart } from './chatContentParts/chatQuotaExceededPart.js';
-import { ChatCollapsibleListContentPart, ChatUsedReferencesListContentPart, CollapsibleListPool } from './chatContentParts/chatReferencesContentPart.js';
-import { ChatTaskContentPart } from './chatContentParts/chatTaskContentPart.js';
-import { ChatTextEditContentPart, DiffEditorPool } from './chatContentParts/chatTextEditContentPart.js';
-import { ChatToolInvocationPart } from './chatContentParts/chatToolInvocationPart.js';
-import { ChatTreeContentPart, TreePool } from './chatContentParts/chatTreeContentPart.js';
-import { ChatWarningContentPart } from './chatContentParts/chatWarningContentPart.js';
-import { ChatMarkdownDecorationsRenderer } from './chatMarkdownDecorationsRenderer.js';
-import { ChatMarkdownRenderer } from './chatMarkdownRenderer.js';
-import { ChatEditorOptions } from './chatOptions.js';
-import { ChatCodeBlockContentProvider, CodeBlockPart } from './codeBlockPart.js';
+import * as dom from 'vs/base/browser/dom';
+import { IActionViewItemOptions } from 'vs/base/browser/ui/actionbar/actionViewItems';
+import { AriaRole } from 'vs/base/browser/ui/aria/aria';
+import { Button } from 'vs/base/browser/ui/button/button';
+import { renderIcon } from 'vs/base/browser/ui/iconLabel/iconLabels';
+import { IListRenderer, IListVirtualDelegate } from 'vs/base/browser/ui/list/list';
+import { IListAccessibilityProvider } from 'vs/base/browser/ui/list/listWidget';
+import { ITreeCompressionDelegate } from 'vs/base/browser/ui/tree/asyncDataTree';
+import { ICompressedTreeNode } from 'vs/base/browser/ui/tree/compressedObjectTreeModel';
+import { ICompressibleTreeRenderer } from 'vs/base/browser/ui/tree/objectTree';
+import { IAsyncDataSource, ITreeNode, ITreeRenderer } from 'vs/base/browser/ui/tree/tree';
+import { IAction } from 'vs/base/common/actions';
+import { distinct } from 'vs/base/common/arrays';
+import { IntervalTimer } from 'vs/base/common/async';
+import { Codicon } from 'vs/base/common/codicons';
+import { Emitter, Event } from 'vs/base/common/event';
+import { FuzzyScore } from 'vs/base/common/filters';
+import { IMarkdownString, MarkdownString } from 'vs/base/common/htmlContent';
+import { Disposable, DisposableStore, IDisposable, toDisposable } from 'vs/base/common/lifecycle';
+import { ResourceMap } from 'vs/base/common/map';
+import { marked } from 'vs/base/common/marked/marked';
+import { FileAccess } from 'vs/base/common/network';
+import { ThemeIcon } from 'vs/base/common/themables';
+import { URI } from 'vs/base/common/uri';
+import { IMarkdownRenderResult } from 'vs/editor/contrib/markdownRenderer/browser/markdownRenderer';
+import { localize } from 'vs/nls';
+import { IMenuEntryActionViewItemOptions, MenuEntryActionViewItem } from 'vs/platform/actions/browser/menuEntryActionViewItem';
+import { MenuWorkbenchToolBar } from 'vs/platform/actions/browser/toolbar';
+import { MenuId, MenuItemAction } from 'vs/platform/actions/common/actions';
+import { ICommandService } from 'vs/platform/commands/common/commands';
+import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
+import { IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
+import { FileKind } from 'vs/platform/files/common/files';
+import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
+import { ServiceCollection } from 'vs/platform/instantiation/common/serviceCollection';
+import { WorkbenchCompressibleAsyncDataTree, WorkbenchList } from 'vs/platform/list/browser/listService';
+import { ILogService } from 'vs/platform/log/common/log';
+import { IOpenerService } from 'vs/platform/opener/common/opener';
+import { IProductService } from 'vs/platform/product/common/productService';
+import { defaultButtonStyles } from 'vs/platform/theme/browser/defaultStyles';
+import { IThemeService } from 'vs/platform/theme/common/themeService';
+import { IResourceLabel, ResourceLabels } from 'vs/workbench/browser/labels';
+import { AccessibilityVerbositySettingId } from 'vs/workbench/contrib/accessibility/browser/accessibilityConfiguration';
+import { IAccessibleViewService } from 'vs/workbench/contrib/accessibility/browser/accessibleView';
+import { ChatTreeItem, IChatCodeBlockInfo, IChatFileTreeInfo } from 'vs/workbench/contrib/chat/browser/chat';
+import { ChatFollowups } from 'vs/workbench/contrib/chat/browser/chatFollowups';
+import { convertParsedRequestToMarkdown, reduceInlineContentReferences, walkTreeAndAnnotateReferenceLinks } from 'vs/workbench/contrib/chat/browser/chatMarkdownDecorationsRenderer';
+import { ChatMarkdownRenderer } from 'vs/workbench/contrib/chat/browser/chatMarkdownRenderer';
+import { ChatEditorOptions } from 'vs/workbench/contrib/chat/browser/chatOptions';
+import { ResourcePool } from 'vs/workbench/contrib/chat/browser/resourcePool';
+import { CONTEXT_REQUEST, CONTEXT_RESPONSE, CONTEXT_RESPONSE_FILTERED, CONTEXT_RESPONSE_HAS_PROVIDER_ID, CONTEXT_RESPONSE_VOTE } from 'vs/workbench/contrib/chat/common/chatContextKeys';
+import { IPlaceholderMarkdownString } from 'vs/workbench/contrib/chat/common/chatModel';
+import { IChatContentReference, IChatReplyFollowup, IChatResponseProgressFileTreeData, IChatService, ISlashCommand, InteractiveSessionVoteDirection } from 'vs/workbench/contrib/chat/common/chatService';
+import { IChatResponseMarkdownRenderData, IChatResponseRenderData, IChatResponseViewModel, IChatWelcomeMessageViewModel, isRequestVM, isResponseVM, isWelcomeVM } from 'vs/workbench/contrib/chat/common/chatViewModel';
+import { IWordCountResult, getNWords } from 'vs/workbench/contrib/chat/common/chatWordCounter';
+import { createFileIconThemableTreeContainerScope } from 'vs/workbench/contrib/files/browser/views/explorerView';
+import { IFilesConfiguration } from 'vs/workbench/contrib/files/common/files';
+import { IEditorService } from 'vs/workbench/services/editor/common/editorService';
 
 const $ = dom.$;
 
@@ -120,8 +108,7 @@ export class ChatListItemRenderer extends Disposable implements ITreeRenderer<Ch
 	private readonly fileTreesByResponseId = new Map<string, IChatFileTreeInfo[]>();
 	private readonly focusedFileTreesByResponseId = new Map<string, number>();
 
-	private readonly renderer: MarkdownRenderer;
-	private readonly markdownDecorationsRenderer: ChatMarkdownDecorationsRenderer;
+	private readonly renderer: ChatMarkdownRenderer;
 
 	protected readonly _onDidClickFollowup = this._register(new Emitter<IChatFollowup>());
 	readonly onDidClickFollowup: Event<IChatFollowup> = this._onDidClickFollowup.event;
@@ -132,9 +119,6 @@ export class ChatListItemRenderer extends Disposable implements ITreeRenderer<Ch
 	protected readonly _onDidChangeItemHeight = this._register(new Emitter<IItemHeightChangeParams>());
 	readonly onDidChangeItemHeight: Event<IItemHeightChangeParams> = this._onDidChangeItemHeight.event;
 
-	private readonly _editorPool: EditorPool;
-	private readonly _toolEditorPool: EditorPool;
-	private readonly _diffEditorPool: DiffEditorPool;
 	private readonly _treePool: TreePool;
 	private readonly _contentReferencesListPool: CollapsibleListPool;
 
@@ -164,12 +148,7 @@ export class ChatListItemRenderer extends Disposable implements ITreeRenderer<Ch
 		@IChatWidgetService private readonly chatWidgetService: IChatWidgetService,
 	) {
 		super();
-
-		this.renderer = this.instantiationService.createInstance(ChatMarkdownRenderer, undefined);
-		this.markdownDecorationsRenderer = this.instantiationService.createInstance(ChatMarkdownDecorationsRenderer);
-		this._editorPool = this._register(this.instantiationService.createInstance(EditorPool, editorOptions, delegate, overflowWidgetsDomNode));
-		this._toolEditorPool = this._register(this.instantiationService.createInstance(EditorPool, editorOptions, delegate, overflowWidgetsDomNode));
-		this._diffEditorPool = this._register(this.instantiationService.createInstance(DiffEditorPool, editorOptions, delegate, overflowWidgetsDomNode));
+		this.renderer = this.instantiationService.createInstance(ChatMarkdownRenderer, editorOptions);
 		this._treePool = this._register(this.instantiationService.createInstance(TreePool, this._onDidChangeVisibility.event));
 		this._contentReferencesListPool = this._register(this.instantiationService.createInstance(CollapsibleListPool, this._onDidChangeVisibility.event, undefined));
 
@@ -243,16 +222,8 @@ export class ChatListItemRenderer extends Disposable implements ITreeRenderer<Ch
 	}
 
 	layout(width: number): void {
-		this._currentLayoutWidth = width - (this.rendererOptions.noPadding ? 0 : 40); // padding
-		for (const editor of this._editorPool.inUse()) {
-			editor.layout(this._currentLayoutWidth);
-		}
-		for (const toolEditor of this._toolEditorPool.inUse()) {
-			toolEditor.layout(this._currentLayoutWidth);
-		}
-		for (const diffEditor of this._diffEditorPool.inUse()) {
-			diffEditor.layout(this._currentLayoutWidth);
-		}
+		this._currentLayoutWidth = width - 40; // TODO Padding
+		this.renderer.layout(this._currentLayoutWidth);
 	}
 
 	renderTemplate(container: HTMLElement): IChatListItemTemplate {
@@ -748,57 +719,37 @@ export class ChatListItemRenderer extends Disposable implements ITreeRenderer<Ch
 		});
 	}
 
-	/**
-	 * Returns all content parts that should be rendered, and trimmed markdown content. We will diff this with the current rendered set.
-	 */
-	private getNextProgressiveRenderContent(element: IChatResponseViewModel): { content: IChatRendererContent[]; moreContentAvailable: boolean } {
-		const data = this.getDataForProgressiveRender(element);
+	private renderPlaceholder(markdown: IMarkdownString, templateData: IChatListItemTemplate): IMarkdownRenderResult {
+		const codicon = $('.interactive-response-codicon-details', undefined, renderIcon({ id: 'sync~spin' }));
+		codicon.classList.add('interactive-response-placeholder-codicon');
+		const result = dom.append(templateData.value, codicon);
 
-		const renderableResponse = annotateSpecialMarkdownContent(element.response.value);
+		const content = this.renderer.renderSimple(markdown);
+		content.element.className = 'interactive-response-placeholder-content';
+		result.appendChild(content.element);
 
-		this.traceLayout('getNextProgressiveRenderContent', `Want to render ${data.numWordsToRender} at ${data.rate} words/s, counting...`);
-		let numNeededWords = data.numWordsToRender;
-		const partsToRender: IChatRendererContent[] = [];
-		if (element.contentReferences.length) {
-			partsToRender.push({ kind: 'references', references: element.contentReferences });
-		}
+		return { element: result, dispose: () => content.dispose() };
+	}
 
-		let moreContentAvailable = false;
-		for (let i = 0; i < renderableResponse.length; i++) {
-			const part = renderableResponse[i];
-			if (part.kind === 'markdownContent') {
-				const wordCountResult = getNWords(part.content.value, numNeededWords);
-				this.traceLayout('getNextProgressiveRenderContent', `  Chunk ${i}: Want to render ${numNeededWords} words and found ${wordCountResult.returnedWordCount} words. Total words in chunk: ${wordCountResult.totalWordCount}`);
-				numNeededWords -= wordCountResult.returnedWordCount;
+	private renderMarkdown(markdown: IMarkdownString, element: ChatTreeItem, templateData: IChatListItemTemplate, fillInIncompleteTokens = false): IMarkdownRenderResult {
+		const disposables = new DisposableStore();
 
-				if (wordCountResult.isFullString) {
-					partsToRender.push(part);
-
-					// Consumed full markdown chunk- need to ensure that all following non-markdown parts are rendered
-					for (const nextPart of renderableResponse.slice(i + 1)) {
-						if (nextPart.kind !== 'markdownContent') {
-							i++;
-							partsToRender.push(nextPart);
-						} else {
-							break;
-						}
-					}
-				} else {
-					// Only taking part of this markdown part
-					moreContentAvailable = true;
-					partsToRender.push({ ...part, content: new MarkdownString(wordCountResult.value, part.content) });
-				}
-
-				if (numNeededWords <= 0) {
-					// Collected all words and following non-markdown parts if needed, done
-					if (renderableResponse.slice(i + 1).some(part => part.kind === 'markdownContent')) {
-						moreContentAvailable = true;
-					}
-					break;
-				}
-			} else {
-				partsToRender.push(part);
+		// TODO if the slash commands stay completely dynamic, this isn't quite right
+		const slashCommands = this.delegate.getSlashCommands();
+		const usedSlashCommand = slashCommands.find(s => markdown.value.startsWith(`/${s.command} `));
+		const toRender = usedSlashCommand ? markdown.value.slice(usedSlashCommand.command.length + 2) : markdown.value;
+		markdown = new MarkdownString(toRender, {
+			isTrusted: {
+				// Disable all other config options except isTrusted
+				enabledCommands: typeof markdown.isTrusted === 'object' ? markdown.isTrusted?.enabledCommands : [] ?? []
 			}
+		});
+
+		const result = this.renderer.render(markdown, element, templateData.contextKeyService, fillInIncompleteTokens);
+
+		if (isResponseVM(element)) {
+			this.codeBlocksByResponseId.set(element.id, result.codeblocks);
+			disposables.add(toDisposable(() => this.codeBlocksByResponseId.delete(element.id)));
 		}
 
 		const lastWordCount = element.contentUpdateTimings?.lastWordCount ?? 0;
@@ -815,30 +766,16 @@ export class ChatListItemRenderer extends Disposable implements ITreeRenderer<Ch
 			partsToRender.push({ kind: 'working', isPaused });
 		}
 
-		return { content: partsToRender, moreContentAvailable };
+		return {
+			element: result.element,
+			dispose() {
+				result.dispose();
+				disposables.dispose();
+			}
+		};
 	}
 
-	private shouldShowWorkingProgress(element: IChatResponseViewModel, partsToRender: IChatRendererContent[]): boolean {
-		if (element.agentOrSlashCommandDetected || this.rendererOptions.renderStyle === 'minimal' || element.isComplete || !this.rendererOptions.progressMessageAtBottomOfResponse) {
-			return false;
-		}
-
-		if (element.model.isPaused.get()) {
-			return true;
-		}
-
-		// Show if no content, only "used references", ends with a complete tool call, or ends with complete text edits and there is no incomplete tool call (edits are still being applied some time after they are all generated)
-		const lastPart = partsToRender.at(-1);
-		if (!lastPart || lastPart.kind === 'references' || (lastPart.kind === 'toolInvocation' && lastPart.isComplete) || (lastPart.kind === 'textEditGroup' && lastPart.done && !partsToRender.some(part => part.kind === 'toolInvocation' && !part.isComplete))) {
-			return true;
-		}
-
-		return false;
-	}
-
-	private getDataForProgressiveRender(element: IChatResponseViewModel) {
-		const renderData = element.renderData ?? { lastRenderTime: 0, renderedWordCount: 0 };
-
+	private getDataForProgressiveRender(element: IChatResponseViewModel, data: IMarkdownString, renderData: Pick<IChatResponseMarkdownRenderData, 'lastRenderTime' | 'renderedWordCount'>): IWordCountResult | undefined {
 		const rate = this.getProgressiveRenderRate(element);
 		const numWordsToRender = renderData.lastRenderTime === 0 ?
 			1 :
@@ -945,88 +882,54 @@ export class ChatListItemRenderer extends Disposable implements ITreeRenderer<Ch
 		return treePart;
 	}
 
-	private renderContentReferencesListData(references: IChatReferences, labelOverride: string | undefined, context: IChatContentPartRenderContext, templateData: IChatListItemTemplate): ChatCollapsibleListContentPart {
-		const referencesPart = this.instantiationService.createInstance(ChatUsedReferencesListContentPart, references.references, labelOverride, context, this._contentReferencesListPool, { expandedWhenEmptyResponse: this.rendererOptions.referencesExpandedWhenEmptyResponse });
-		referencesPart.addDisposable(referencesPart.onDidChangeHeight(() => {
-			this.updateItemHeight(templateData);
-		}));
-
-		return referencesPart;
-	}
-
-	private renderCodeCitations(citations: IChatCodeCitations, context: IChatContentPartRenderContext, templateData: IChatListItemTemplate): ChatCodeCitationContentPart {
-		const citationsPart = this.instantiationService.createInstance(ChatCodeCitationContentPart, citations, context);
-		return citationsPart;
-	}
-
-	private getCodeBlockStartIndex(context: IChatContentPartRenderContext): number {
-		return context.preceedingContentParts.reduce((acc, part) => acc + (part.codeblocks?.length ?? 0), 0);
-	}
-
-	private handleRenderedCodeblocks(element: ChatTreeItem, part: IChatContentPart, codeBlockStartIndex: number): void {
-		if (!part.addDisposable || part.codeblocksPartId === undefined) {
-			return;
+	private _getLabelWithCodeBlockCount(element: IChatResponseViewModel): string {
+		const accessibleViewHint = this._accessibleViewService.getOpenAriaHint(AccessibilityVerbositySettingId.Chat);
+		let label: string = '';
+		let commandFollowUpInfo;
+		const commandFollowupLength = element.commandFollowups?.length ?? 0;
+		switch (commandFollowupLength) {
+			case 0:
+				break;
+			case 1:
+				commandFollowUpInfo = localize('commandFollowUpInfo', "Command: {0}", element.commandFollowups![0].title);
+				break;
+			default:
+				commandFollowUpInfo = localize('commandFollowUpInfoMany', "Commands: {0}", element.commandFollowups!.map(followup => followup.title).join(', '));
 		}
-
-		const codeBlocksByResponseId = this.codeBlocksByResponseId.get(element.id) ?? [];
-		this.codeBlocksByResponseId.set(element.id, codeBlocksByResponseId);
-		part.addDisposable(toDisposable(() => {
-			const codeBlocksByResponseId = this.codeBlocksByResponseId.get(element.id);
-			if (codeBlocksByResponseId) {
-				// Only delete if this is my code block
-				part.codeblocks?.forEach((info, i) => {
-					const codeblock = codeBlocksByResponseId[codeBlockStartIndex + i];
-					if (codeblock?.ownerMarkdownPartId === part.codeblocksPartId) {
-						delete codeBlocksByResponseId[codeBlockStartIndex + i];
-					}
-				});
-			}
-		}));
-
-		part.codeblocks?.forEach((info, i) => {
-			codeBlocksByResponseId[codeBlockStartIndex + i] = info;
-			part.addDisposable!(thenIfNotDisposed(info.uriPromise, uri => {
-				if (!uri) {
-					return;
-				}
-
-				this.codeBlocksByEditorUri.set(uri, info);
-				part.addDisposable!(toDisposable(() => {
-					const codeblock = this.codeBlocksByEditorUri.get(uri);
-					if (codeblock?.ownerMarkdownPartId === part.codeblocksPartId) {
-						this.codeBlocksByEditorUri.delete(uri);
-					}
-				}));
-			}));
-		});
-
-	}
-
-	private renderToolInvocation(toolInvocation: IChatToolInvocation | IChatToolInvocationSerialized, context: IChatContentPartRenderContext, templateData: IChatListItemTemplate): IChatContentPart | undefined {
-		const codeBlockStartIndex = this.getCodeBlockStartIndex(context);
-		const part = this.instantiationService.createInstance(ChatToolInvocationPart, toolInvocation, context, this.renderer, this._contentReferencesListPool, this._toolEditorPool, () => this._currentLayoutWidth, this._toolInvocationCodeBlockCollection, codeBlockStartIndex);
-		part.addDisposable(part.onDidChangeHeight(() => {
-			this.updateItemHeight(templateData);
-		}));
-		this.handleRenderedCodeblocks(context.element, part, codeBlockStartIndex);
-		return part;
-	}
-
-	private renderProgressTask(task: IChatTask, templateData: IChatListItemTemplate, context: IChatContentPartRenderContext): IChatContentPart | undefined {
-		if (!isResponseVM(context.element)) {
-			return;
+		const fileTreeCount = element.response.value.filter((v) => !('value' in v))?.length ?? 0;
+		let fileTreeCountHint = '';
+		switch (fileTreeCount) {
+			case 0:
+				break;
+			case 1:
+				fileTreeCountHint = localize('singleFileTreeHint', "1 file tree");
+				break;
+			default:
+				fileTreeCountHint = localize('multiFileTreeHint', "{0} file trees", fileTreeCount);
+				break;
 		}
-
-		const taskPart = this.instantiationService.createInstance(ChatTaskContentPart, task, this._contentReferencesListPool, this.renderer, context);
-		taskPart.addDisposable(taskPart.onDidChangeHeight(() => {
-			this.updateItemHeight(templateData);
-		}));
-		return taskPart;
+		const codeBlockCount = marked.lexer(element.response.asString()).filter(token => token.type === 'code')?.length ?? 0;
+		switch (codeBlockCount) {
+			case 0:
+				label = accessibleViewHint ? localize('noCodeBlocksHint', "{0} {1} {2}", fileTreeCountHint, element.response.asString(), accessibleViewHint) : localize('noCodeBlocks', "{0} {1}", fileTreeCountHint, element.response.asString());
+				break;
+			case 1:
+				label = accessibleViewHint ? localize('singleCodeBlockHint', "{0} 1 code block: {1} {2}", fileTreeCountHint, element.response.asString(), accessibleViewHint) : localize('singleCodeBlock', "{0} 1 code block: {1}", fileTreeCountHint, element.response.asString());
+				break;
+			default:
+				label = accessibleViewHint ? localize('multiCodeBlockHint', "{0} {1} code blocks: {2}", fileTreeCountHint, codeBlockCount, element.response.asString(), accessibleViewHint) : localize('multiCodeBlock', "{0} {1} code blocks", fileTreeCountHint, codeBlockCount, element.response.asString());
+				break;
+		}
+		return commandFollowUpInfo ? commandFollowUpInfo + ', ' + label : label;
 	}
+}
 
-	private renderWorkingProgress(workingProgress: IChatWorkingProgress, context: IChatContentPartRenderContext): IChatContentPart | undefined {
-		return this.instantiationService.createInstance(ChatWorkingProgressContentPart, workingProgress, this.renderer, context);
-	}
+interface IDisposableReference<T> extends IDisposable {
+	object: T;
+	isStale: () => boolean;
+}
+class TreePool extends Disposable {
+	private _pool: ResourcePool<WorkbenchCompressibleAsyncDataTree<IChatResponseProgressFileTreeData, IChatResponseProgressFileTreeData, void>>;
 
 	private renderConfirmation(context: IChatContentPartRenderContext, confirmation: IChatConfirmation, templateData: IChatListItemTemplate): IChatContentPart {
 		const part = this.instantiationService.createInstance(ChatConfirmationContentPart, confirmation, context);
@@ -1112,65 +1015,8 @@ export class ChatListDelegate implements IListVirtualDelegate<ChatTreeItem> {
 	}
 }
 
-const voteDownDetailLabels: Record<ChatAgentVoteDownReason, string> = {
-	[ChatAgentVoteDownReason.IncorrectCode]: localize('incorrectCode', "Suggested incorrect code"),
-	[ChatAgentVoteDownReason.DidNotFollowInstructions]: localize('didNotFollowInstructions', "Didn't follow instructions"),
-	[ChatAgentVoteDownReason.MissingContext]: localize('missingContext', "Missing context"),
-	[ChatAgentVoteDownReason.OffensiveOrUnsafe]: localize('offensiveOrUnsafe', "Offensive or unsafe"),
-	[ChatAgentVoteDownReason.PoorlyWrittenOrFormatted]: localize('poorlyWrittenOrFormatted', "Poorly written or formatted"),
-	[ChatAgentVoteDownReason.RefusedAValidRequest]: localize('refusedAValidRequest', "Refused a valid request"),
-	[ChatAgentVoteDownReason.IncompleteCode]: localize('incompleteCode', "Incomplete code"),
-	[ChatAgentVoteDownReason.WillReportIssue]: localize('reportIssue', "Report an issue"),
-	[ChatAgentVoteDownReason.Other]: localize('other', "Other"),
-};
 
-export class ChatVoteDownButton extends DropdownMenuActionViewItem {
-	constructor(
-		action: IAction,
-		options: IDropdownMenuActionViewItemOptions | undefined,
-		@ICommandService private readonly commandService: ICommandService,
-		@IWorkbenchIssueService private readonly issueService: IWorkbenchIssueService,
-		@ILogService private readonly logService: ILogService,
-		@IContextMenuService contextMenuService: IContextMenuService,
-	) {
-		super(action,
-			{ getActions: () => this.getActions(), },
-			contextMenuService,
-			{
-				...options,
-				classNames: ThemeIcon.asClassNameArray(Codicon.thumbsdown),
-			});
-	}
-
-	getActions(): readonly IAction[] {
-		return [
-			this.getVoteDownDetailAction(ChatAgentVoteDownReason.IncorrectCode),
-			this.getVoteDownDetailAction(ChatAgentVoteDownReason.DidNotFollowInstructions),
-			this.getVoteDownDetailAction(ChatAgentVoteDownReason.IncompleteCode),
-			this.getVoteDownDetailAction(ChatAgentVoteDownReason.MissingContext),
-			this.getVoteDownDetailAction(ChatAgentVoteDownReason.PoorlyWrittenOrFormatted),
-			this.getVoteDownDetailAction(ChatAgentVoteDownReason.RefusedAValidRequest),
-			this.getVoteDownDetailAction(ChatAgentVoteDownReason.OffensiveOrUnsafe),
-			this.getVoteDownDetailAction(ChatAgentVoteDownReason.Other),
-			{
-				id: 'reportIssue',
-				label: voteDownDetailLabels[ChatAgentVoteDownReason.WillReportIssue],
-				tooltip: '',
-				enabled: true,
-				class: undefined,
-				run: async (context: IChatResponseViewModel) => {
-					if (!isResponseVM(context)) {
-						this.logService.error('ChatVoteDownButton#run: invalid context');
-						return;
-					}
-
-					await this.commandService.executeCommand(MarkUnhelpfulActionId, context, ChatAgentVoteDownReason.WillReportIssue);
-					await this.issueService.openReporter({ extensionId: context.agent?.extensionId.value });
-				}
-			}
-		];
-	}
-
+class ChatVoteButton extends MenuEntryActionViewItem {
 	override render(container: HTMLElement): void {
 		super.render(container);
 
