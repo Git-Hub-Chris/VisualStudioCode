@@ -8,7 +8,7 @@ import { setUnexpectedErrorHandler } from '../../common/errors.js';
 import { Emitter, Event } from '../../common/event.js';
 import { DisposableStore } from '../../common/lifecycle.js';
 import { autorun, autorunHandleChanges, derived, derivedDisposable, IObservable, IObserver, ISettableObservable, ITransaction, keepObserved, observableFromEvent, observableSignal, observableValue, transaction, waitForState } from '../../common/observable.js';
-import { BaseObservable } from '../../common/observableInternal/base.js';
+import { BaseObservable, IObservableWithChange } from '../../common/observableInternal/base.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from './utils.js';
 
 suite('observables', () => {
@@ -1399,6 +1399,55 @@ suite('observables', () => {
 		});
 	});
 
+	test('recomputeInitiallyAndOnChange should work when a dependency sets an observable', () => {
+		const store = new DisposableStore();
+		const log = new Log();
+
+		const myObservable = new LoggingObservableValue('myObservable', 0, log);
+
+		let shouldUpdate = true;
+
+		const myDerived = derived(reader => {
+			/** @description myDerived */
+
+			log.log('myDerived.computed start');
+
+			const val = myObservable.read(reader);
+
+			if (shouldUpdate) {
+				shouldUpdate = false;
+				myObservable.set(1, undefined);
+			}
+
+			log.log('myDerived.computed end');
+
+			return val;
+		});
+
+		assert.deepStrictEqual(log.getAndClearEntries(), ([]));
+
+		myDerived.recomputeInitiallyAndOnChange(store, val => {
+			log.log(`recomputeInitiallyAndOnChange, myDerived: ${val}`);
+		});
+
+		assert.deepStrictEqual(log.getAndClearEntries(), [
+			"myDerived.computed start",
+			"myObservable.firstObserverAdded",
+			"myObservable.get",
+			"myObservable.set (value 1)",
+			"myDerived.computed end",
+			"myDerived.computed start",
+			"myObservable.get",
+			"myDerived.computed end",
+			"recomputeInitiallyAndOnChange, myDerived: 1",
+		]);
+
+		myDerived.get();
+		assert.deepStrictEqual(log.getAndClearEntries(), ([]));
+
+		store.dispose();
+	});
+
 	suite('prevent invalid usage', () => {
 		suite('reading outside of compute function', () => {
 			test('derived', () => {
@@ -1486,18 +1535,18 @@ export class LoggingObserver implements IObserver {
 	constructor(public readonly debugName: string, private readonly log: Log) {
 	}
 
-	beginUpdate<T>(observable: IObservable<T, void>): void {
+	beginUpdate<T>(observable: IObservable<T>): void {
 		this.count++;
 		this.log.log(`${this.debugName}.beginUpdate (count ${this.count})`);
 	}
-	endUpdate<T>(observable: IObservable<T, void>): void {
+	endUpdate<T>(observable: IObservable<T>): void {
 		this.log.log(`${this.debugName}.endUpdate (count ${this.count})`);
 		this.count--;
 	}
-	handleChange<T, TChange>(observable: IObservable<T, TChange>, change: TChange): void {
+	handleChange<T, TChange>(observable: IObservableWithChange<T, TChange>, change: TChange): void {
 		this.log.log(`${this.debugName}.handleChange (count ${this.count})`);
 	}
-	handlePossibleChange<T>(observable: IObservable<T, unknown>): void {
+	handlePossibleChange<T>(observable: IObservable<T>): void {
 		this.log.log(`${this.debugName}.handlePossibleChange`);
 	}
 }
@@ -1541,7 +1590,7 @@ export class LoggingObservableValue<T, TChange = void>
 
 		this.value = value;
 
-		for (const observer of this.observers) {
+		for (const observer of this._observers) {
 			tx.updateObserver(observer, this);
 			observer.handleChange(this, change);
 		}
