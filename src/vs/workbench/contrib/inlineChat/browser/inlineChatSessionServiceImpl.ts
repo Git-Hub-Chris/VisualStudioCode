@@ -145,18 +145,31 @@ export class InlineChatSessionServiceImpl implements IInlineChatSessionService {
 
 				lastResponseListener.clear(); // ONCE
 
-				// special handling for untitled files
-				for (const part of response.response.value) {
-					if (part.kind !== 'textEditGroup' || part.uri.scheme !== Schemas.untitled || isEqual(part.uri, session.textModelN.uri)) {
-						continue;
-					}
-					const langSelection = this._languageService.createByFilepathOrFirstLine(part.uri, undefined);
-					const untitledTextModel = this._textFileService.untitled.create({
-						associatedResource: part.uri,
-						languageId: langSelection.languageId
-					});
-					untitledTextModel.resolve();
-					this._textModelService.createModelReference(part.uri).then(ref => {
+				let inlineResponse: ErrorResponse | EmptyResponse | ReplyResponse;
+
+				// make an response from the ChatResponseModel
+				if (response.isCanceled) {
+					// error: cancelled
+					inlineResponse = new ErrorResponse(response, new CancellationError());
+				} else if (response.result?.errorDetails) {
+					// error: "real" error
+					inlineResponse = new ErrorResponse(response, new Error(response.result.errorDetails.message));
+				} else if (response.response.value.length === 0) {
+					// epmty response
+					inlineResponse = new EmptyResponse(response);
+				} else {
+					inlineResponse = this._instaService.createInstance(
+						ReplyResponse,
+						session.textModelN.uri,
+						e.request,
+						response
+					);
+				}
+
+				session.addExchange(new SessionExchange(session.lastInput!, inlineResponse));
+
+				if (inlineResponse instanceof ReplyResponse && inlineResponse.untitledTextModel) {
+					this._textModelService.createModelReference(inlineResponse.untitledTextModel.resource).then(ref => {
 						store.add(ref);
 					});
 				}
