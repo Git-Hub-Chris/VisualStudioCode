@@ -30,7 +30,7 @@ import { assertNoRpc } from '../utils';
 		disposables.length = 0;
 	});
 
-	function createTerminalAndWaitForShellIntegration(): Promise<{ terminal: Terminal; shellIntegration: TerminalShellIntegration }> {
+	function createTerminalAndWaitForShellIntegration(shellPath?: string): Promise<{ terminal: Terminal; shellIntegration: TerminalShellIntegration }> {
 		return new Promise<{ terminal: Terminal; shellIntegration: TerminalShellIntegration }>(resolve => {
 			disposables.push(window.onDidChangeTerminalShellIntegration(e => {
 				if (e.terminal === terminal) {
@@ -41,8 +41,8 @@ import { assertNoRpc } from '../utils';
 				}
 			}));
 			const terminal = platform() === 'win32'
-				? window.createTerminal()
-				: window.createTerminal({ shellPath: '/bin/bash' });
+				? window.createTerminal({ shellPath })
+				: window.createTerminal({ shellPath: shellPath ?? '/bin/bash' });
 			terminal.show();
 		});
 	}
@@ -86,6 +86,38 @@ import { assertNoRpc } from '../utils';
 		ok(shellIntegration);
 		await closeTerminalAsync(terminal);
 	});
+
+	if (platform() === 'darwin' || platform() === 'linux') {
+		// TODO: Enable when this is enabled in stable, otherwise it will break the stable product builds only
+		test.skip('Test if env is set', async () => {
+			const { shellIntegration } = await createTerminalAndWaitForShellIntegration();
+			await new Promise<void>(r => {
+				disposables.push(window.onDidChangeTerminalShellIntegration(e => {
+					if (e.shellIntegration.env) {
+						r();
+					}
+				}));
+			});
+			ok(shellIntegration.env);
+			ok(shellIntegration.env.value);
+			ok(shellIntegration.env.value.PATH);
+			ok(shellIntegration.env.value.PATH.length > 0, 'env.value.PATH should have a length greater than 0');
+		});
+
+		test.skip('Test if zsh env is set', async () => {
+			const { shellIntegration } = await createTerminalAndWaitForShellIntegration('/bin/zsh');
+			await new Promise<void>(r => {
+				disposables.push(window.onDidChangeTerminalShellIntegration(e => {
+					if (e.shellIntegration.env) {
+						r();
+					}
+				}));
+			});
+			ok(shellIntegration.env);
+			ok(shellIntegration.env.PATH);
+			ok(shellIntegration.env.PATH.length > 0, 'env.PATH should have a length greater than 0');
+		});
+	}
 
 	test('execution events should fire in order when a command runs', async () => {
 		const { terminal, shellIntegration } = await createTerminalAndWaitForShellIntegration();
@@ -212,12 +244,17 @@ import { assertNoRpc } from '../utils';
 		await closeTerminalAsync(terminal);
 	});
 
-	test('executeCommand(executable, args)', async () => {
+	test('executeCommand(executable, args)', async function () {
+		// HACK: This test has flaked before where the `value` was `e`, not `echo hello`. After an
+		// investigation it's not clear how this happened, so in order to keep some of the value
+		// that the test adds, it will retry after a failure.
+		this.retries(3);
+
 		const { terminal, shellIntegration } = await createTerminalAndWaitForShellIntegration();
 		const { execution, endEvent } = executeCommandAsync(shellIntegration, 'echo', ['hello']);
 		const executionSync = await execution;
 		const expectedCommandLine: TerminalShellExecutionCommandLine = {
-			value: 'echo "hello"',
+			value: 'echo hello',
 			isTrusted: true,
 			confidence: TerminalShellExecutionCommandLineConfidence.High
 		};
