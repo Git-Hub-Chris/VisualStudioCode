@@ -13,12 +13,19 @@ const path = require('path');
 const serverConfig = withBrowserDefaults({
 	context: __dirname,
 	entry: {
-		extension: './src/browser/htmlServerMain.ts',
+		extension: './src/browser/htmlServerWorkerMain.ts',
+	},
+	resolve: {
+		extensionAlias: {
+			// this is needed to resolve dynamic imports that now require the .js extension
+			'.js': ['.js', '.ts'],
+		},
 	},
 	output: {
 		filename: 'htmlServerMain.js',
 		path: path.join(__dirname, 'dist', 'browser'),
-		libraryTarget: 'var'
+		libraryTarget: 'var',
+		library: 'serverExportVar'
 	},
 	optimization: {
 		splitChunks: {
@@ -26,7 +33,7 @@ const serverConfig = withBrowserDefaults({
 		}
 	}
 });
-serverConfig.module.noParse =  /typescript[\/\\]lib[\/\\]typescript\.js/;
+serverConfig.module.noParse = /typescript[\/\\]lib[\/\\]typescript\.js/;
 serverConfig.module.rules.push({
 	test: /javascriptLibs.ts$/,
 	use: [

@@ -4,49 +4,53 @@
   "displayName": "%displayName%",
   "description": "%description%",
   "version": "1.0.1",
+  "private": true,
   "license": "MIT",
   "engines": {
     "vscode": "0.10.x"
   },
-  "enableProposedApi": true,
   "icon": "images/npm_icon.png",
   "categories": [
     "Other"
   ],
+  "enabledApiProposals": [
+    "terminalQuickFixProvider"
+  ],
   "scripts": {
-    "compile": "gulp compile-extension:npm",
-    "watch": "gulp watch-extension:npm"
+    "compile": "npx gulp compile-extension:npm",
+    "watch": "npx gulp watch-extension:npm"
   },
   "dependencies": {
-    "find-up": "^4.1.0",
+    "find-up": "^8.0.0",
     "find-yarn-workspace-root": "^2.0.0",
-    "jsonc-parser": "^2.2.1",
-    "minimatch": "^3.0.4",
-    "request-light": "^0.4.0",
-    "vscode-nls": "^4.1.1",
-    "which": "^2.0.2",
-    "which-pm": "^2.0.0"
+    "jsonc-parser": "^3.3.1",
+    "minimatch": "^10.1.1",
+    "request-light": "^0.8.0",
+    "which": "^6.0.0",
+    "which-pm": "^3.0.1",
+    "vscode-uri": "^3.1.0"
   },
   "devDependencies": {
-    "@types/minimatch": "^3.0.3",
-    "@types/node": "^12.19.9",
-    "@types/which": "^2.0.0"
-  },
-  "resolutions": {
-    "which-pm/load-yaml-file/**/argparse": "1.0.9"
+    "@types/minimatch": "^6.0.0",
+    "@types/node": "25.x",
+    "@types/which": "^3.0.4"
   },
   "main": "./out/npmMain",
   "browser": "./dist/browser/npmBrowserMain",
   "activationEvents": [
-    "onCommand:workbench.action.tasks.runTask",
-    "onCommand:npm.runScriptFromFolder",
+    "onTaskType:npm",
     "onLanguage:json",
-    "workspaceContains:package.json",
-    "onView:npm"
+    "workspaceContains:package.json"
   ],
-  "workspaceTrust": {
-    "request": "onDemand",
-    "description": "This extension calls the `tasks.executeTask()` API, which requires trust to run."
+  "capabilities": {
+    "virtualWorkspaces": {
+      "supported": "limited",
+      "description": "%virtualWorkspaces%"
+    },
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "%workspaceTrust%"
+    }
   },
   "contributes": {
     "languages": [
@@ -70,7 +74,8 @@
           "name": "%view.name%",
           "when": "npm:showScriptExplorer",
           "icon": "$(json)",
-          "visibility": "hidden"
+          "visibility": "hidden",
+          "contextualTitle": "%view.name%"
         }
       ]
     },
@@ -108,7 +113,7 @@
       },
       {
         "command": "npm.packageManager",
-        "title": "%command.packageManager"
+        "title": "%command.packageManager%"
       }
     ],
     "menus": {
@@ -233,16 +238,40 @@
             "auto",
             "npm",
             "yarn",
-            "pnpm"
+            "pnpm",
+            "bun"
           ],
           "enumDescriptions": [
             "%config.npm.packageManager.auto%",
             "%config.npm.packageManager.npm%",
             "%config.npm.packageManager.yarn%",
-            "%config.npm.packageManager.pnpm%"
+            "%config.npm.packageManager.pnpm%",
+            "%config.npm.packageManager.bun%"
           ],
           "default": "auto",
           "description": "%config.npm.packageManager%"
+        },
+        "npm.scriptRunner": {
+          "scope": "resource",
+          "type": "string",
+          "enum": [
+            "auto",
+            "npm",
+            "yarn",
+            "pnpm",
+            "bun",
+            "node"
+          ],
+          "enumDescriptions": [
+            "%config.npm.scriptRunner.auto%",
+            "%config.npm.scriptRunner.npm%",
+            "%config.npm.scriptRunner.yarn%",
+            "%config.npm.scriptRunner.pnpm%",
+            "%config.npm.scriptRunner.bun%",
+            "%config.npm.scriptRunner.node%"
+          ],
+          "default": "auto",
+          "description": "%config.npm.scriptRunner%"
         },
         "npm.exclude": {
           "type": [
@@ -278,6 +307,15 @@
           "scope": "window",
           "default": "open"
         },
+        "npm.scriptExplorerExclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "markdownDescription": "%config.npm.scriptExplorerExclude%",
+          "scope": "resource",
+          "default": []
+        },
         "npm.fetchOnlinePackageInfo": {
           "type": "boolean",
           "description": "%config.npm.fetchOnlinePackageInfo%",
@@ -286,6 +324,12 @@
           "tags": [
             "usesOnlineServices"
           ]
+        },
+        "npm.scriptHover": {
+          "type": "boolean",
+          "description": "%config.npm.scriptHover%",
+          "default": true,
+          "scope": "window"
         }
       }
     },
@@ -316,6 +360,19 @@
           }
         },
         "when": "shellExecutionSupported"
+      }
+    ],
+    "terminalQuickFixes": [
+      {
+        "id": "ms-vscode.npm-command",
+        "commandLineMatcher": "npm",
+        "commandExitResult": "error",
+        "outputMatcher": {
+          "anchor": "bottom",
+          "length": 8,
+          "lineMatcher": "Did you mean (?:this|one of these)\\?((?:\\n.+?npm .+ #.+)+)",
+          "offset": 2
+        }
       }
     ]
   },

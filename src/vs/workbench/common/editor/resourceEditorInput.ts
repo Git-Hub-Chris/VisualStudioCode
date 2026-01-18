@@ -3,133 +3,210 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { ITextEditorModel, IModeSupport } from 'vs/workbench/common/editor';
-import { URI } from 'vs/base/common/uri';
-import { IReference } from 'vs/base/common/lifecycle';
-import { ITextModelService } from 'vs/editor/common/services/resolverService';
-import { ResourceEditorModel } from 'vs/workbench/common/editor/resourceEditorModel';
-import { ITextFileService } from 'vs/workbench/services/textfile/common/textfiles';
-import { IEditorService } from 'vs/workbench/services/editor/common/editorService';
-import { IEditorGroupsService } from 'vs/workbench/services/editor/common/editorGroupsService';
-import { IFileService } from 'vs/platform/files/common/files';
-import { ILabelService } from 'vs/platform/label/common/label';
-import { IFilesConfigurationService } from 'vs/workbench/services/filesConfiguration/common/filesConfigurationService';
-import { AbstractTextResourceEditorInput } from 'vs/workbench/common/editor/textResourceEditorInput';
-import { isEqual } from 'vs/base/common/resources';
+import { Verbosity, EditorInputWithPreferredResource, EditorInputCapabilities, IFileLimitedEditorInputOptions } from '../editor.js';
+import { EditorInput } from './editorInput.js';
+import { URI } from '../../../base/common/uri.js';
+import { ByteSize, IFileReadLimits, IFileService, getLargeFileConfirmationLimit } from '../../../platform/files/common/files.js';
+import { ILabelService } from '../../../platform/label/common/label.js';
+import { dirname, isEqual } from '../../../base/common/resources.js';
+import { IFilesConfigurationService } from '../../services/filesConfiguration/common/filesConfigurationService.js';
+import { IMarkdownString } from '../../../base/common/htmlContent.js';
+import { isConfigured } from '../../../platform/configuration/common/configuration.js';
+import { ITextResourceConfigurationService } from '../../../editor/common/services/textResourceConfiguration.js';
+import { ICustomEditorLabelService } from '../../services/editor/common/customEditorLabelService.js';
 
 /**
- * A read-only text editor input whos contents are made of the provided resource that points to an existing
- * code editor model.
+ * The base class for all editor inputs that open resources.
  */
-export class ResourceEditorInput extends AbstractTextResourceEditorInput implements IModeSupport {
+export abstract class AbstractResourceEditorInput extends EditorInput implements EditorInputWithPreferredResource {
 
-	static readonly ID: string = 'workbench.editors.resourceEditorInput';
+	override get capabilities(): EditorInputCapabilities {
+		let capabilities = EditorInputCapabilities.CanSplitInGroup;
 
-	override get typeId(): string {
-		return ResourceEditorInput.ID;
+		if (this.fileService.hasProvider(this.resource)) {
+			if (this.filesConfigurationService.isReadonly(this.resource)) {
+				capabilities |= EditorInputCapabilities.Readonly;
+			}
+		} else {
+			capabilities |= EditorInputCapabilities.Untitled;
+		}
+
+		if (!(capabilities & EditorInputCapabilities.Readonly)) {
+			capabilities |= EditorInputCapabilities.CanDropIntoEditor;
+		}
+
+		return capabilities;
 	}
 
-	private cachedModel: ResourceEditorModel | undefined = undefined;
-	private modelReference: Promise<IReference<ITextEditorModel>> | undefined = undefined;
+	private _preferredResource: URI;
+	get preferredResource(): URI { return this._preferredResource; }
 
 	constructor(
-		resource: URI,
-		private name: string | undefined,
-		private description: string | undefined,
-		private preferredMode: string | undefined,
-		@ITextModelService private readonly textModelResolverService: ITextModelService,
-		@ITextFileService textFileService: ITextFileService,
-		@IEditorService editorService: IEditorService,
-		@IEditorGroupsService editorGroupService: IEditorGroupsService,
-		@IFileService fileService: IFileService,
-		@ILabelService labelService: ILabelService,
-		@IFilesConfigurationService filesConfigurationService: IFilesConfigurationService
+		readonly resource: URI,
+		preferredResource: URI | undefined,
+		@ILabelService protected readonly labelService: ILabelService,
+		@IFileService protected readonly fileService: IFileService,
+		@IFilesConfigurationService protected readonly filesConfigurationService: IFilesConfigurationService,
+		@ITextResourceConfigurationService protected readonly textResourceConfigurationService: ITextResourceConfigurationService,
+		@ICustomEditorLabelService protected readonly customEditorLabelService: ICustomEditorLabelService
 	) {
-		super(resource, undefined, editorService, editorGroupService, textFileService, labelService, fileService, filesConfigurationService);
+		super();
+
+		this._preferredResource = preferredResource || resource;
+
+		this.registerListeners();
 	}
 
+	private registerListeners(): void {
+
+		// Clear our labels on certain label related events
+		this._register(this.labelService.onDidChangeFormatters(e => this.onLabelEvent(e.scheme)));
+		this._register(this.fileService.onDidChangeFileSystemProviderRegistrations(e => this.onLabelEvent(e.scheme)));
+		this._register(this.fileService.onDidChangeFileSystemProviderCapabilities(e => this.onLabelEvent(e.scheme)));
+		this._register(this.customEditorLabelService.onDidChange(() => this.updateLabel()));
+		this._register(this.filesConfigurationService.onDidChangeReadonly(() => this._onDidChangeCapabilities.fire()));
+	}
+
+	private onLabelEvent(scheme: string): void {
+		if (scheme === this._preferredResource.scheme) {
+			this.updateLabel();
+		}
+	}
+
+	private updateLabel(): void {
+
+		// Clear any cached labels from before
+		this._name = undefined;
+		this._shortDescription = undefined;
+		this._mediumDescription = undefined;
+		this._longDescription = undefined;
+		this._shortTitle = undefined;
+		this._mediumTitle = undefined;
+		this._longTitle = undefined;
+
+		// Trigger recompute of label
+		this._onDidChangeLabel.fire();
+	}
+
+	setPreferredResource(preferredResource: URI): void {
+		if (!isEqual(preferredResource, this._preferredResource)) {
+			this._preferredResource = preferredResource;
+
+			this.updateLabel();
+		}
+	}
+
+	private _name: string | undefined = undefined;
 	override getName(): string {
-		return this.name || super.getName();
-	}
-
-	setName(name: string): void {
-		if (this.name !== name) {
-			this.name = name;
-
-			this._onDidChangeLabel.fire();
+		if (typeof this._name !== 'string') {
+			this._name = this.customEditorLabelService.getName(this._preferredResource) ?? this.labelService.getUriBasenameLabel(this._preferredResource);
 		}
+
+		return this._name;
 	}
 
-	override getDescription(): string | undefined {
-		return this.description;
-	}
-
-	setDescription(description: string): void {
-		if (this.description !== description) {
-			this.description = description;
-
-			this._onDidChangeLabel.fire();
+	override getDescription(verbosity = Verbosity.MEDIUM): string | undefined {
+		switch (verbosity) {
+			case Verbosity.SHORT:
+				return this.shortDescription;
+			case Verbosity.LONG:
+				return this.longDescription;
+			case Verbosity.MEDIUM:
+			default:
+				return this.mediumDescription;
 		}
 	}
 
-	setMode(mode: string): void {
-		this.setPreferredMode(mode);
+	private _shortDescription: string | undefined = undefined;
+	private get shortDescription(): string {
+		if (typeof this._shortDescription !== 'string') {
+			this._shortDescription = this.labelService.getUriBasenameLabel(dirname(this._preferredResource));
+		}
 
-		if (this.cachedModel) {
-			this.cachedModel.setMode(mode);
+		return this._shortDescription;
+	}
+
+	private _mediumDescription: string | undefined = undefined;
+	private get mediumDescription(): string {
+		if (typeof this._mediumDescription !== 'string') {
+			this._mediumDescription = this.labelService.getUriLabel(dirname(this._preferredResource), { relative: true });
+		}
+
+		return this._mediumDescription;
+	}
+
+	private _longDescription: string | undefined = undefined;
+	private get longDescription(): string {
+		if (typeof this._longDescription !== 'string') {
+			this._longDescription = this.labelService.getUriLabel(dirname(this._preferredResource));
+		}
+
+		return this._longDescription;
+	}
+
+	private _shortTitle: string | undefined = undefined;
+	private get shortTitle(): string {
+		if (typeof this._shortTitle !== 'string') {
+			this._shortTitle = this.getName();
+		}
+
+		return this._shortTitle;
+	}
+
+	private _mediumTitle: string | undefined = undefined;
+	private get mediumTitle(): string {
+		if (typeof this._mediumTitle !== 'string') {
+			this._mediumTitle = this.labelService.getUriLabel(this._preferredResource, { relative: true });
+		}
+
+		return this._mediumTitle;
+	}
+
+	private _longTitle: string | undefined = undefined;
+	private get longTitle(): string {
+		if (typeof this._longTitle !== 'string') {
+			this._longTitle = this.labelService.getUriLabel(this._preferredResource);
+		}
+
+		return this._longTitle;
+	}
+
+	override getTitle(verbosity?: Verbosity): string {
+		switch (verbosity) {
+			case Verbosity.SHORT:
+				return this.shortTitle;
+			case Verbosity.LONG:
+				return this.longTitle;
+			default:
+			case Verbosity.MEDIUM:
+				return this.mediumTitle;
 		}
 	}
 
-	setPreferredMode(mode: string): void {
-		this.preferredMode = mode;
+	override isReadonly(): boolean | IMarkdownString {
+		return this.filesConfigurationService.isReadonly(this.resource);
 	}
 
-	async override resolve(): Promise<ITextEditorModel> {
-		if (!this.modelReference) {
-			this.modelReference = this.textModelResolverService.createModelReference(this.resource);
+	protected ensureLimits(options?: IFileLimitedEditorInputOptions): IFileReadLimits | undefined {
+		if (options?.limits) {
+			return options.limits; // respect passed in limits if any
 		}
 
-		const ref = await this.modelReference;
+		// We want to determine the large file configuration based on the best defaults
+		// for the resource but also respecting user settings. We only apply user settings
+		// if explicitly configured by the user. Otherwise we pick the best limit for the
+		// resource scheme.
 
-		// Ensure the resolved model is of expected type
-		const model = ref.object;
-		if (!(model instanceof ResourceEditorModel)) {
-			ref.dispose();
-			this.modelReference = undefined;
+		const defaultSizeLimit = getLargeFileConfirmationLimit(this.resource);
+		let configuredSizeLimit: number | undefined = undefined;
 
-			throw new Error(`Unexpected model for ResourceEditorInput: ${this.resource}`);
+		const configuredSizeLimitMb = this.textResourceConfigurationService.inspect<number>(this.resource, null, 'workbench.editorLargeFileConfirmation');
+		if (isConfigured(configuredSizeLimitMb)) {
+			configuredSizeLimit = configuredSizeLimitMb.value * ByteSize.MB; // normalize to MB
 		}
 
-		this.cachedModel = model;
-
-		// Set mode if we have a preferred mode configured
-		if (this.preferredMode) {
-			model.setMode(this.preferredMode);
-		}
-
-		return model;
-	}
-
-	override matches(otherInput: unknown): boolean {
-		if (otherInput === this) {
-			return true;
-		}
-
-		if (otherInput instanceof ResourceEditorInput) {
-			return isEqual(otherInput.resource, this.resource);
-		}
-
-		return false;
-	}
-
-	override dispose(): void {
-		if (this.modelReference) {
-			this.modelReference.then(ref => ref.dispose());
-			this.modelReference = undefined;
-		}
-
-		this.cachedModel = undefined;
-
-		super.dispose();
+		return {
+			size: configuredSizeLimit ?? defaultSizeLimit
+		};
 	}
 }

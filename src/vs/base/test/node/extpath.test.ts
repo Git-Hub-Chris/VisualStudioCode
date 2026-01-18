@@ -3,12 +3,13 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as assert from 'assert';
+import * as fs from 'fs';
+import assert from 'assert';
 import { tmpdir } from 'os';
-import { promises } from 'fs';
-import { rimraf } from 'vs/base/node/pfs';
-import { realcaseSync, realpath, realpathSync } from 'vs/base/node/extpath';
-import { flakySuite, getRandomTestPath } from 'vs/base/test/node/testUtils';
+import { realcase, realpath, realpathSync } from '../../node/extpath.js';
+import { Promises } from '../../node/pfs.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../common/utils.js';
+import { flakySuite, getRandomTestPath } from './testUtils.js';
 
 flakySuite('Extpath', () => {
 	let testDir: string;
@@ -16,11 +17,11 @@ flakySuite('Extpath', () => {
 	setup(() => {
 		testDir = getRandomTestPath(tmpdir(), 'vsctests', 'extpath');
 
-		return promises.mkdir(testDir, { recursive: true });
+		return fs.promises.mkdir(testDir, { recursive: true });
 	});
 
 	teardown(() => {
-		return rimraf(testDir);
+		return Promises.rm(testDir);
 	});
 
 	test('realcase', async () => {
@@ -28,7 +29,7 @@ flakySuite('Extpath', () => {
 		// assume case insensitive file system
 		if (process.platform === 'win32' || process.platform === 'darwin') {
 			const upper = testDir.toUpperCase();
-			const real = realcaseSync(upper);
+			const real = await realcase(upper);
 
 			if (real) { // can be null in case of permission errors
 				assert.notStrictEqual(real, upper);
@@ -39,8 +40,11 @@ flakySuite('Extpath', () => {
 
 		// linux, unix, etc. -> assume case sensitive file system
 		else {
-			const real = realcaseSync(testDir);
+			let real = await realcase(testDir);
 			assert.strictEqual(real, testDir);
+
+			real = await realcase(testDir.toUpperCase());
+			assert.strictEqual(real, testDir.toUpperCase());
 		}
 	});
 
@@ -53,4 +57,6 @@ flakySuite('Extpath', () => {
 		const realpath = realpathSync(testDir);
 		assert.ok(realpath);
 	});
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 });

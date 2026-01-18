@@ -3,19 +3,20 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as assert from 'assert';
-import { Extensions as ThemeingExtensions, IColorRegistry, ColorIdentifier } from 'vs/platform/theme/common/colorRegistry';
-import { Registry } from 'vs/platform/registry/common/platform';
-import { ansiColorIdentifiers, registerColors } from 'vs/workbench/contrib/terminal/common/terminalColorRegistry';
-import { IColorTheme } from 'vs/platform/theme/common/themeService';
-import { Color } from 'vs/base/common/color';
-import { ColorScheme } from 'vs/platform/theme/common/theme';
+import assert from 'assert';
+import { Extensions as ThemeingExtensions, IColorRegistry, ColorIdentifier } from '../../../../../platform/theme/common/colorRegistry.js';
+import { Registry } from '../../../../../platform/registry/common/platform.js';
+import { ansiColorIdentifiers, registerColors } from '../../common/terminalColorRegistry.js';
+import { IColorTheme } from '../../../../../platform/theme/common/themeService.js';
+import { Color } from '../../../../../base/common/color.js';
+import { ColorScheme } from '../../../../../platform/theme/common/theme.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 registerColors();
 
-let themingRegistry = Registry.as<IColorRegistry>(ThemeingExtensions.ColorContribution);
+const themingRegistry = Registry.as<IColorRegistry>(ThemeingExtensions.ColorContribution);
 function getMockTheme(type: ColorScheme): IColorTheme {
-	let theme = {
+	const theme = {
 		selector: '',
 		label: '',
 		type: type,
@@ -29,10 +30,11 @@ function getMockTheme(type: ColorScheme): IColorTheme {
 }
 
 suite('Workbench - TerminalColorRegistry', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('hc colors', function () {
-		let theme = getMockTheme(ColorScheme.HIGH_CONTRAST);
-		let colors = ansiColorIdentifiers.map(colorId => Color.Format.CSS.formatHexA(theme.getColor(colorId)!, true));
+		const theme = getMockTheme(ColorScheme.HIGH_CONTRAST_DARK);
+		const colors = ansiColorIdentifiers.map(colorId => Color.Format.CSS.formatHexA(theme.getColor(colorId)!, true));
 
 		assert.deepStrictEqual(colors, [
 			'#000000',
@@ -56,13 +58,13 @@ suite('Workbench - TerminalColorRegistry', () => {
 	});
 
 	test('light colors', function () {
-		let theme = getMockTheme(ColorScheme.LIGHT);
-		let colors = ansiColorIdentifiers.map(colorId => Color.Format.CSS.formatHexA(theme.getColor(colorId)!, true));
+		const theme = getMockTheme(ColorScheme.LIGHT);
+		const colors = ansiColorIdentifiers.map(colorId => Color.Format.CSS.formatHexA(theme.getColor(colorId)!, true));
 
 		assert.deepStrictEqual(colors, [
 			'#000000',
 			'#cd3131',
-			'#00bc00',
+			'#107c10',
 			'#949800',
 			'#0451a5',
 			'#bc05bc',
@@ -81,8 +83,8 @@ suite('Workbench - TerminalColorRegistry', () => {
 	});
 
 	test('dark colors', function () {
-		let theme = getMockTheme(ColorScheme.DARK);
-		let colors = ansiColorIdentifiers.map(colorId => Color.Format.CSS.formatHexA(theme.getColor(colorId)!, true));
+		const theme = getMockTheme(ColorScheme.DARK);
+		const colors = ansiColorIdentifiers.map(colorId => Color.Format.CSS.formatHexA(theme.getColor(colorId)!, true));
 
 		assert.deepStrictEqual(colors, [
 			'#000000',

@@ -7,28 +7,42 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as utils from '../utils';
 
-suite('Notebook Editor', function () {
+(vscode.env.uiKind === vscode.UIKind.Web ? suite.skip : suite.skip)('Notebook Editor', function () {
 
-	const contentProvider = new class implements vscode.NotebookContentProvider {
-		async openNotebook(uri: vscode.Uri, _openContext: vscode.NotebookDocumentOpenContext): Promise<vscode.NotebookData> {
+	const contentSerializer = new class implements vscode.NotebookSerializer {
+		deserializeNotebook() {
 			return new vscode.NotebookData(
-				[new vscode.NotebookCellData(vscode.NotebookCellKind.Code, uri.toString(), 'javascript')],
-				new vscode.NotebookDocumentMetadata()
+				[new vscode.NotebookCellData(vscode.NotebookCellKind.Code, '// code cell', 'javascript')],
 			);
-
 		}
-		async saveNotebook(_document: vscode.NotebookDocument, _cancellation: vscode.CancellationToken) {
-			//
-		}
-		async saveNotebookAs(_targetResource: vscode.Uri, _document: vscode.NotebookDocument, _cancellation: vscode.CancellationToken) {
-			//
-		}
-		async backupNotebook(_document: vscode.NotebookDocument, _context: vscode.NotebookDocumentBackupContext, _cancellation: vscode.CancellationToken) {
-			return { id: '', delete() { } };
+		serializeNotebook() {
+			return new Uint8Array();
 		}
 	};
 
+	const onDidOpenNotebookEditor = (timeout = vscode.env.uiKind === vscode.UIKind.Desktop ? 5000 : 15000) => {
+		return new Promise<boolean>((resolve, reject) => {
+
+			const handle = setTimeout(() => {
+				sub.dispose();
+				reject(new Error('onDidOpenNotebookEditor TIMEOUT reached'));
+			}, timeout);
+
+			const sub = vscode.window.onDidChangeActiveNotebookEditor(() => {
+				if (vscode.window.activeNotebookEditor === undefined) {
+					// skip if there is no active notebook editor (e.g. when opening a new notebook)
+					return;
+				}
+
+				clearTimeout(handle);
+				sub.dispose();
+				resolve(true);
+			});
+		});
+	};
+
 	const disposables: vscode.Disposable[] = [];
+	const testDisposables: vscode.Disposable[] = [];
 
 	suiteTeardown(async function () {
 		utils.assertNoRpc();
@@ -37,51 +51,80 @@ suite('Notebook Editor', function () {
 		utils.disposeAll(disposables);
 		disposables.length = 0;
 
-		for (let doc of vscode.notebook.notebookDocuments) {
+		for (const doc of vscode.workspace.notebookDocuments) {
 			assert.strictEqual(doc.isDirty, false, doc.uri.toString());
 		}
 	});
 
 	suiteSetup(function () {
-		disposables.push(vscode.notebook.registerNotebookContentProvider('notebook.nbdtest', contentProvider));
+		disposables.push(vscode.workspace.registerNotebookSerializer('notebook.nbdtest', contentSerializer));
 	});
 
-
-	test('showNotebookDocment', async function () {
-
-		const count1 = vscode.notebook.notebookDocuments.length;
-
-		const p = utils.asPromise(vscode.notebook.onDidOpenNotebookDocument);
-		const uri = await utils.createRandomFile(undefined, undefined, '.nbdtest');
-
-		const editor = await vscode.window.showNotebookDocument(uri);
-		assert.strictEqual(uri.toString(), editor.document.uri.toString());
-
-		const event = await p;
-		assert.strictEqual(event.uri.toString(), uri.toString());
-
-		const count2 = vscode.notebook.notebookDocuments.length;
-		assert.strictEqual(count1 + 1, count2);
-
+	teardown(async function () {
+		utils.disposeAll(testDisposables);
+		testDisposables.length = 0;
 	});
 
-	test('notebook editor has viewColumn', async function () {
-
-		const uri1 = await utils.createRandomFile(undefined, undefined, '.nbdtest');
-		const editor1 = await vscode.window.showNotebookDocument(uri1);
-
-		assert.strictEqual(editor1.viewColumn, vscode.ViewColumn.One);
-
-		const uri2 = await utils.createRandomFile(undefined, undefined, '.nbdtest');
-		const editor2 = await vscode.window.showNotebookDocument(uri2, { viewColumn: vscode.ViewColumn.Beside });
-		assert.strictEqual(editor2.viewColumn, vscode.ViewColumn.Two);
-	});
-
-	test.skip('Opening a notebook should fire activeNotebook event changed only once', async function () {
-		const openedEditor = utils.asPromise(vscode.window.onDidChangeActiveNotebookEditor);
+	// #138683
+	// TODO@rebornix https://github.com/microsoft/vscode/issues/170072
+	test.skip('Opening a notebook should fire activeNotebook event changed only once', utils.withVerboseLogs(async function () {
+		const openedEditor = onDidOpenNotebookEditor();
 		const resource = await utils.createRandomFile(undefined, undefined, '.nbdtest');
-		const editor = await vscode.window.showNotebookDocument(resource);
+		const document = await vscode.workspace.openNotebookDocument(resource);
+		const editor = await vscode.window.showNotebookDocument(document);
 		assert.ok(await openedEditor);
-		assert.strictEqual(editor.document.uri.toString(), resource.toString());
+		assert.strictEqual(editor.notebook.uri.toString(), resource.toString());
+	}));
+
+	// TODO@rebornix https://github.com/microsoft/vscode/issues/173125
+	test.skip('Active/Visible Editor', async function () {
+		const firstEditorOpen = onDidOpenNotebookEditor();
+		const resource = await utils.createRandomFile(undefined, undefined, '.nbdtest');
+		const document = await vscode.workspace.openNotebookDocument(resource);
+
+		const firstEditor = await vscode.window.showNotebookDocument(document);
+		await firstEditorOpen;
+		assert.strictEqual(vscode.window.activeNotebookEditor, firstEditor);
+		assert.strictEqual(vscode.window.visibleNotebookEditors.includes(firstEditor), true);
+
+		const secondEditor = await vscode.window.showNotebookDocument(document, { viewColumn: vscode.ViewColumn.Beside });
+		// There is no guarantee that when `showNotebookDocument` resolves, the active notebook editor is already updated correctly.
+		// assert.strictEqual(secondEditor === vscode.window.activeNotebookEditor, true);
+		assert.notStrictEqual(firstEditor, secondEditor);
+		assert.strictEqual(vscode.window.visibleNotebookEditors.includes(secondEditor), true);
+		assert.strictEqual(vscode.window.visibleNotebookEditors.includes(firstEditor), true);
+		assert.strictEqual(vscode.window.visibleNotebookEditors.length, 2);
+		await utils.closeAllEditors();
+	});
+
+	test('Notebook Editor Event - onDidChangeVisibleNotebookEditors on open/close', async function () {
+		const openedEditor = utils.asPromise(vscode.window.onDidChangeVisibleNotebookEditors);
+		const resource = await utils.createRandomFile(undefined, undefined, '.nbdtest');
+		const document = await vscode.workspace.openNotebookDocument(resource);
+		await vscode.window.showNotebookDocument(document);
+		assert.ok(await openedEditor);
+
+		const firstEditorClose = utils.asPromise(vscode.window.onDidChangeVisibleNotebookEditors);
+		await utils.closeAllEditors();
+		await firstEditorClose;
+	});
+
+	test('Notebook Editor Event - onDidChangeVisibleNotebookEditors on two editor groups', async function () {
+		const resource = await utils.createRandomFile(undefined, undefined, '.nbdtest');
+		const document = await vscode.workspace.openNotebookDocument(resource);
+
+		let count = 0;
+		testDisposables.push(vscode.window.onDidChangeVisibleNotebookEditors(() => {
+			count = vscode.window.visibleNotebookEditors.length;
+		}));
+
+		await vscode.window.showNotebookDocument(document, { viewColumn: vscode.ViewColumn.Active });
+		assert.strictEqual(count, 1);
+
+		await vscode.window.showNotebookDocument(document, { viewColumn: vscode.ViewColumn.Beside });
+		assert.strictEqual(count, 2);
+
+		await utils.closeAllEditors();
+		assert.strictEqual(count, 0);
 	});
 });

@@ -1,18 +1,22 @@
 {
 	"extends": "./tsconfig.base.json",
 	"compilerOptions": {
+		"esModuleInterop": true,
 		"removeComments": false,
 		"preserveConstEnums": true,
 		"sourceMap": false,
+		"allowJs": true,
+		"resolveJsonModule": true,
+		"isolatedModules": false,
 		"outDir": "../out/vs",
-		"target": "es2017",
 		"types": [
-			"keytar",
+			"@webgpu/types",
 			"mocha",
 			"semver",
 			"sinon",
+			"trusted-types",
 			"winreg",
-			"trusted-types"
+			"wicg-file-system-access"
 		],
 		"plugins": [
 			{
@@ -22,7 +26,10 @@
 		]
 	},
 	"include": [
+		"./*.ts",
 		"./typings",
-		"./vs"
+		"./vs/**/*.ts",
+		"./vscode-dts/vscode.proposed.*.d.ts",
+		"./vscode-dts/vscode.d.ts"
 	]
 }

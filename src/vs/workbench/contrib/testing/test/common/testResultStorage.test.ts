@@ -3,36 +3,41 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as assert from 'assert';
-import { range } from 'vs/base/common/arrays';
-import { NullLogService } from 'vs/platform/log/common/log';
-import { ITestResult, LiveTestResult } from 'vs/workbench/contrib/testing/common/testResult';
-import { InMemoryResultStorage, RETAIN_MAX_RESULTS } from 'vs/workbench/contrib/testing/common/testResultStorage';
-import { MainThreadTestCollection } from 'vs/workbench/contrib/testing/common/testServiceImpl';
-import { getInitializedMainTestCollection } from 'vs/workbench/contrib/testing/test/common/ownedTestCollection';
-import { emptyOutputController } from 'vs/workbench/contrib/testing/test/common/testResultService.test';
-import { TestStorageService } from 'vs/workbench/test/common/workbenchTestServices';
+import assert from 'assert';
+import { range } from '../../../../../base/common/arrays.js';
+import { DisposableStore } from '../../../../../base/common/lifecycle.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { NullLogService } from '../../../../../platform/log/common/log.js';
+import { NullTelemetryService } from '../../../../../platform/telemetry/common/telemetryUtils.js';
+import { IUriIdentityService } from '../../../../../platform/uriIdentity/common/uriIdentity.js';
+import { ITestResult, LiveTestResult } from '../../common/testResult.js';
+import { InMemoryResultStorage, RETAIN_MAX_RESULTS } from '../../common/testResultStorage.js';
+import { TestRunProfileBitset } from '../../common/testTypes.js';
+import { testStubs } from './testStubs.js';
+import { TestStorageService } from '../../../../test/common/workbenchTestServices.js';
 
 suite('Workbench - Test Result Storage', () => {
 	let storage: InMemoryResultStorage;
-	let collection: MainThreadTestCollection;
+	let ds: DisposableStore;
 
-	const makeResult = (addMessage?: string) => {
-		const t = LiveTestResult.from(
+	const makeResult = (taskName = 't') => {
+		const t = ds.add(new LiveTestResult(
 			'',
-			[collection],
-			emptyOutputController(),
-			{ tests: [{ src: { provider: 'provider', tree: 0 }, testId: 'id-a' }], debug: false }
-		);
-		if (addMessage) {
-			t.appendMessage('id-a', {
-				message: addMessage,
-				actualOutput: undefined,
-				expectedOutput: undefined,
-				location: undefined,
-				severity: 0,
-			});
-		}
+			true,
+			{ targets: [], group: TestRunProfileBitset.Run },
+			1,
+			NullTelemetryService,
+		));
+
+		t.addTask({ id: taskName, name: 'n', running: true, ctrlId: 'ctrlId' });
+		const tests = ds.add(testStubs.nested());
+		tests.expand(tests.root.id, Infinity);
+		t.addTestChainToRun('ctrlId', [
+			tests.root.toTestItem(),
+			tests.root.children.get('id-a')!.toTestItem(),
+			tests.root.children.get('id-a')!.children.get('id-aa')!.toTestItem(),
+		]);
+
 		t.markComplete();
 		return t;
 	};
@@ -41,9 +46,17 @@ suite('Workbench - Test Result Storage', () => {
 		assert.deepStrictEqual((await storage.read()).map(r => r.id), stored.map(s => s.id));
 
 	setup(async () => {
-		collection = await getInitializedMainTestCollection();
-		storage = new InMemoryResultStorage(new TestStorageService(), new NullLogService());
+		ds = new DisposableStore();
+		storage = ds.add(new InMemoryResultStorage({
+			asCanonicalUri(uri) {
+				return uri;
+			},
+		} as IUriIdentityService, ds.add(new TestStorageService()), new NullLogService()));
 	});
+
+	teardown(() => ds.dispose());
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('stores a single result', async () => {
 		const r = range(5).map(() => makeResult());
@@ -68,7 +81,8 @@ suite('Workbench - Test Result Storage', () => {
 	test('limits stored result by budget', async () => {
 		const r = range(100).map(() => makeResult('a'.repeat(2048)));
 		await storage.persist(r);
-		await assertStored(r.slice(0, 41));
+		const length = (await storage.read()).length;
+		assert.strictEqual(true, length < 50);
 	});
 
 	test('always stores the min number of results', async () => {

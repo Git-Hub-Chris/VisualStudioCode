@@ -3,59 +3,103 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { ITerminalInstanceService } from 'vs/workbench/contrib/terminal/browser/terminal';
-import { IDefaultShellAndArgsRequest } from 'vs/workbench/contrib/terminal/common/terminal';
-import type { Terminal as XTermTerminal } from 'xterm';
-import type { SearchAddon as XTermSearchAddon } from 'xterm-addon-search';
-import type { Unicode11Addon as XTermUnicode11Addon } from 'xterm-addon-unicode11';
-import type { WebglAddon as XTermWebglAddon } from 'xterm-addon-webgl';
-import { IProcessEnvironment } from 'vs/base/common/platform';
-import { Emitter } from 'vs/base/common/event';
-import { registerSingleton } from 'vs/platform/instantiation/common/extensions';
-import { Disposable } from 'vs/base/common/lifecycle';
-
-let Terminal: typeof XTermTerminal;
-let SearchAddon: typeof XTermSearchAddon;
-let Unicode11Addon: typeof XTermUnicode11Addon;
-let WebglAddon: typeof XTermWebglAddon;
+import { ITerminalInstance, ITerminalInstanceService } from './terminal.js';
+import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { IShellLaunchConfig, ITerminalBackend, ITerminalBackendRegistry, ITerminalProfile, TerminalExtensions, TerminalLocation } from '../../../../platform/terminal/common/terminal.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { TerminalInstance } from './terminalInstance.js';
+import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { URI } from '../../../../base/common/uri.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
+import { TerminalContextKeys } from '../common/terminalContextKey.js';
+import { Registry } from '../../../../platform/registry/common/platform.js';
+import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
+import { promiseWithResolvers } from '../../../../base/common/async.js';
 
 export class TerminalInstanceService extends Disposable implements ITerminalInstanceService {
-	public _serviceBrand: undefined;
+	declare _serviceBrand: undefined;
+	private _terminalShellTypeContextKey: IContextKey<string>;
+	private _backendRegistration = new Map<string | undefined, { promise: Promise<void>; resolve: () => void }>();
 
-	protected readonly _onRequestDefaultShellAndArgs = this._register(new Emitter<IDefaultShellAndArgsRequest>());
-	readonly onRequestDefaultShellAndArgs = this._onRequestDefaultShellAndArgs.event;
+	private readonly _onDidCreateInstance = this._register(new Emitter<ITerminalInstance>());
+	get onDidCreateInstance(): Event<ITerminalInstance> { return this._onDidCreateInstance.event; }
 
-	public async getXtermConstructor(): Promise<typeof XTermTerminal> {
-		if (!Terminal) {
-			Terminal = (await import('xterm')).Terminal;
+	private readonly _onDidRegisterBackend = this._register(new Emitter<ITerminalBackend>());
+	get onDidRegisterBackend(): Event<ITerminalBackend> { return this._onDidRegisterBackend.event; }
+
+	constructor(
+		@IInstantiationService private readonly _instantiationService: IInstantiationService,
+		@IContextKeyService private readonly _contextKeyService: IContextKeyService,
+		@IWorkbenchEnvironmentService environmentService: IWorkbenchEnvironmentService,
+	) {
+		super();
+		this._terminalShellTypeContextKey = TerminalContextKeys.shellType.bindTo(this._contextKeyService);
+
+		for (const remoteAuthority of [undefined, environmentService.remoteAuthority]) {
+			const { promise, resolve } = promiseWithResolvers<void>();
+			this._backendRegistration.set(remoteAuthority, { promise, resolve });
 		}
-		return Terminal;
 	}
 
-	public async getXtermSearchConstructor(): Promise<typeof XTermSearchAddon> {
-		if (!SearchAddon) {
-			SearchAddon = (await import('xterm-addon-search')).SearchAddon;
-		}
-		return SearchAddon;
+	createInstance(profile: ITerminalProfile, target: TerminalLocation): ITerminalInstance;
+	createInstance(shellLaunchConfig: IShellLaunchConfig, target: TerminalLocation): ITerminalInstance;
+	createInstance(config: IShellLaunchConfig | ITerminalProfile, target: TerminalLocation): ITerminalInstance {
+		const shellLaunchConfig = this.convertProfileToShellLaunchConfig(config);
+		const instance = this._instantiationService.createInstance(TerminalInstance, this._terminalShellTypeContextKey, shellLaunchConfig);
+		instance.target = target;
+		this._onDidCreateInstance.fire(instance);
+		return instance;
 	}
 
-	public async getXtermUnicode11Constructor(): Promise<typeof XTermUnicode11Addon> {
-		if (!Unicode11Addon) {
-			Unicode11Addon = (await import('xterm-addon-unicode11')).Unicode11Addon;
+	convertProfileToShellLaunchConfig(shellLaunchConfigOrProfile?: IShellLaunchConfig | ITerminalProfile, cwd?: string | URI): IShellLaunchConfig {
+		// Profile was provided
+		if (shellLaunchConfigOrProfile && 'profileName' in shellLaunchConfigOrProfile) {
+			const profile = shellLaunchConfigOrProfile;
+			if (!profile.path) {
+				return shellLaunchConfigOrProfile;
+			}
+			return {
+				executable: profile.path,
+				args: profile.args,
+				env: profile.env,
+				icon: profile.icon,
+				color: profile.color,
+				name: profile.overrideName ? profile.profileName : undefined,
+				cwd
+			};
 		}
-		return Unicode11Addon;
-	}
 
-	public async getXtermWebglConstructor(): Promise<typeof XTermWebglAddon> {
-		if (!WebglAddon) {
-			WebglAddon = (await import('xterm-addon-webgl')).WebglAddon;
+		// A shell launch config was provided
+		if (shellLaunchConfigOrProfile) {
+			if (cwd) {
+				shellLaunchConfigOrProfile.cwd = cwd;
+			}
+			return shellLaunchConfigOrProfile;
 		}
-		return WebglAddon;
-	}
 
-	public async getMainProcessParentEnv(): Promise<IProcessEnvironment> {
+		// Return empty shell launch config
 		return {};
+	}
+
+	async getBackend(remoteAuthority?: string): Promise<ITerminalBackend | undefined> {
+		let backend = Registry.as<ITerminalBackendRegistry>(TerminalExtensions.Backend).getTerminalBackend(remoteAuthority);
+		if (!backend) {
+			// Ensure backend is initialized and try again
+			await this._backendRegistration.get(remoteAuthority)?.promise;
+			backend = Registry.as<ITerminalBackendRegistry>(TerminalExtensions.Backend).getTerminalBackend(remoteAuthority);
+		}
+		return backend;
+	}
+
+	getRegisteredBackends(): IterableIterator<ITerminalBackend> {
+		return Registry.as<ITerminalBackendRegistry>(TerminalExtensions.Backend).backends.values();
+	}
+
+	didRegisterBackend(backend: ITerminalBackend) {
+		this._backendRegistration.get(backend.remoteAuthority)?.resolve();
+		this._onDidRegisterBackend.fire(backend);
 	}
 }
 
-registerSingleton(ITerminalInstanceService, TerminalInstanceService, true);
+registerSingleton(ITerminalInstanceService, TerminalInstanceService, InstantiationType.Delayed);

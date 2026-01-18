@@ -3,35 +3,78 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
-import { Event } from 'vs/base/common/event';
+import { ErrorNoTelemetry } from '../../../base/common/errors.js';
+import { Event } from '../../../base/common/event.js';
+import { URI } from '../../../base/common/uri.js';
+import { createDecorator } from '../../instantiation/common/instantiation.js';
 
 export const IRemoteAuthorityResolverService = createDecorator<IRemoteAuthorityResolverService>('remoteAuthorityResolverService');
 
-export interface ResolvedAuthority {
-	readonly authority: string;
-	readonly host: string;
-	readonly port: number;
-	readonly connectionToken: string | undefined;
+export const enum RemoteConnectionType {
+	WebSocket,
+	Managed
 }
 
-export enum RemoteTrustOption {
-	Unknown = 0,
-	DisableTrust = 1,
-	MachineTrusted = 2
+export class ManagedRemoteConnection {
+	public readonly type = RemoteConnectionType.Managed;
+
+	constructor(
+		public readonly id: number
+	) { }
+
+	public toString(): string {
+		return `Managed(${this.id})`;
+	}
+}
+
+export class WebSocketRemoteConnection {
+	public readonly type = RemoteConnectionType.WebSocket;
+
+	constructor(
+		public readonly host: string,
+		public readonly port: number,
+	) { }
+
+	public toString(): string {
+		return `WebSocket(${this.host}:${this.port})`;
+	}
+}
+
+export type RemoteConnection = WebSocketRemoteConnection | ManagedRemoteConnection;
+
+export type RemoteConnectionOfType<T extends RemoteConnectionType> = RemoteConnection & { type: T };
+
+export interface ResolvedAuthority {
+	readonly authority: string;
+	readonly connectTo: RemoteConnection;
+	readonly connectionToken: string | undefined;
 }
 
 export interface ResolvedOptions {
 	readonly extensionHostEnv?: { [key: string]: string | null };
-	readonly trust?: RemoteTrustOption;
+	readonly isTrusted?: boolean;
+	readonly authenticationSession?: { id: string; providerId: string };
 }
 
 export interface TunnelDescription {
-	remoteAddress: { port: number, host: string };
-	localAddress: { port: number, host: string } | string;
+	remoteAddress: { port: number; host: string };
+	localAddress: { port: number; host: string } | string;
+	privacy?: string;
+	protocol?: string;
+}
+export interface TunnelPrivacy {
+	themeIcon: string;
+	id: string;
+	label: string;
 }
 export interface TunnelInformation {
 	environmentTunnels?: TunnelDescription[];
+	features?: {
+		elevation: boolean;
+		public?: boolean;
+		privacyOptions: TunnelPrivacy[];
+		protocol: boolean;
+	};
 }
 
 export interface ResolverResult {
@@ -41,8 +84,7 @@ export interface ResolverResult {
 }
 
 export interface IRemoteConnectionData {
-	host: string;
-	port: number;
+	connectTo: RemoteConnection;
 	connectionToken: string | undefined;
 }
 
@@ -50,10 +92,15 @@ export enum RemoteAuthorityResolverErrorCode {
 	Unknown = 'Unknown',
 	NotAvailable = 'NotAvailable',
 	TemporarilyNotAvailable = 'TemporarilyNotAvailable',
-	NoResolverFound = 'NoResolverFound'
+	NoResolverFound = 'NoResolverFound',
+	InvalidAuthority = 'InvalidAuthority'
 }
 
-export class RemoteAuthorityResolverError extends Error {
+export class RemoteAuthorityResolverError extends ErrorNoTelemetry {
+
+	public static isNotAvailable(err: any): boolean {
+		return (err instanceof RemoteAuthorityResolverError) && err._code === RemoteAuthorityResolverErrorCode.NotAvailable;
+	}
 
 	public static isTemporarilyNotAvailable(err: any): boolean {
 		return (err instanceof RemoteAuthorityResolverError) && err._code === RemoteAuthorityResolverErrorCode.TemporarilyNotAvailable;
@@ -61,6 +108,10 @@ export class RemoteAuthorityResolverError extends Error {
 
 	public static isNoResolverFound(err: any): err is RemoteAuthorityResolverError {
 		return (err instanceof RemoteAuthorityResolverError) && err._code === RemoteAuthorityResolverErrorCode.NoResolverFound;
+	}
+
+	public static isInvalidAuthority(err: any): boolean {
+		return (err instanceof RemoteAuthorityResolverError) && err._code === RemoteAuthorityResolverErrorCode.InvalidAuthority;
 	}
 
 	public static isHandled(err: any): boolean {
@@ -84,9 +135,7 @@ export class RemoteAuthorityResolverError extends Error {
 
 		// workaround when extending builtin objects and when compiling to ES5, see:
 		// https://github.com/microsoft/TypeScript-wiki/blob/master/Breaking-Changes.md#extending-built-ins-like-error-array-and-map-may-no-longer-work
-		if (typeof (<any>Object).setPrototypeOf === 'function') {
-			(<any>Object).setPrototypeOf(this, RemoteAuthorityResolverError.prototype);
-		}
+		Object.setPrototypeOf(this, RemoteAuthorityResolverError.prototype);
 	}
 }
 
@@ -98,9 +147,26 @@ export interface IRemoteAuthorityResolverService {
 
 	resolveAuthority(authority: string): Promise<ResolverResult>;
 	getConnectionData(authority: string): IRemoteConnectionData | null;
+	/**
+	 * Get the canonical URI for a `vscode-remote://` URI.
+	 *
+	 * **NOTE**: This can throw e.g. in cases where there is no resolver installed for the specific remote authority.
+	 *
+	 * @param uri The `vscode-remote://` URI
+	 */
+	getCanonicalURI(uri: URI): Promise<URI>;
 
 	_clearResolvedAuthority(authority: string): void;
 	_setResolvedAuthority(resolvedAuthority: ResolvedAuthority, resolvedOptions?: ResolvedOptions): void;
 	_setResolvedAuthorityError(authority: string, err: any): void;
 	_setAuthorityConnectionToken(authority: string, connectionToken: string): void;
+	_setCanonicalURIProvider(provider: (uri: URI) => Promise<URI>): void;
+}
+
+export function getRemoteAuthorityPrefix(remoteAuthority: string): string {
+	const plusIndex = remoteAuthority.indexOf('+');
+	if (plusIndex === -1) {
+		return remoteAuthority;
+	}
+	return remoteAuthority.substring(0, plusIndex);
 }

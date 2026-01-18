@@ -3,51 +3,108 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Schemas } from 'vs/base/common/network';
-import { env } from 'vs/base/common/process';
-import { withNullAsUndefined } from 'vs/base/common/types';
-import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { ILogService } from 'vs/platform/log/common/log';
-import { IWorkspaceContextService, IWorkspaceFolder } from 'vs/platform/workspace/common/workspace';
-import { IRemoteTerminalService, ITerminalService } from 'vs/workbench/contrib/terminal/browser/terminal';
-import { IConfigurationResolverService } from 'vs/workbench/services/configurationResolver/common/configurationResolver';
-import { IHistoryService } from 'vs/workbench/services/history/common/history';
-import { IProcessEnvironment, OperatingSystem } from 'vs/base/common/platform';
-import { IShellLaunchConfig } from 'vs/platform/terminal/common/terminal';
-import { IShellLaunchConfigResolveOptions, ITerminalProfile, ITerminalProfileResolverService } from 'vs/workbench/contrib/terminal/common/terminal';
-import * as path from 'vs/base/common/path';
-import { Codicon } from 'vs/base/common/codicons';
+import { Schemas } from '../../../../base/common/network.js';
+import { env } from '../../../../base/common/process.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
+import { IConfigurationResolverService } from '../../../services/configurationResolver/common/configurationResolver.js';
+import { IHistoryService } from '../../../services/history/common/history.js';
+import { IProcessEnvironment, OperatingSystem, OS } from '../../../../base/common/platform.js';
+import { IShellLaunchConfig, ITerminalLogService, ITerminalProfile, TerminalIcon, TerminalSettingId } from '../../../../platform/terminal/common/terminal.js';
+import { IShellLaunchConfigResolveOptions, ITerminalProfileResolverService, ITerminalProfileService } from '../common/terminal.js';
+import * as path from '../../../../base/common/path.js';
+import { Codicon } from '../../../../base/common/codicons.js';
+import { getIconRegistry, IIconRegistry } from '../../../../platform/theme/common/iconRegistry.js';
+import { IRemoteAgentService } from '../../../services/remote/common/remoteAgentService.js';
+import { debounce } from '../../../../base/common/decorators.js';
+import { ThemeIcon } from '../../../../base/common/themables.js';
+import { URI } from '../../../../base/common/uri.js';
+import { deepClone } from '../../../../base/common/objects.js';
+import { isUriComponents } from '../../../../platform/terminal/common/terminalProfiles.js';
+import { ITerminalInstanceService } from './terminal.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
 
 export interface IProfileContextProvider {
-	getDefaultSystemShell: (remoteAuthority: string | undefined, os: OperatingSystem) => Promise<string>;
-	getShellEnvironment: (remoteAuthority: string | undefined) => Promise<IProcessEnvironment>;
+	getDefaultSystemShell(remoteAuthority: string | undefined, os: OperatingSystem): Promise<string>;
+	getEnvironment(remoteAuthority: string | undefined): Promise<IProcessEnvironment>;
 }
 
 const generatedProfileName = 'Generated';
 
-export abstract class BaseTerminalProfileResolverService implements ITerminalProfileResolverService {
+/*
+ * Resolves terminal shell launch config and terminal profiles for the given operating system,
+ * environment, and user configuration.
+ */
+export abstract class BaseTerminalProfileResolverService extends Disposable implements ITerminalProfileResolverService {
 	declare _serviceBrand: undefined;
+
+	private _primaryBackendOs: OperatingSystem | undefined;
+
+	private readonly _iconRegistry: IIconRegistry = getIconRegistry();
+
+	private _defaultProfileName: string | undefined;
+	get defaultProfileName(): string | undefined { return this._defaultProfileName; }
 
 	constructor(
 		private readonly _context: IProfileContextProvider,
 		private readonly _configurationService: IConfigurationService,
 		private readonly _configurationResolverService: IConfigurationResolverService,
 		private readonly _historyService: IHistoryService,
-		private readonly _logService: ILogService,
-		private readonly _terminalService: ITerminalService,
+		private readonly _logService: ITerminalLogService,
+		private readonly _terminalProfileService: ITerminalProfileService,
 		private readonly _workspaceContextService: IWorkspaceContextService,
+		private readonly _remoteAgentService: IRemoteAgentService
 	) {
+		super();
+
+		if (this._remoteAgentService.getConnection()) {
+			this._remoteAgentService.getEnvironment().then(env => this._primaryBackendOs = env?.os || OS);
+		} else {
+			this._primaryBackendOs = OS;
+		}
+		this._register(this._configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration(TerminalSettingId.DefaultProfileWindows) ||
+				e.affectsConfiguration(TerminalSettingId.DefaultProfileMacOs) ||
+				e.affectsConfiguration(TerminalSettingId.DefaultProfileLinux)) {
+				this._refreshDefaultProfileName();
+			}
+		}));
+		this._register(this._terminalProfileService.onDidChangeAvailableProfiles(() => this._refreshDefaultProfileName()));
+	}
+
+	@debounce(200)
+	private async _refreshDefaultProfileName() {
+		if (this._primaryBackendOs) {
+			this._defaultProfileName = (await this.getDefaultProfile({
+				remoteAuthority: this._remoteAgentService.getConnection()?.remoteAuthority,
+				os: this._primaryBackendOs
+			}))?.profileName;
+		}
 	}
 
 	resolveIcon(shellLaunchConfig: IShellLaunchConfig, os: OperatingSystem): void {
+		if (shellLaunchConfig.icon) {
+			shellLaunchConfig.icon = this._getCustomIcon(shellLaunchConfig.icon) || this.getDefaultIcon();
+			return;
+		}
+		if (shellLaunchConfig.customPtyImplementation) {
+			shellLaunchConfig.icon = this.getDefaultIcon();
+			return;
+		}
 		if (shellLaunchConfig.executable) {
 			return;
 		}
-
-		const defaultProfile = this._getRealDefaultProfile(true, os);
+		const defaultProfile = this._getUnresolvedRealDefaultProfile(os);
 		if (defaultProfile) {
 			shellLaunchConfig.icon = defaultProfile.icon;
 		}
+		if (!shellLaunchConfig.icon) {
+			shellLaunchConfig.icon = this.getDefaultIcon();
+		}
+	}
+
+	getDefaultIcon(resource?: URI): TerminalIcon & ThemeIcon {
+		return this._iconRegistry.getIcon(this._configurationService.getValue(TerminalSettingId.TabsDefaultIcon, { resource })) || Codicon.terminal;
 	}
 
 	async resolveShellLaunchConfig(shellLaunchConfig: IShellLaunchConfig, options: IShellLaunchConfigResolveOptions): Promise<void> {
@@ -57,14 +114,43 @@ export abstract class BaseTerminalProfileResolverService implements ITerminalPro
 			resolvedProfile = await this._resolveProfile({
 				path: shellLaunchConfig.executable,
 				args: shellLaunchConfig.args,
-				profileName: generatedProfileName
+				profileName: generatedProfileName,
+				isDefault: false
 			}, options);
 		} else {
 			resolvedProfile = await this.getDefaultProfile(options);
 		}
 		shellLaunchConfig.executable = resolvedProfile.path;
 		shellLaunchConfig.args = resolvedProfile.args;
-		shellLaunchConfig.icon = shellLaunchConfig.icon || resolvedProfile.icon;
+		if (resolvedProfile.env) {
+			if (shellLaunchConfig.env) {
+				shellLaunchConfig.env = { ...shellLaunchConfig.env, ...resolvedProfile.env };
+			} else {
+				shellLaunchConfig.env = resolvedProfile.env;
+			}
+		}
+
+		// Verify the icon is valid, and fallback correctly to the generic terminal id if there is
+		// an issue
+		const resource = shellLaunchConfig === undefined || typeof shellLaunchConfig.cwd === 'string' ? undefined : shellLaunchConfig.cwd;
+		shellLaunchConfig.icon = this._getCustomIcon(shellLaunchConfig.icon)
+			|| this._getCustomIcon(resolvedProfile.icon)
+			|| this.getDefaultIcon(resource);
+
+		// Override the name if specified
+		if (resolvedProfile.overrideName) {
+			shellLaunchConfig.name = resolvedProfile.profileName;
+		}
+
+		// Apply the color
+		shellLaunchConfig.color = shellLaunchConfig.color
+			|| resolvedProfile.color
+			|| this._configurationService.getValue(TerminalSettingId.TabsDefaultColor, { resource });
+
+		// Resolve useShellEnvironment based on the setting if it's not set
+		if (shellLaunchConfig.useShellEnvironment === undefined) {
+			shellLaunchConfig.useShellEnvironment = this._configurationService.getValue(TerminalSettingId.InheritEnv);
+		}
 	}
 
 	async getDefaultShell(options: IShellLaunchConfigResolveOptions): Promise<string> {
@@ -79,59 +165,92 @@ export abstract class BaseTerminalProfileResolverService implements ITerminalPro
 		return this._resolveProfile(await this._getUnresolvedDefaultProfile(options), options);
 	}
 
-	getShellEnvironment(remoteAuthority: string | undefined): Promise<IProcessEnvironment> {
-		return this._context.getShellEnvironment(remoteAuthority);
+	getEnvironment(remoteAuthority: string | undefined): Promise<IProcessEnvironment> {
+		return this._context.getEnvironment(remoteAuthority);
 	}
 
-	private async _getUnresolvedDefaultProfile(options: IShellLaunchConfigResolveOptions): Promise<ITerminalProfile> {
-		// If automation shell is allowed, prefer that
-		if (options.allowAutomationShell) {
-			const automationShellProfile = this._getAutomationShellProfile(options);
-			if (automationShellProfile) {
-				return automationShellProfile;
-			}
+	private _getCustomIcon(icon?: unknown): TerminalIcon | undefined {
+		if (!icon) {
+			return undefined;
 		}
-
-		// Return the real default profile if it exists and is valid
-		const defaultProfile = await this._getRealDefaultProfile(false, options.os);
-		if (defaultProfile) {
-			return defaultProfile;
+		if (typeof icon === 'string') {
+			return ThemeIcon.fromId(icon);
 		}
-
-		// If there is no real default profile, create a fallback default profile based on the shell
-		// and shellArgs settings in addition to the current environment.
-		return this._getFallbackDefaultProfile(options);
-	}
-
-	private _getRealDefaultProfile(sync: true, os: OperatingSystem): ITerminalProfile | undefined;
-	private _getRealDefaultProfile(sync: false, os: OperatingSystem): Promise<ITerminalProfile | undefined>;
-	private _getRealDefaultProfile(sync: boolean, os: OperatingSystem): ITerminalProfile | undefined | Promise<ITerminalProfile | undefined> {
-		const defaultProfileName = this._configurationService.getValue(`terminal.integrated.defaultProfile.${this._getOsKey(os)}`);
-		if (defaultProfileName && typeof defaultProfileName === 'string') {
-			if (sync) {
-				const profiles = this._terminalService.getAvailableProfiles();
-				return profiles.find(e => e.profileName === defaultProfileName);
-			} else {
-				return this._terminalService.getAvailableProfilesAsync().then(profiles => {
-					return profiles.find(e => e.profileName === defaultProfileName);
-				});
+		if (ThemeIcon.isThemeIcon(icon)) {
+			return icon;
+		}
+		if (URI.isUri(icon) || isUriComponents(icon)) {
+			return URI.revive(icon);
+		}
+		if (typeof icon === 'object' && 'light' in icon && 'dark' in icon) {
+			const castedIcon = (icon as { light: unknown; dark: unknown });
+			if ((URI.isUri(castedIcon.light) || isUriComponents(castedIcon.light)) && (URI.isUri(castedIcon.dark) || isUriComponents(castedIcon.dark))) {
+				return { light: URI.revive(castedIcon.light), dark: URI.revive(castedIcon.dark) };
 			}
 		}
 		return undefined;
 	}
 
-	private async _getFallbackDefaultProfile(options: IShellLaunchConfigResolveOptions): Promise<ITerminalProfile> {
-		let executable: string;
-		let args: string | string[] | undefined;
-		const shellSetting = this._configurationService.getValue(`terminal.integrated.shell.${this._getOsKey(options.os)}`);
-		if (this._isValidShell(shellSetting)) {
-			executable = shellSetting;
-			const shellArgsSetting = this._configurationService.getValue(`terminal.integrated.shellArgs.${this._getOsKey(options.os)}`);
-			if (this._isValidShellArgs(shellArgsSetting, options.os)) {
-				args = shellArgsSetting || [];
+	private async _getUnresolvedDefaultProfile(options: IShellLaunchConfigResolveOptions): Promise<ITerminalProfile> {
+		// If automation shell is allowed, prefer that
+		if (options.allowAutomationShell) {
+			const automationShellProfile = this._getUnresolvedAutomationShellProfile(options);
+			if (automationShellProfile) {
+				return automationShellProfile;
 			}
+		}
+
+		// Return the real default profile if it exists and is valid, wait for profiles to be ready
+		// if the window just opened
+		await this._terminalProfileService.profilesReady;
+		const defaultProfile = this._getUnresolvedRealDefaultProfile(options.os);
+		if (defaultProfile) {
+			return this._setIconForAutomation(options, defaultProfile);
+		}
+
+		// If there is no real default profile, create a fallback default profile based on the shell
+		// and shellArgs settings in addition to the current environment.
+		return this._setIconForAutomation(options, await this._getUnresolvedFallbackDefaultProfile(options));
+	}
+
+	private _setIconForAutomation(options: IShellLaunchConfigResolveOptions, profile: ITerminalProfile): ITerminalProfile {
+		if (options.allowAutomationShell) {
+			const profileClone = deepClone(profile);
+			profileClone.icon = Codicon.tools;
+			return profileClone;
+		}
+		return profile;
+	}
+
+	private _getUnresolvedRealDefaultProfile(os: OperatingSystem): ITerminalProfile | undefined {
+		return this._terminalProfileService.getDefaultProfile(os);
+	}
+
+	private async _getUnresolvedFallbackDefaultProfile(options: IShellLaunchConfigResolveOptions): Promise<ITerminalProfile> {
+		const executable = await this._context.getDefaultSystemShell(options.remoteAuthority, options.os);
+
+		// Try select an existing profile to fallback to, based on the default system shell, only do
+		// this when it is NOT a local terminal in a remote window where the front and back end OS
+		// differs (eg. Windows -> WSL, Mac -> Linux)
+		if (options.os === OS) {
+			let existingProfile = this._terminalProfileService.availableProfiles.find(e => path.parse(e.path).name === path.parse(executable).name);
+			if (existingProfile) {
+				if (options.allowAutomationShell) {
+					existingProfile = deepClone(existingProfile);
+					existingProfile.icon = Codicon.tools;
+				}
+				return existingProfile;
+			}
+		}
+
+		// Finally fallback to a generated profile
+		let args: string | string[] | undefined;
+		if (options.os === OperatingSystem.Macintosh && path.parse(executable).name.match(/(zsh|bash)/)) {
+			// macOS should launch a login shell by default
+			args = ['--login'];
 		} else {
-			executable = await this._context.getDefaultSystemShell(options.remoteAuthority, options.os);
+			// Resolve undefined to []
+			args = [];
 		}
 
 		const icon = this._guessProfileIcon(executable);
@@ -140,27 +259,28 @@ export abstract class BaseTerminalProfileResolverService implements ITerminalPro
 			profileName: generatedProfileName,
 			path: executable,
 			args,
-			icon
+			icon,
+			isDefault: false
 		};
 	}
 
-	private _getAutomationShellProfile(options: IShellLaunchConfigResolveOptions): ITerminalProfile | undefined {
-		const automationShell = this._configurationService.getValue(`terminal.integrated.automationShell.${this._getOsKey(options.os)}`);
-		if (!automationShell || typeof automationShell !== 'string') {
-			return undefined;
+	private _getUnresolvedAutomationShellProfile(options: IShellLaunchConfigResolveOptions): ITerminalProfile | undefined {
+		const automationProfile = this._configurationService.getValue(`terminal.integrated.automationProfile.${this._getOsKey(options.os)}`);
+		if (this._isValidAutomationProfile(automationProfile, options.os)) {
+			automationProfile.icon = this._getCustomIcon(automationProfile.icon) || Codicon.tools;
+			return automationProfile;
 		}
-		return {
-			path: automationShell,
-			profileName: generatedProfileName
-		};
+
+		return undefined;
 	}
 
 	private async _resolveProfile(profile: ITerminalProfile, options: IShellLaunchConfigResolveOptions): Promise<ITerminalProfile> {
+		const env = await this._context.getEnvironment(options.remoteAuthority);
+
 		if (options.os === OperatingSystem.Windows) {
 			// Change Sysnative to System32 if the OS is Windows but NOT WoW64. It's
 			// safe to assume that this was used by accident as Sysnative does not
 			// exist and will break the terminal in non-WoW64 environments.
-			const env = await this._context.getShellEnvironment(options.remoteAuthority);
 			const isWoW64 = !!env.hasOwnProperty('PROCESSOR_ARCHITEW6432');
 			const windir = env.windir;
 			if (!isWoW64 && windir) {
@@ -177,28 +297,25 @@ export abstract class BaseTerminalProfileResolverService implements ITerminalPro
 		}
 
 		// Resolve path variables
-		const env = await this._context.getShellEnvironment(options.remoteAuthority);
-		const activeWorkspaceRootUri = this._historyService.getLastActiveWorkspaceRoot(Schemas.file);
-		const lastActiveWorkspace = activeWorkspaceRootUri ? withNullAsUndefined(this._workspaceContextService.getWorkspaceFolder(activeWorkspaceRootUri)) : undefined;
-		profile.path = this._resolveVariables(profile.path, env, lastActiveWorkspace);
+		const activeWorkspaceRootUri = this._historyService.getLastActiveWorkspaceRoot(options.remoteAuthority ? Schemas.vscodeRemote : Schemas.file);
+		const lastActiveWorkspace = activeWorkspaceRootUri ? this._workspaceContextService.getWorkspaceFolder(activeWorkspaceRootUri) ?? undefined : undefined;
+		profile.path = await this._resolveVariables(profile.path, env, lastActiveWorkspace);
 
 		// Resolve args variables
 		if (profile.args) {
 			if (typeof profile.args === 'string') {
-				profile.args = this._resolveVariables(profile.args, env, lastActiveWorkspace);
+				profile.args = await this._resolveVariables(profile.args, env, lastActiveWorkspace);
 			} else {
-				for (let i = 0; i < profile.args.length; i++) {
-					profile.args[i] = this._resolveVariables(profile.args[i], env, lastActiveWorkspace);
-				}
+				profile.args = await Promise.all(profile.args.map(arg => this._resolveVariables(arg, env, lastActiveWorkspace)));
 			}
 		}
 
 		return profile;
 	}
 
-	private _resolveVariables(value: string, env: IProcessEnvironment, lastActiveWorkspace: IWorkspaceFolder | undefined) {
+	private async _resolveVariables(value: string, env: IProcessEnvironment, lastActiveWorkspace: IWorkspaceFolder | undefined) {
 		try {
-			value = this._configurationResolverService.resolveWithEnvironment(env, lastActiveWorkspace, value);
+			value = await this._configurationResolverService.resolveWithEnvironment(env, lastActiveWorkspace, value);
 		} catch (e) {
 			this._logService.error(`Could not resolve shell`, e);
 		}
@@ -213,36 +330,28 @@ export abstract class BaseTerminalProfileResolverService implements ITerminalPro
 		}
 	}
 
-	private _guessProfileIcon(shell: string): string | undefined {
+	private _guessProfileIcon(shell: string): ThemeIcon | undefined {
 		const file = path.parse(shell).name;
 		switch (file) {
+			case 'bash':
+				return Codicon.terminalBash;
 			case 'pwsh':
 			case 'powershell':
-				return Codicon.terminalPowershell.id;
+				return Codicon.terminalPowershell;
 			case 'tmux':
-				return Codicon.terminalTmux.id;
+				return Codicon.terminalTmux;
 			case 'cmd':
-				return Codicon.terminalCmd.id;
+				return Codicon.terminalCmd;
 			default:
 				return undefined;
 		}
 	}
 
-	private _isValidShell(shell: unknown): shell is string {
-		if (!shell) {
+	private _isValidAutomationProfile(profile: unknown, os: OperatingSystem): profile is ITerminalProfile {
+		if (profile === null || profile === undefined || typeof profile !== 'object') {
 			return false;
 		}
-		return typeof shell === 'string';
-	}
-
-	private _isValidShellArgs(shellArgs: unknown, os: OperatingSystem): shellArgs is string | string[] | undefined {
-		if (shellArgs === undefined) {
-			return true;
-		}
-		if (os === OperatingSystem.Windows && typeof shellArgs === 'string') {
-			return true;
-		}
-		if (Array.isArray(shellArgs) && shellArgs.every(e => typeof e === 'string')) {
+		if ('path' in profile && typeof (profile as { path: unknown }).path === 'string') {
 			return true;
 		}
 		return false;
@@ -255,33 +364,37 @@ export class BrowserTerminalProfileResolverService extends BaseTerminalProfileRe
 		@IConfigurationResolverService configurationResolverService: IConfigurationResolverService,
 		@IConfigurationService configurationService: IConfigurationService,
 		@IHistoryService historyService: IHistoryService,
-		@ILogService logService: ILogService,
-		@IRemoteTerminalService remoteTerminalService: IRemoteTerminalService,
-		@ITerminalService terminalService: ITerminalService,
+		@ITerminalLogService logService: ITerminalLogService,
+		@ITerminalInstanceService terminalInstanceService: ITerminalInstanceService,
+		@ITerminalProfileService terminalProfileService: ITerminalProfileService,
 		@IWorkspaceContextService workspaceContextService: IWorkspaceContextService,
+		@IRemoteAgentService remoteAgentService: IRemoteAgentService
 	) {
 		super(
 			{
 				getDefaultSystemShell: async (remoteAuthority, os) => {
-					if (!remoteAuthority) {
+					const backend = await terminalInstanceService.getBackend(remoteAuthority);
+					if (!remoteAuthority || !backend) {
 						// Just return basic values, this is only for serverless web and wouldn't be used
 						return os === OperatingSystem.Windows ? 'pwsh' : 'bash';
 					}
-					return remoteTerminalService.getDefaultSystemShell(os);
+					return backend.getDefaultSystemShell(os);
 				},
-				getShellEnvironment: async (remoteAuthority) => {
-					if (!remoteAuthority) {
+				getEnvironment: async (remoteAuthority) => {
+					const backend = await terminalInstanceService.getBackend(remoteAuthority);
+					if (!remoteAuthority || !backend) {
 						return env;
 					}
-					return remoteTerminalService.getShellEnvironment();
+					return backend.getEnvironment();
 				}
 			},
 			configurationService,
 			configurationResolverService,
 			historyService,
 			logService,
-			terminalService,
-			workspaceContextService
+			terminalProfileService,
+			workspaceContextService,
+			remoteAgentService
 		);
 	}
 }

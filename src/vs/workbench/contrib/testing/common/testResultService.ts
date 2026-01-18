@@ -3,21 +3,20 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { findFirstInSorted } from 'vs/base/common/arrays';
-import { RunOnceScheduler } from 'vs/base/common/async';
-import { Emitter, Event } from 'vs/base/common/event';
-import { once } from 'vs/base/common/functional';
-import { Iterable } from 'vs/base/common/iterator';
-import { equals } from 'vs/base/common/objects';
-import { generateUuid } from 'vs/base/common/uuid';
-import { IContextKey, IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
-import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
-import { TestResultState } from 'vs/workbench/api/common/extHostTypes';
-import { RunTestsRequest, TestResultItem } from 'vs/workbench/contrib/testing/common/testCollection';
-import { TestingContextKeys } from 'vs/workbench/contrib/testing/common/testingContextKeys';
-import { ITestResult, LiveTestResult, TestResultItemChange, TestResultItemChangeReason } from 'vs/workbench/contrib/testing/common/testResult';
-import { ITestResultStorage, RETAIN_MAX_RESULTS } from 'vs/workbench/contrib/testing/common/testResultStorage';
-import { IMainThreadTestCollection } from 'vs/workbench/contrib/testing/common/testService';
+import { findFirstIdxMonotonousOrArrLen } from '../../../../base/common/arraysFind.js';
+import { RunOnceScheduler } from '../../../../base/common/async.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
+import { createSingleCallFunction } from '../../../../base/common/functional.js';
+import { Disposable, DisposableStore, dispose, toDisposable } from '../../../../base/common/lifecycle.js';
+import { generateUuid } from '../../../../base/common/uuid.js';
+import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
+import { TestingContextKeys } from './testingContextKeys.js';
+import { ITestProfileService } from './testProfileService.js';
+import { ITestResult, LiveTestResult, TestResultItemChange, TestResultItemChangeReason } from './testResult.js';
+import { ITestResultStorage, RETAIN_MAX_RESULTS } from './testResultStorage.js';
+import { ExtensionRunTestsRequest, ITestRunProfile, ResolvedTestRunRequest, TestResultItem, TestResultState, TestRunProfileBitset } from './testTypes.js';
 
 export type ResultChangeEvent =
 	| { completed: LiveTestResult }
@@ -50,7 +49,7 @@ export interface ITestResultService {
 	/**
 	 * Creates a new, live test result.
 	 */
-	createLiveResult(collections: ReadonlyArray<IMainThreadTestCollection>, req: RunTestsRequest): LiveTestResult;
+	createLiveResult(req: ResolvedTestRunRequest | ExtensionRunTestsRequest): LiveTestResult;
 
 	/**
 	 * Adds a new test result to the collection.
@@ -68,21 +67,18 @@ export interface ITestResultService {
 	getStateById(extId: string): [results: ITestResult, item: TestResultItem] | undefined;
 }
 
+const isRunningTests = (service: ITestResultService) =>
+	service.results.length > 0 && service.results[0].completedAt === undefined;
+
 export const ITestResultService = createDecorator<ITestResultService>('testResultService');
 
-/**
- * Returns if the tests in the results are exactly equal. Check the counts
- * first as a cheap check before starting to iterate.
- */
-const resultsEqual = (a: ITestResult, b: ITestResult) =>
-	a.completedAt === b.completedAt && equals(a.counts, b.counts) && Iterable.equals(a.tests, b.tests,
-		(at, bt) => equals(at.state, bt.state) && equals(at.item, bt.item));
-
-export class TestResultService implements ITestResultService {
+export class TestResultService extends Disposable implements ITestResultService {
 	declare _serviceBrand: undefined;
-	private changeResultEmitter = new Emitter<ResultChangeEvent>();
+	private changeResultEmitter = this._register(new Emitter<ResultChangeEvent>());
 	private _results: ITestResult[] = [];
-	private testChangeEmitter = new Emitter<TestResultItemChange>();
+	private readonly _resultsDisposables: DisposableStore[] = [];
+	private testChangeEmitter = this._register(new Emitter<TestResultItemChange>());
+	private insertOrderCounter = 0;
 
 	/**
 	 * @inheritdoc
@@ -103,7 +99,8 @@ export class TestResultService implements ITestResultService {
 	public readonly onTestChanged = this.testChangeEmitter.event;
 
 	private readonly isRunning: IContextKey<boolean>;
-	private readonly loadResults = once(() => this.storage.read().then(loaded => {
+	private readonly hasAnyResults: IContextKey<boolean>;
+	private readonly loadResults = createSingleCallFunction(() => this.storage.read().then(loaded => {
 		for (let i = loaded.length - 1; i >= 0; i--) {
 			this.push(loaded[i]);
 		}
@@ -114,8 +111,13 @@ export class TestResultService implements ITestResultService {
 	constructor(
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@ITestResultStorage private readonly storage: ITestResultStorage,
+		@ITestProfileService private readonly testProfiles: ITestProfileService,
+		@ITelemetryService private readonly telemetryService: ITelemetryService,
 	) {
+		super();
+		this._register(toDisposable(() => dispose(this._resultsDisposables)));
 		this.isRunning = TestingContextKeys.isRunning.bindTo(contextKeyService);
+		this.hasAnyResults = TestingContextKeys.hasAnyResults.bindTo(contextKeyService);
 	}
 
 	/**
@@ -135,9 +137,35 @@ export class TestResultService implements ITestResultService {
 	/**
 	 * @inheritdoc
 	 */
-	public createLiveResult(collections: ReadonlyArray<IMainThreadTestCollection>, req: RunTestsRequest) {
-		const id = generateUuid();
-		return this.push(LiveTestResult.from(id, collections, this.storage.getOutputController(id), req));
+	public createLiveResult(req: ResolvedTestRunRequest | ExtensionRunTestsRequest) {
+		if ('targets' in req) {
+			const id = generateUuid();
+			return this.push(new LiveTestResult(id, true, req, this.insertOrderCounter++, this.telemetryService));
+		}
+
+		let profile: ITestRunProfile | undefined;
+		if (req.profile) {
+			const profiles = this.testProfiles.getControllerProfiles(req.controllerId);
+			profile = profiles.find(c => c.profileId === req.profile!.id);
+		}
+
+		const resolved: ResolvedTestRunRequest = {
+			preserveFocus: req.preserveFocus,
+			targets: [],
+			exclude: req.exclude,
+			continuous: req.continuous,
+			group: profile?.group ?? TestRunProfileBitset.Run,
+		};
+
+		if (profile) {
+			resolved.targets.push({
+				profileId: profile.profileId,
+				controllerId: req.controllerId,
+				testIds: req.include,
+			});
+		}
+
+		return this.push(new LiveTestResult(req.id, req.persist, resolved, this.insertOrderCounter++, this.telemetryService));
 	}
 
 	/**
@@ -147,26 +175,26 @@ export class TestResultService implements ITestResultService {
 		if (result.completedAt === undefined) {
 			this.results.unshift(result);
 		} else {
-			const index = findFirstInSorted(this.results, r => r.completedAt !== undefined && r.completedAt <= result.completedAt!);
-			const prev = this.results[index];
-			if (prev && resultsEqual(result, prev)) {
-				return result;
-			}
-
+			const index = findFirstIdxMonotonousOrArrLen(this.results, r => r.completedAt !== undefined && r.completedAt <= result.completedAt!);
 			this.results.splice(index, 0, result);
 			this.persistScheduler.schedule();
 		}
 
+		this.hasAnyResults.set(true);
 		if (this.results.length > RETAIN_MAX_RESULTS) {
 			this.results.pop();
+			this._resultsDisposables.pop()?.dispose();
 		}
 
+		const ds = new DisposableStore();
+		this._resultsDisposables.push(ds);
+
 		if (result instanceof LiveTestResult) {
-			result.onComplete(() => this.onComplete(result));
-			result.onChange(this.testChangeEmitter.fire, this.testChangeEmitter);
+			ds.add(result);
+			ds.add(result.onComplete(() => this.onComplete(result)));
+			ds.add(result.onChange(this.testChangeEmitter.fire, this.testChangeEmitter));
 			this.isRunning.set(true);
 			this.changeResultEmitter.fire({ started: result });
-			result.setAllToState(TestResultState.Queued, () => true);
 		} else {
 			this.changeResultEmitter.fire({ inserted: result });
 			// If this is not a new result, go through each of its tests. For each
@@ -210,6 +238,9 @@ export class TestResultService implements ITestResultService {
 
 		this._results = keep;
 		this.persistScheduler.schedule();
+		if (keep.length === 0) {
+			this.hasAnyResults.set(false);
+		}
 		this.changeResultEmitter.fire({ removed });
 	}
 
@@ -221,11 +252,21 @@ export class TestResultService implements ITestResultService {
 	}
 
 	private resort() {
-		this.results.sort((a, b) => (b.completedAt ?? Number.MAX_SAFE_INTEGER) - (a.completedAt ?? Number.MAX_SAFE_INTEGER));
+		this.results.sort((a, b) => {
+			// Running tests should always be sorted higher:
+			if (!!a.completedAt !== !!b.completedAt) {
+				return a.completedAt === undefined ? -1 : 1;
+			}
+
+			// Otherwise sort by insertion order, hydrated tests are always last:
+			const aComp = a instanceof LiveTestResult ? a.insertOrder : -1;
+			const bComp = b instanceof LiveTestResult ? b.insertOrder : -1;
+			return bComp - aComp;
+		});
 	}
 
 	private updateIsRunning() {
-		this.isRunning.set(this.results.length > 0 && this.results[0].completedAt === undefined);
+		this.isRunning.set(isRunningTests(this));
 	}
 
 	protected async persistImmediately() {

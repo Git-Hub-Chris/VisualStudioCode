@@ -8,7 +8,7 @@ import {
 	SymbolInformation, SymbolKind, CompletionItem, Location, SignatureHelp, SignatureInformation, ParameterInformation,
 	Definition, TextEdit, TextDocument, Diagnostic, DiagnosticSeverity, Range, CompletionItemKind, Hover,
 	DocumentHighlight, DocumentHighlightKind, CompletionList, Position, FormattingOptions, FoldingRange, FoldingRangeKind, SelectionRange,
-	LanguageMode, Settings, SemanticTokenData, Workspace, DocumentContext
+	LanguageMode, Settings, SemanticTokenData, Workspace, DocumentContext, CompletionItemData, isCompletionItemData
 } from './languageModes';
 import { getWordAtText, isWhitespaceOnly, repeat } from '../utils/strings';
 import { HTMLDocumentRegions } from './embeddedSupport';
@@ -33,7 +33,7 @@ function deschemeURI(uri: string) {
 }
 
 function getLanguageServiceHost(scriptKind: ts.ScriptKind) {
-	const compilerOptions: ts.CompilerOptions = { allowNonTsExtensions: true, allowJs: true, lib: ['lib.es6.d.ts'], target: ts.ScriptTarget.Latest, moduleResolution: ts.ModuleResolutionKind.Classic, experimentalDecorators: false };
+	const compilerOptions: ts.CompilerOptions = { allowNonTsExtensions: true, allowJs: true, lib: ['lib.es2020.full.d.ts'], target: ts.ScriptTarget.Latest, moduleResolution: ts.ModuleResolutionKind.Classic, experimentalDecorators: false };
 
 	let currentTextDocument = TextDocument.create('init', 'javascript', 1, '');
 	let currentWorkspace: Workspace = undefined!;
@@ -106,19 +106,30 @@ function getLanguageServiceHost(scriptKind: ts.ScriptKind) {
 	};
 }
 
+const ignoredErrors = [
+	1108,  /* A_return_statement_can_only_be_used_within_a_function_body_1108 */
+	2792, /* Cannot_find_module_0_Did_you_mean_to_set_the_moduleResolution_option_to_node_or_to_add_aliases_to_the_paths_option */
+];
 
 export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocumentRegions>, languageId: 'javascript' | 'typescript', workspace: Workspace): LanguageMode {
-	let jsDocuments = getLanguageModelCache<TextDocument>(10, 60, document => documentRegions.get(document).getEmbeddedDocument(languageId));
+	const jsDocuments = getLanguageModelCache<TextDocument>(10, 60, document => documentRegions.get(document).getEmbeddedDocument(languageId));
 
 	const host = getLanguageServiceHost(languageId === 'javascript' ? ts.ScriptKind.JS : ts.ScriptKind.TS);
-	let globalSettings: Settings = {};
+	const globalSettings: Settings = {};
+
+	function updateHostSettings(settings: Settings) {
+		const hostSettings = host.getCompilationSettings();
+		hostSettings.experimentalDecorators = settings?.['js/ts']?.implicitProjectConfig?.experimentalDecorators;
+		hostSettings.strictNullChecks = settings?.['js/ts']?.implicitProjectConfig.strictNullChecks;
+	}
 
 	return {
 		getId() {
 			return languageId;
 		},
 		async doValidation(document: TextDocument, settings = workspace.settings): Promise<Diagnostic[]> {
-			host.getCompilationSettings()['experimentalDecorators'] = settings && settings.javascript && settings.javascript.implicitProjectConfig.experimentalDecorators;
+			updateHostSettings(settings);
+
 			const jsDocument = jsDocuments.get(document);
 			const languageService = await host.getLanguageService(jsDocument, workspace);
 			const filePath = deschemeURI(jsDocument.uri);
@@ -145,10 +156,15 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 			if (!completions) {
 				return { isIncomplete: false, items: [] };
 			}
-			let replaceRange = convertRange(jsDocument, getWordAtText(jsDocument.getText(), offset, JS_WORD_REGEX));
+			const replaceRange = convertRange(jsDocument, getWordAtText(jsDocument.getText(), offset, JS_WORD_REGEX));
 			return {
 				isIncomplete: false,
 				items: completions.entries.map(entry => {
+					const data: CompletionItemData = { // data used for resolving item details (see 'doResolve')
+						languageId,
+						uri: document.uri,
+						offset: offset
+					};
 					return {
 						uri: document.uri,
 						position: position,
@@ -156,11 +172,7 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 						sortText: entry.sortText,
 						kind: convertKind(entry.kind),
 						textEdit: TextEdit.replace(replaceRange, entry.name),
-						data: { // data used for resolving item details (see 'doResolve')
-							languageId,
-							uri: document.uri,
-							offset: offset
-						}
+						data
 					};
 				})
 			};
@@ -201,14 +213,14 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 
 			let signHelp = jsLanguageService.getSignatureHelpItems(filePath, jsDocument.offsetAt(position), undefined);
 			if (signHelp) {
-				let ret: SignatureHelp = {
+				const ret: SignatureHelp = {
 					activeSignature: signHelp.selectedItemIndex,
 					activeParameter: signHelp.argumentIndex,
 					signatures: []
 				};
 				signHelp.items.forEach(item => {
 
-					let signature: SignatureInformation = {
+					const signature: SignatureInformation = {
 						label: '',
 						documentation: undefined,
 						parameters: []
@@ -216,8 +228,8 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 
 					signature.label += ts.displayPartsToString(item.prefixDisplayParts);
 					item.parameters.forEach((p, i, a) => {
-						let label = ts.displayPartsToString(p.displayParts);
-						let parameter: ParameterInformation = {
+						const label = ts.displayPartsToString(p.displayParts);
+						const parameter: ParameterInformation = {
 							label: label,
 							documentation: ts.displayPartsToString(p.documentation)
 						};
@@ -282,12 +294,12 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 
 			let items = jsLanguageService.getNavigationBarItems(filePath);
 			if (items) {
-				let result: SymbolInformation[] = [];
-				let existing = Object.create(null);
-				let collectSymbols = (item: ts.NavigationBarItem, containerLabel?: string) => {
-					let sig = item.text + item.kind + item.spans[0].start;
+				const result: SymbolInformation[] = [];
+				const existing = Object.create(null);
+				const collectSymbols = (item: ts.NavigationBarItem, containerLabel?: string) => {
+					const sig = item.text + item.kind + item.spans[0].start;
 					if (item.kind !== 'script' && !existing[sig]) {
-						let symbol: SymbolInformation = {
+						const symbol: SymbolInformation = {
 							name: item.text,
 							kind: convertSymbolKind(item.kind),
 							location: {
@@ -302,7 +314,7 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 					}
 
 					if (item.childItems && item.childItems.length > 0) {
-						for (let child of item.childItems) {
+						for (const child of item.childItems) {
 							collectSymbols(child, containerLabel);
 						}
 					}
@@ -363,11 +375,11 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 			const jsLanguageService = await host.getLanguageService(jsDocument, workspace);
 			const filePath = deschemeURI(jsDocument.uri);
 
-			let formatterSettings = settings && settings.javascript && settings.javascript.format;
+			const formatterSettings = settings && settings.javascript && settings.javascript.format;
 
-			let initialIndentLevel = computeInitialIndent(document, range, formatParams);
-			let formatSettings = convertOptions(formatParams, formatterSettings, initialIndentLevel + 1);
-			let start = jsDocument.offsetAt(range.start);
+			const initialIndentLevel = computeInitialIndent(document, range, formatParams);
+			const formatSettings = convertOptions(formatParams, formatterSettings, initialIndentLevel + 1);
+			const start = jsDocument.offsetAt(range.start);
 			let end = jsDocument.offsetAt(range.end);
 			let lastLineRange = null;
 			if (range.end.line > range.start.line && (range.end.character === 0 || isWhitespaceOnly(jsDocument.getText().substr(end - range.end.character, range.end.character)))) {
@@ -376,8 +388,8 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 			}
 			let edits = jsLanguageService.getFormattingEditsForRange(filePath, start, end, formatSettings);
 			if (edits) {
-				let result = [];
-				for (let edit of edits) {
+				const result = [];
+				for (const edit of edits) {
 					if (edit.span.start >= start && edit.span.start + edit.span.length <= end) {
 						result.push({
 							range: convertRange(jsDocument, edit.span),
@@ -407,8 +419,8 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 				let startLine = curr.start.line;
 				let endLine = curr.end.line;
 				if (startLine < endLine) {
-					let foldingRange: FoldingRange = { startLine, endLine };
-					let match = document.getText(curr).match(/^\s*\/(?:(\/\s*#(?:end)?region\b)|(\*|\/))/);
+					const foldingRange: FoldingRange = { startLine, endLine };
+					const match = document.getText(curr).match(/^\s*\/(?:(\/\s*#(?:end)?region\b)|(\*|\/))/);
 					if (match) {
 						foldingRange.kind = match[1] ? FoldingRangeKind.Region : FoldingRangeKind.Comment;
 					}
@@ -427,7 +439,7 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 
 			return getSemanticTokens(jsLanguageService, jsDocument, filePath);
 		},
-		getSemanticTokenLegend(): { types: string[], modifiers: string[] } {
+		getSemanticTokenLegend(): { types: string[]; modifiers: string[] } {
 			return getSemanticTokenLegend();
 		},
 		dispose() {
@@ -440,7 +452,7 @@ export function getJavaScriptMode(documentRegions: LanguageModelCache<HTMLDocume
 
 
 
-function convertRange(document: TextDocument, span: { start: number | undefined, length: number | undefined }): Range {
+function convertRange(document: TextDocument, span: { start: number | undefined; length: number | undefined }): Range {
 	if (typeof span.start === 'undefined') {
 		const pos = document.positionAt(0);
 		return Range.create(pos, pos);
@@ -452,95 +464,164 @@ function convertRange(document: TextDocument, span: { start: number | undefined,
 
 function convertKind(kind: string): CompletionItemKind {
 	switch (kind) {
-		case 'primitive type':
-		case 'keyword':
+		case Kind.primitiveType:
+		case Kind.keyword:
 			return CompletionItemKind.Keyword;
-		case 'var':
-		case 'local var':
-			return CompletionItemKind.Variable;
-		case 'property':
-		case 'getter':
-		case 'setter':
-			return CompletionItemKind.Field;
-		case 'function':
-		case 'method':
-		case 'construct':
-		case 'call':
-		case 'index':
-			return CompletionItemKind.Function;
-		case 'enum':
-			return CompletionItemKind.Enum;
-		case 'module':
-			return CompletionItemKind.Module;
-		case 'class':
-			return CompletionItemKind.Class;
-		case 'interface':
-			return CompletionItemKind.Interface;
-		case 'warning':
-			return CompletionItemKind.File;
-	}
 
-	return CompletionItemKind.Property;
+		case Kind.const:
+		case Kind.let:
+		case Kind.variable:
+		case Kind.localVariable:
+		case Kind.alias:
+		case Kind.parameter:
+			return CompletionItemKind.Variable;
+
+		case Kind.memberVariable:
+		case Kind.memberGetAccessor:
+		case Kind.memberSetAccessor:
+			return CompletionItemKind.Field;
+
+		case Kind.function:
+		case Kind.localFunction:
+			return CompletionItemKind.Function;
+
+		case Kind.method:
+		case Kind.constructSignature:
+		case Kind.callSignature:
+		case Kind.indexSignature:
+			return CompletionItemKind.Method;
+
+		case Kind.enum:
+			return CompletionItemKind.Enum;
+
+		case Kind.enumMember:
+			return CompletionItemKind.EnumMember;
+
+		case Kind.module:
+		case Kind.externalModuleName:
+			return CompletionItemKind.Module;
+
+		case Kind.class:
+		case Kind.type:
+			return CompletionItemKind.Class;
+
+		case Kind.interface:
+			return CompletionItemKind.Interface;
+
+		case Kind.warning:
+			return CompletionItemKind.Text;
+
+		case Kind.script:
+			return CompletionItemKind.File;
+
+		case Kind.directory:
+			return CompletionItemKind.Folder;
+
+		case Kind.string:
+			return CompletionItemKind.Constant;
+
+		default:
+			return CompletionItemKind.Property;
+	}
+}
+const enum Kind {
+	alias = 'alias',
+	callSignature = 'call',
+	class = 'class',
+	const = 'const',
+	constructorImplementation = 'constructor',
+	constructSignature = 'construct',
+	directory = 'directory',
+	enum = 'enum',
+	enumMember = 'enum member',
+	externalModuleName = 'external module name',
+	function = 'function',
+	indexSignature = 'index',
+	interface = 'interface',
+	keyword = 'keyword',
+	let = 'let',
+	localFunction = 'local function',
+	localVariable = 'local var',
+	method = 'method',
+	memberGetAccessor = 'getter',
+	memberSetAccessor = 'setter',
+	memberVariable = 'property',
+	module = 'module',
+	primitiveType = 'primitive type',
+	script = 'script',
+	type = 'type',
+	variable = 'var',
+	warning = 'warning',
+	string = 'string',
+	parameter = 'parameter',
+	typeParameter = 'type parameter'
 }
 
 function convertSymbolKind(kind: string): SymbolKind {
 	switch (kind) {
-		case 'var':
-		case 'local var':
-		case 'const':
-			return SymbolKind.Variable;
-		case 'function':
-		case 'local function':
-			return SymbolKind.Function;
-		case 'enum':
-			return SymbolKind.Enum;
-		case 'module':
-			return SymbolKind.Module;
-		case 'class':
-			return SymbolKind.Class;
-		case 'interface':
-			return SymbolKind.Interface;
-		case 'method':
-			return SymbolKind.Method;
-		case 'property':
-		case 'getter':
-		case 'setter':
-			return SymbolKind.Property;
+		case Kind.module: return SymbolKind.Module;
+		case Kind.class: return SymbolKind.Class;
+		case Kind.enum: return SymbolKind.Enum;
+		case Kind.enumMember: return SymbolKind.EnumMember;
+		case Kind.interface: return SymbolKind.Interface;
+		case Kind.indexSignature: return SymbolKind.Method;
+		case Kind.callSignature: return SymbolKind.Method;
+		case Kind.method: return SymbolKind.Method;
+		case Kind.memberVariable: return SymbolKind.Property;
+		case Kind.memberGetAccessor: return SymbolKind.Property;
+		case Kind.memberSetAccessor: return SymbolKind.Property;
+		case Kind.variable: return SymbolKind.Variable;
+		case Kind.let: return SymbolKind.Variable;
+		case Kind.const: return SymbolKind.Variable;
+		case Kind.localVariable: return SymbolKind.Variable;
+		case Kind.alias: return SymbolKind.Variable;
+		case Kind.function: return SymbolKind.Function;
+		case Kind.localFunction: return SymbolKind.Function;
+		case Kind.constructSignature: return SymbolKind.Constructor;
+		case Kind.constructorImplementation: return SymbolKind.Constructor;
+		case Kind.typeParameter: return SymbolKind.TypeParameter;
+		case Kind.string: return SymbolKind.String;
+		default: return SymbolKind.Variable;
 	}
-	return SymbolKind.Variable;
 }
 
-function convertOptions(options: FormattingOptions, formatSettings: any, initialIndentLevel: number): ts.FormatCodeOptions {
+function convertOptions(options: FormattingOptions, formatSettings: any, initialIndentLevel: number): ts.FormatCodeSettings {
 	return {
-		ConvertTabsToSpaces: options.insertSpaces,
-		TabSize: options.tabSize,
-		IndentSize: options.tabSize,
-		IndentStyle: ts.IndentStyle.Smart,
-		NewLineCharacter: '\n',
-		BaseIndentSize: options.tabSize * initialIndentLevel,
-		InsertSpaceAfterCommaDelimiter: Boolean(!formatSettings || formatSettings.insertSpaceAfterCommaDelimiter),
-		InsertSpaceAfterSemicolonInForStatements: Boolean(!formatSettings || formatSettings.insertSpaceAfterSemicolonInForStatements),
-		InsertSpaceBeforeAndAfterBinaryOperators: Boolean(!formatSettings || formatSettings.insertSpaceBeforeAndAfterBinaryOperators),
-		InsertSpaceAfterKeywordsInControlFlowStatements: Boolean(!formatSettings || formatSettings.insertSpaceAfterKeywordsInControlFlowStatements),
-		InsertSpaceAfterFunctionKeywordForAnonymousFunctions: Boolean(!formatSettings || formatSettings.insertSpaceAfterFunctionKeywordForAnonymousFunctions),
-		InsertSpaceAfterOpeningAndBeforeClosingNonemptyParenthesis: Boolean(formatSettings && formatSettings.insertSpaceAfterOpeningAndBeforeClosingNonemptyParenthesis),
-		InsertSpaceAfterOpeningAndBeforeClosingNonemptyBrackets: Boolean(formatSettings && formatSettings.insertSpaceAfterOpeningAndBeforeClosingNonemptyBrackets),
-		InsertSpaceAfterOpeningAndBeforeClosingNonemptyBraces: Boolean(formatSettings && formatSettings.insertSpaceAfterOpeningAndBeforeClosingNonemptyBraces),
-		InsertSpaceAfterOpeningAndBeforeClosingTemplateStringBraces: Boolean(formatSettings && formatSettings.insertSpaceAfterOpeningAndBeforeClosingTemplateStringBraces),
-		PlaceOpenBraceOnNewLineForControlBlocks: Boolean(formatSettings && formatSettings.placeOpenBraceOnNewLineForFunctions),
-		PlaceOpenBraceOnNewLineForFunctions: Boolean(formatSettings && formatSettings.placeOpenBraceOnNewLineForControlBlocks)
+		convertTabsToSpaces: options.insertSpaces,
+		tabSize: options.tabSize,
+		indentSize: options.tabSize,
+		indentStyle: ts.IndentStyle.Smart,
+		newLineCharacter: '\n',
+		baseIndentSize: options.tabSize * initialIndentLevel,
+		insertSpaceAfterCommaDelimiter: Boolean(!formatSettings || formatSettings.insertSpaceAfterCommaDelimiter),
+		insertSpaceAfterConstructor: Boolean(formatSettings && formatSettings.insertSpaceAfterConstructor),
+		insertSpaceAfterSemicolonInForStatements: Boolean(!formatSettings || formatSettings.insertSpaceAfterSemicolonInForStatements),
+		insertSpaceBeforeAndAfterBinaryOperators: Boolean(!formatSettings || formatSettings.insertSpaceBeforeAndAfterBinaryOperators),
+		insertSpaceAfterKeywordsInControlFlowStatements: Boolean(!formatSettings || formatSettings.insertSpaceAfterKeywordsInControlFlowStatements),
+		insertSpaceAfterFunctionKeywordForAnonymousFunctions: Boolean(!formatSettings || formatSettings.insertSpaceAfterFunctionKeywordForAnonymousFunctions),
+		insertSpaceBeforeFunctionParenthesis: Boolean(formatSettings && formatSettings.insertSpaceBeforeFunctionParenthesis),
+		insertSpaceAfterOpeningAndBeforeClosingNonemptyParenthesis: Boolean(formatSettings && formatSettings.insertSpaceAfterOpeningAndBeforeClosingNonemptyParenthesis),
+		insertSpaceAfterOpeningAndBeforeClosingNonemptyBrackets: Boolean(formatSettings && formatSettings.insertSpaceAfterOpeningAndBeforeClosingNonemptyBrackets),
+		insertSpaceAfterOpeningAndBeforeClosingNonemptyBraces: Boolean(formatSettings && formatSettings.insertSpaceAfterOpeningAndBeforeClosingNonemptyBraces),
+		insertSpaceAfterOpeningAndBeforeClosingEmptyBraces: Boolean(!formatSettings || formatSettings.insertSpaceAfterOpeningAndBeforeClosingEmptyBraces),
+		insertSpaceAfterOpeningAndBeforeClosingTemplateStringBraces: Boolean(formatSettings && formatSettings.insertSpaceAfterOpeningAndBeforeClosingTemplateStringBraces),
+		insertSpaceAfterOpeningAndBeforeClosingJsxExpressionBraces: Boolean(formatSettings && formatSettings.insertSpaceAfterOpeningAndBeforeClosingJsxExpressionBraces),
+		insertSpaceAfterTypeAssertion: Boolean(formatSettings && formatSettings.insertSpaceAfterTypeAssertion),
+		placeOpenBraceOnNewLineForControlBlocks: Boolean(formatSettings && formatSettings.placeOpenBraceOnNewLineForFunctions),
+		placeOpenBraceOnNewLineForFunctions: Boolean(formatSettings && formatSettings.placeOpenBraceOnNewLineForControlBlocks),
+		semicolons: formatSettings?.semicolons
 	};
 }
 
 function computeInitialIndent(document: TextDocument, range: Range, options: FormattingOptions) {
-	let lineStart = document.offsetAt(Position.create(range.start.line, 0));
-	let content = document.getText();
+	const lineStart = document.offsetAt(Position.create(range.start.line, 0));
+	const content = document.getText();
 
 	let i = lineStart;
 	let nChars = 0;
-	let tabSize = options.tabSize || 4;
+	const tabSize = options.tabSize || 4;
 	while (i < content.length) {
-		let ch = content.charAt(i);
+		const ch = content.charAt(i);
 		if (ch === ' ') {
 			nChars++;
 		} else if (ch === '\t') {

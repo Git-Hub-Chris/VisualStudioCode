@@ -3,108 +3,118 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Registry } from 'vs/platform/registry/common/platform';
-import { localize } from 'vs/nls';
-import product from 'vs/platform/product/common/product';
-import { SyncActionDescriptor, MenuRegistry, MenuId, registerAction2 } from 'vs/platform/actions/common/actions';
-import { IConfigurationRegistry, Extensions as ConfigurationExtensions, ConfigurationScope } from 'vs/platform/configuration/common/configurationRegistry';
-import { IWorkbenchActionRegistry, Extensions, CATEGORIES } from 'vs/workbench/common/actions';
-import { KeyMod, KeyCode } from 'vs/base/common/keyCodes';
-import { isLinux, isMacintosh } from 'vs/base/common/platform';
-import { ConfigureRuntimeArgumentsAction, ToggleDevToolsAction, ToggleSharedProcessAction, ReloadWindowWithExtensionsDisabledAction } from 'vs/workbench/electron-sandbox/actions/developerActions';
-import { ZoomResetAction, ZoomOutAction, ZoomInAction, CloseCurrentWindowAction, SwitchWindow, QuickSwitchWindow, NewWindowTabHandler, ShowPreviousWindowTabHandler, ShowNextWindowTabHandler, MoveWindowTabToNewWindowHandler, MergeWindowTabsHandlerHandler, ToggleWindowTabsBarHandler } from 'vs/workbench/electron-sandbox/actions/windowActions';
-import { ContextKeyExpr } from 'vs/platform/contextkey/common/contextkey';
-import { KeybindingsRegistry, KeybindingWeight } from 'vs/platform/keybinding/common/keybindingsRegistry';
-import { CommandsRegistry } from 'vs/platform/commands/common/commands';
-import { ServicesAccessor } from 'vs/platform/instantiation/common/instantiation';
-import { IsMacContext } from 'vs/platform/contextkey/common/contextkeys';
-import { EditorsVisibleContext, SingleEditorGroupsContext } from 'vs/workbench/common/editor';
-import { INativeHostService } from 'vs/platform/native/electron-sandbox/native';
-import { IJSONContributionRegistry, Extensions as JSONExtensions } from 'vs/platform/jsonschemas/common/jsonContributionRegistry';
-import { IJSONSchema } from 'vs/base/common/jsonSchema';
+import { Registry } from '../../platform/registry/common/platform.js';
+import { localize, localize2 } from '../../nls.js';
+import { MenuRegistry, MenuId, registerAction2 } from '../../platform/actions/common/actions.js';
+import { IConfigurationRegistry, Extensions as ConfigurationExtensions, ConfigurationScope } from '../../platform/configuration/common/configurationRegistry.js';
+import { KeyMod, KeyCode } from '../../base/common/keyCodes.js';
+import { isLinux, isMacintosh, isWindows } from '../../base/common/platform.js';
+import { ConfigureRuntimeArgumentsAction, ToggleDevToolsAction, ReloadWindowWithExtensionsDisabledAction, OpenUserDataFolderAction, ShowGPUInfoAction } from './actions/developerActions.js';
+import { ZoomResetAction, ZoomOutAction, ZoomInAction, CloseWindowAction, SwitchWindowAction, QuickSwitchWindowAction, NewWindowTabHandler, ShowPreviousWindowTabHandler, ShowNextWindowTabHandler, MoveWindowTabToNewWindowHandler, MergeWindowTabsHandlerHandler, ToggleWindowTabsBarHandler } from './actions/windowActions.js';
+import { ContextKeyExpr } from '../../platform/contextkey/common/contextkey.js';
+import { KeybindingsRegistry, KeybindingWeight } from '../../platform/keybinding/common/keybindingsRegistry.js';
+import { CommandsRegistry } from '../../platform/commands/common/commands.js';
+import { ServicesAccessor } from '../../platform/instantiation/common/instantiation.js';
+import { IsMacContext } from '../../platform/contextkey/common/contextkeys.js';
+import { INativeHostService } from '../../platform/native/common/native.js';
+import { IJSONContributionRegistry, Extensions as JSONExtensions } from '../../platform/jsonschemas/common/jsonContributionRegistry.js';
+import { IJSONSchema } from '../../base/common/jsonSchema.js';
+import { InstallShellScriptAction, UninstallShellScriptAction } from './actions/installActions.js';
+import { EditorsVisibleContext, SingleEditorGroupsContext } from '../common/contextkeys.js';
+import { TELEMETRY_SETTING_ID } from '../../platform/telemetry/common/telemetry.js';
+import { IConfigurationService } from '../../platform/configuration/common/configuration.js';
+import { ShutdownReason } from '../services/lifecycle/common/lifecycle.js';
+import { NativeWindow } from './window.js';
+import { ModifierKeyEmitter } from '../../base/browser/dom.js';
+import { applicationConfigurationNodeBase, securityConfigurationNodeBase } from '../common/configuration.js';
+import { MAX_ZOOM_LEVEL, MIN_ZOOM_LEVEL } from '../../platform/window/electron-sandbox/window.js';
 
 // Actions
 (function registerActions(): void {
-	const registry = Registry.as<IWorkbenchActionRegistry>(Extensions.WorkbenchActions);
 
 	// Actions: Zoom
-	(function registerZoomActions(): void {
-		registry.registerWorkbenchAction(SyncActionDescriptor.from(ZoomInAction, { primary: KeyMod.CtrlCmd | KeyCode.US_EQUAL, secondary: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.US_EQUAL, KeyMod.CtrlCmd | KeyCode.NUMPAD_ADD] }), 'View: Zoom In', CATEGORIES.View.value);
-		registry.registerWorkbenchAction(SyncActionDescriptor.from(ZoomOutAction, { primary: KeyMod.CtrlCmd | KeyCode.US_MINUS, secondary: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.US_MINUS, KeyMod.CtrlCmd | KeyCode.NUMPAD_SUBTRACT], linux: { primary: KeyMod.CtrlCmd | KeyCode.US_MINUS, secondary: [KeyMod.CtrlCmd | KeyCode.NUMPAD_SUBTRACT] } }), 'View: Zoom Out', CATEGORIES.View.value);
-		registry.registerWorkbenchAction(SyncActionDescriptor.from(ZoomResetAction, { primary: KeyMod.CtrlCmd | KeyCode.NUMPAD_0 }), 'View: Reset Zoom', CATEGORIES.View.value);
-	})();
+	registerAction2(ZoomInAction);
+	registerAction2(ZoomOutAction);
+	registerAction2(ZoomResetAction);
 
 	// Actions: Window
-	(function registerWindowActions(): void {
-		registry.registerWorkbenchAction(SyncActionDescriptor.from(CloseCurrentWindowAction, { primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_W }), 'Close Window');
-		registry.registerWorkbenchAction(SyncActionDescriptor.from(SwitchWindow, { primary: 0, mac: { primary: KeyMod.WinCtrl | KeyCode.KEY_W } }), 'Switch Window...');
-		registry.registerWorkbenchAction(SyncActionDescriptor.from(QuickSwitchWindow), 'Quick Switch Window...');
+	registerAction2(SwitchWindowAction);
+	registerAction2(QuickSwitchWindowAction);
+	registerAction2(CloseWindowAction);
 
-		KeybindingsRegistry.registerCommandAndKeybindingRule({
-			id: CloseCurrentWindowAction.ID, // close the window when the last editor is closed by reusing the same keybinding
+	if (isMacintosh) {
+		// macOS: behave like other native apps that have documents
+		// but can run without a document opened and allow to close
+		// the window when the last document is closed
+		// (https://github.com/microsoft/vscode/issues/126042)
+		KeybindingsRegistry.registerKeybindingRule({
+			id: CloseWindowAction.ID,
 			weight: KeybindingWeight.WorkbenchContrib,
 			when: ContextKeyExpr.and(EditorsVisibleContext.toNegated(), SingleEditorGroupsContext),
-			primary: KeyMod.CtrlCmd | KeyCode.KEY_W,
-			handler: accessor => {
-				const nativeHostService = accessor.get(INativeHostService);
-				nativeHostService.closeWindow();
-			}
+			primary: KeyMod.CtrlCmd | KeyCode.KeyW
 		});
+	}
 
-		KeybindingsRegistry.registerCommandAndKeybindingRule({
-			id: 'workbench.action.quit',
-			weight: KeybindingWeight.WorkbenchContrib,
-			handler(accessor: ServicesAccessor) {
-				const nativeHostService = accessor.get(INativeHostService);
-				nativeHostService.quit();
-			},
-			when: undefined,
-			mac: { primary: KeyMod.CtrlCmd | KeyCode.KEY_Q },
-			linux: { primary: KeyMod.CtrlCmd | KeyCode.KEY_Q }
-		});
-	})();
+	// Actions: Install Shell Script (macOS only)
+	if (isMacintosh) {
+		registerAction2(InstallShellScriptAction);
+		registerAction2(UninstallShellScriptAction);
+	}
+
+	// Quit
+	KeybindingsRegistry.registerCommandAndKeybindingRule({
+		id: 'workbench.action.quit',
+		weight: KeybindingWeight.WorkbenchContrib,
+		async handler(accessor: ServicesAccessor) {
+			const nativeHostService = accessor.get(INativeHostService);
+			const configurationService = accessor.get(IConfigurationService);
+
+			const confirmBeforeClose = configurationService.getValue<'always' | 'never' | 'keyboardOnly'>('window.confirmBeforeClose');
+			if (confirmBeforeClose === 'always' || (confirmBeforeClose === 'keyboardOnly' && ModifierKeyEmitter.getInstance().isModifierPressed)) {
+				const confirmed = await NativeWindow.confirmOnShutdown(accessor, ShutdownReason.QUIT);
+				if (!confirmed) {
+					return; // quit prevented by user
+				}
+			}
+
+			nativeHostService.quit();
+		},
+		when: undefined,
+		mac: { primary: KeyMod.CtrlCmd | KeyCode.KeyQ },
+		linux: { primary: KeyMod.CtrlCmd | KeyCode.KeyQ }
+	});
 
 	// Actions: macOS Native Tabs
-	(function registerMacOSNativeTabsActions(): void {
-		if (isMacintosh) {
-			[
-				{ handler: NewWindowTabHandler, id: 'workbench.action.newWindowTab', title: { value: localize('newTab', "New Window Tab"), original: 'New Window Tab' } },
-				{ handler: ShowPreviousWindowTabHandler, id: 'workbench.action.showPreviousWindowTab', title: { value: localize('showPreviousTab', "Show Previous Window Tab"), original: 'Show Previous Window Tab' } },
-				{ handler: ShowNextWindowTabHandler, id: 'workbench.action.showNextWindowTab', title: { value: localize('showNextWindowTab', "Show Next Window Tab"), original: 'Show Next Window Tab' } },
-				{ handler: MoveWindowTabToNewWindowHandler, id: 'workbench.action.moveWindowTabToNewWindow', title: { value: localize('moveWindowTabToNewWindow', "Move Window Tab to New Window"), original: 'Move Window Tab to New Window' } },
-				{ handler: MergeWindowTabsHandlerHandler, id: 'workbench.action.mergeAllWindowTabs', title: { value: localize('mergeAllWindowTabs', "Merge All Windows"), original: 'Merge All Windows' } },
-				{ handler: ToggleWindowTabsBarHandler, id: 'workbench.action.toggleWindowTabsBar', title: { value: localize('toggleWindowTabsBar', "Toggle Window Tabs Bar"), original: 'Toggle Window Tabs Bar' } }
-			].forEach(command => {
-				CommandsRegistry.registerCommand(command.id, command.handler);
+	if (isMacintosh) {
+		for (const command of [
+			{ handler: NewWindowTabHandler, id: 'workbench.action.newWindowTab', title: localize2('newTab', 'New Window Tab') },
+			{ handler: ShowPreviousWindowTabHandler, id: 'workbench.action.showPreviousWindowTab', title: localize2('showPreviousTab', 'Show Previous Window Tab') },
+			{ handler: ShowNextWindowTabHandler, id: 'workbench.action.showNextWindowTab', title: localize2('showNextWindowTab', 'Show Next Window Tab') },
+			{ handler: MoveWindowTabToNewWindowHandler, id: 'workbench.action.moveWindowTabToNewWindow', title: localize2('moveWindowTabToNewWindow', 'Move Window Tab to New Window') },
+			{ handler: MergeWindowTabsHandlerHandler, id: 'workbench.action.mergeAllWindowTabs', title: localize2('mergeAllWindowTabs', 'Merge All Windows') },
+			{ handler: ToggleWindowTabsBarHandler, id: 'workbench.action.toggleWindowTabsBar', title: localize2('toggleWindowTabsBar', 'Toggle Window Tabs Bar') }
+		]) {
+			CommandsRegistry.registerCommand(command.id, command.handler);
 
-				MenuRegistry.appendMenuItem(MenuId.CommandPalette, {
-					command,
-					when: ContextKeyExpr.equals('config.window.nativeTabs', true)
-				});
+			MenuRegistry.appendMenuItem(MenuId.CommandPalette, {
+				command,
+				when: ContextKeyExpr.equals('config.window.nativeTabs', true)
 			});
 		}
-	})();
+	}
 
 	// Actions: Developer
-	(function registerDeveloperActions(): void {
-		registerAction2(ReloadWindowWithExtensionsDisabledAction);
-		registerAction2(ConfigureRuntimeArgumentsAction);
-		registerAction2(ToggleSharedProcessAction);
-		registerAction2(ToggleDevToolsAction);
-	})();
+	registerAction2(ReloadWindowWithExtensionsDisabledAction);
+	registerAction2(ConfigureRuntimeArgumentsAction);
+	registerAction2(ToggleDevToolsAction);
+	registerAction2(OpenUserDataFolderAction);
+	registerAction2(ShowGPUInfoAction);
 })();
 
 // Menu
 (function registerMenu(): void {
-	MenuRegistry.appendMenuItem(MenuId.MenubarFileMenu, {
-		group: '6_close',
-		command: {
-			id: CloseCurrentWindowAction.ID,
-			title: localize({ key: 'miCloseWindow', comment: ['&& denotes a mnemonic'] }, "Clos&&e Window")
-		},
-		order: 4
-	});
 
+	// Quit
 	MenuRegistry.appendMenuItem(MenuId.MenubarFileMenu, {
 		group: 'z_Exit',
 		command: {
@@ -114,61 +124,27 @@ import { IJSONSchema } from 'vs/base/common/jsonSchema';
 		order: 1,
 		when: IsMacContext.toNegated()
 	});
-
-	// Zoom
-
-	MenuRegistry.appendMenuItem(MenuId.MenubarAppearanceMenu, {
-		group: '3_zoom',
-		command: {
-			id: ZoomInAction.ID,
-			title: localize({ key: 'miZoomIn', comment: ['&& denotes a mnemonic'] }, "&&Zoom In")
-		},
-		order: 1
-	});
-
-	MenuRegistry.appendMenuItem(MenuId.MenubarAppearanceMenu, {
-		group: '3_zoom',
-		command: {
-			id: ZoomOutAction.ID,
-			title: localize({ key: 'miZoomOut', comment: ['&& denotes a mnemonic'] }, "&&Zoom Out")
-		},
-		order: 2
-	});
-
-	MenuRegistry.appendMenuItem(MenuId.MenubarAppearanceMenu, {
-		group: '3_zoom',
-		command: {
-			id: ZoomResetAction.ID,
-			title: localize({ key: 'miZoomReset', comment: ['&& denotes a mnemonic'] }, "&&Reset Zoom")
-		},
-		order: 3
-	});
-
-	if (!!product.reportIssueUrl) {
-		MenuRegistry.appendMenuItem(MenuId.MenubarHelpMenu, {
-			group: '3_feedback',
-			command: {
-				id: 'workbench.action.openIssueReporter',
-				title: localize({ key: 'miReportIssue', comment: ['&& denotes a mnemonic', 'Translate this to "Report Issue in English" in all languages please!'] }, "Report &&Issue")
-			},
-			order: 3
-		});
-	}
-
-	// Tools
-	MenuRegistry.appendMenuItem(MenuId.MenubarHelpMenu, {
-		group: '5_tools',
-		command: {
-			id: 'workbench.action.openProcessExplorer',
-			title: localize({ key: 'miOpenProcessExplorerer', comment: ['&& denotes a mnemonic'] }, "Open &&Process Explorer")
-		},
-		order: 2
-	});
 })();
 
 // Configuration
 (function registerConfiguration(): void {
 	const registry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration);
+
+	// Application
+	registry.registerConfiguration({
+		...applicationConfigurationNodeBase,
+		'properties': {
+			'application.shellEnvironmentResolutionTimeout': {
+				'type': 'number',
+				'default': 10,
+				'minimum': 1,
+				'maximum': 120,
+				'included': !isWindows,
+				'scope': ConfigurationScope.APPLICATION,
+				'markdownDescription': localize('application.shellEnvironmentResolutionTimeout', "Controls the timeout in seconds before giving up resolving the shell environment when the application is not already launched from a terminal. See our [documentation](https://go.microsoft.com/fwlink/?linkid=2149667) for more information.")
+			}
+		}
+	});
 
 	// Window
 	registry.registerConfiguration({
@@ -177,6 +153,11 @@ import { IJSONSchema } from 'vs/base/common/jsonSchema';
 		'title': localize('windowConfigurationTitle', "Window"),
 		'type': 'object',
 		'properties': {
+			'window.confirmSaveUntitledWorkspace': {
+				'type': 'boolean',
+				'default': true,
+				'description': localize('confirmSaveUntitledWorkspace', "Controls whether a confirmation dialog shows asking to save or discard an opened untitled workspace in the window when switching to another workspace. Disabling the confirmation dialog will always discard the untitled workspace."),
+			},
 			'window.openWithoutArgumentsInNewWindow': {
 				'type': 'string',
 				'enum': ['on', 'off'],
@@ -192,15 +173,15 @@ import { IJSONSchema } from 'vs/base/common/jsonSchema';
 				'type': 'string',
 				'enum': ['preserve', 'all', 'folders', 'one', 'none'],
 				'enumDescriptions': [
-					localize('window.reopenFolders.preserve', "Always reopen all windows. If a folder or workspace is opened (e.g. from the command line) it opens as a new window unless it was opened before. If files are opened they will open in one of the restored windows."),
-					localize('window.reopenFolders.all', "Reopen all windows unless a folder, workspace or file is opened (e.g. from the command line)."),
-					localize('window.reopenFolders.folders', "Reopen all windows that had folders or workspaces opened unless a folder, workspace or file is opened (e.g. from the command line)."),
-					localize('window.reopenFolders.one', "Reopen the last active window unless a folder, workspace or file is opened (e.g. from the command line)."),
+					localize('window.reopenFolders.preserve', "Always reopen all windows. If a folder or workspace is opened (e.g. from the command line) it opens as a new window unless it was opened before. If files are opened they will open in one of the restored windows together with editors that were previously opened."),
+					localize('window.reopenFolders.all', "Reopen all windows unless a folder, workspace or file is opened (e.g. from the command line). If a file is opened, it will replace any of the editors that were previously opened in a window."),
+					localize('window.reopenFolders.folders', "Reopen all windows that had folders or workspaces opened unless a folder, workspace or file is opened (e.g. from the command line). If a file is opened, it will replace any of the editors that were previously opened in a window."),
+					localize('window.reopenFolders.one', "Reopen the last active window unless a folder, workspace or file is opened (e.g. from the command line). If a file is opened, it will replace any of the editors that were previously opened in a window."),
 					localize('window.reopenFolders.none', "Never reopen a window. Unless a folder or workspace is opened (e.g. from the command line), an empty window will appear.")
 				],
 				'default': 'all',
 				'scope': ConfigurationScope.APPLICATION,
-				'description': localize('restoreWindows', "Controls how windows are being reopened after starting for the first time. This setting has no effect when the application is already running.")
+				'description': localize('restoreWindows', "Controls how windows and editors within are being restored when opening.")
 			},
 			'window.restoreFullscreen': {
 				'type': 'boolean',
@@ -211,8 +192,17 @@ import { IJSONSchema } from 'vs/base/common/jsonSchema';
 			'window.zoomLevel': {
 				'type': 'number',
 				'default': 0,
-				'description': localize('zoomLevel', "Adjust the zoom level of the window. The original size is 0 and each increment above (e.g. 1) or below (e.g. -1) represents zooming 20% larger or smaller. You can also enter decimals to adjust the zoom level with a finer granularity."),
-				ignoreSync: true
+				'minimum': MIN_ZOOM_LEVEL,
+				'maximum': MAX_ZOOM_LEVEL,
+				'markdownDescription': localize({ comment: ['{0} will be a setting name rendered as a link'], key: 'zoomLevel' }, "Adjust the default zoom level for all windows. Each increment above `0` (e.g. `1`) or below (e.g. `-1`) represents zooming `20%` larger or smaller. You can also enter decimals to adjust the zoom level with a finer granularity. See {0} for configuring if the 'Zoom In' and 'Zoom Out' commands apply the zoom level to all windows or only the active window.", '`#window.zoomPerWindow#`'),
+				ignoreSync: true,
+				tags: ['accessibility']
+			},
+			'window.zoomPerWindow': {
+				'type': 'boolean',
+				'default': true,
+				'markdownDescription': localize({ comment: ['{0} will be a setting name rendered as a link'], key: 'zoomPerWindow' }, "Controls if the 'Zoom In' and 'Zoom Out' commands apply the zoom level to all windows or only the active window. See {0} for configuring a default zoom level for all windows.", '`#window.zoomLevel#`'),
+				tags: ['accessibility']
 			},
 			'window.newWindowDimensions': {
 				'type': 'string',
@@ -237,14 +227,34 @@ import { IJSONSchema } from 'vs/base/common/jsonSchema';
 				'type': 'boolean',
 				'default': false,
 				'scope': ConfigurationScope.APPLICATION,
-				'markdownDescription': localize('window.doubleClickIconToClose', "If enabled, double clicking the application icon in the title bar will close the window and the window cannot be dragged by the icon. This setting only has an effect when `#window.titleBarStyle#` is set to `custom`.")
+				'markdownDescription': localize('window.doubleClickIconToClose', "If enabled, this setting will close the window when the application icon in the title bar is double-clicked. The window will not be able to be dragged by the icon. This setting is effective only if {0} is set to `custom`.", '`#window.titleBarStyle#`')
 			},
 			'window.titleBarStyle': {
 				'type': 'string',
 				'enum': ['native', 'custom'],
-				'default': isLinux ? 'native' : 'custom',
+				'default': 'custom',
 				'scope': ConfigurationScope.APPLICATION,
-				'description': localize('titleBarStyle', "Adjust the appearance of the window title bar. On Linux and Windows, this setting also affects the application and context menu appearances. Changes require a full restart to apply.")
+				'description': localize('titleBarStyle', "Adjust the appearance of the window title bar to be native by the OS or custom. On Linux and Windows, this setting also affects the application and context menu appearances. Changes require a full restart to apply."),
+			},
+			'window.controlsStyle': {
+				'type': 'string',
+				'enum': ['native', 'custom', 'hidden'],
+				'default': 'native',
+				'included': !isMacintosh,
+				'scope': ConfigurationScope.APPLICATION,
+				'description': localize('controlsStyle', "Adjust the appearance of the window controls to be native by the OS, custom drawn or hidden. Changes require a full restart to apply."),
+			},
+			'window.customTitleBarVisibility': {
+				'type': 'string',
+				'enum': ['auto', 'windowed', 'never'],
+				'markdownEnumDescriptions': [
+					localize(`window.customTitleBarVisibility.auto`, "Automatically changes custom title bar visibility."),
+					localize(`window.customTitleBarVisibility.windowed`, "Hide custom titlebar in full screen. When not in full screen, automatically change custom title bar visibility."),
+					localize(`window.customTitleBarVisibility.never`, "Hide custom titlebar when {0} is set to `native`.", '`#window.titleBarStyle#`'),
+				],
+				'default': 'auto',
+				'scope': ConfigurationScope.APPLICATION,
+				'markdownDescription': localize('window.customTitleBarVisibility', "Adjust when the custom title bar should be shown. The custom title bar can be hidden when in full screen mode with `windowed`. The custom title bar can only be hidden in non full screen mode with `never` when {0} is set to `native`.", '`#window.titleBarStyle#`'),
 			},
 			'window.dialogStyle': {
 				'type': 'string',
@@ -258,7 +268,7 @@ import { IJSONSchema } from 'vs/base/common/jsonSchema';
 				'default': false,
 				'scope': ConfigurationScope.APPLICATION,
 				'description': localize('window.nativeTabs', "Enables macOS Sierra window tabs. Note that changes require a full restart to apply and that native tabs will disable a custom title bar style if configured."),
-				'included': isMacintosh
+				'included': isMacintosh,
 			},
 			'window.nativeFullScreen': {
 				'type': 'boolean',
@@ -286,9 +296,10 @@ import { IJSONSchema } from 'vs/base/common/jsonSchema';
 		'properties': {
 			'telemetry.enableCrashReporter': {
 				'type': 'boolean',
-				'description': localize('telemetry.enableCrashReporting', "Enable crash reports to be sent to a Microsoft online service. \nThis option requires restart to take effect."),
+				'description': localize('telemetry.enableCrashReporting', "Enable crash reports to be collected. This helps us improve stability. \nThis option requires restart to take effect."),
 				'default': true,
-				'tags': ['usesOnlineServices']
+				'tags': ['usesOnlineServices', 'telemetry'],
+				'markdownDeprecationMessage': localize('enableCrashReporterDeprecated', "If this setting is false, no telemetry will be sent regardless of the new setting's value. Deprecated due to being combined into the {0} setting.", `\`#${TELEMETRY_SETTING_ID}#\``),
 			}
 		}
 	});
@@ -317,6 +328,25 @@ import { IJSONSchema } from 'vs/base/common/jsonSchema';
 			}
 		}
 	});
+
+	// Security
+	registry.registerConfiguration({
+		...securityConfigurationNodeBase,
+		'properties': {
+			'security.promptForLocalFileProtocolHandling': {
+				'type': 'boolean',
+				'default': true,
+				'markdownDescription': localize('security.promptForLocalFileProtocolHandling', 'If enabled, a dialog will ask for confirmation whenever a local file or workspace is about to open through a protocol handler.'),
+				'scope': ConfigurationScope.APPLICATION
+			},
+			'security.promptForRemoteFileProtocolHandling': {
+				'type': 'boolean',
+				'default': true,
+				'markdownDescription': localize('security.promptForRemoteFileProtocolHandling', 'If enabled, a dialog will ask for confirmation whenever a remote file or workspace is about to open through a protocol handler.'),
+				'scope': ConfigurationScope.APPLICATION
+			}
+		}
+	});
 })();
 
 // JSON Schemas
@@ -335,13 +365,17 @@ import { IJSONSchema } from 'vs/base/common/jsonSchema';
 				type: 'string',
 				description: localize('argv.locale', 'The display Language to use. Picking a different language requires the associated language pack to be installed.')
 			},
+			'disable-lcd-text': {
+				type: 'boolean',
+				description: localize('argv.disableLcdText', 'Disables LCD font antialiasing.')
+			},
+			'proxy-bypass-list': {
+				type: 'string',
+				description: localize('argv.proxyBypassList', 'Bypass any specified proxy for the given semi-colon-separated list of hosts. Example value "<local>;*.microsoft.com;*foo.com;1.2.3.4:5678", will use the proxy server for all hosts except for local addresses (localhost, 127.0.0.1 etc.), microsoft.com subdomains, hosts that contain the suffix foo.com and anything at 1.2.3.4:5678')
+			},
 			'disable-hardware-acceleration': {
 				type: 'boolean',
 				description: localize('argv.disableHardwareAcceleration', 'Disables hardware acceleration. ONLY change this option if you encounter graphic issues.')
-			},
-			'disable-color-correct-rendering': {
-				type: 'boolean',
-				description: localize('argv.disableColorCorrectRendering', 'Resolves issues around color profile selection. ONLY change this option if you encounter graphic issues.')
 			},
 			'force-color-profile': {
 				type: 'string',
@@ -363,8 +397,16 @@ import { IJSONSchema } from 'vs/base/common/jsonSchema';
 				}
 			},
 			'log-level': {
-				type: 'string',
-				description: localize('argv.logLevel', "Log level to use. Default is 'info'. Allowed values are 'critical', 'error', 'warn', 'info', 'debug', 'trace', 'off'.")
+				type: ['string', 'array'],
+				description: localize('argv.logLevel', "Log level to use. Default is 'info'. Allowed values are 'error', 'warn', 'info', 'debug', 'trace', 'off'.")
+			},
+			'disable-chromium-sandbox': {
+				type: 'boolean',
+				description: localize('argv.disableChromiumSandbox', "Disables the Chromium sandbox. This is useful when running VS Code as elevated on Linux and running under Applocker on Windows.")
+			},
+			'use-inmemory-secretstorage': {
+				type: 'boolean',
+				description: localize('argv.useInMemorySecretStorage', "Ensures that an in-memory store will be used for secret storage instead of using the OS's credential store. This is often used when running VS Code extension tests or when you're experiencing difficulties with the credential store.")
 			}
 		}
 	};
@@ -372,6 +414,10 @@ import { IJSONSchema } from 'vs/base/common/jsonSchema';
 		schema.properties!['force-renderer-accessibility'] = {
 			type: 'boolean',
 			description: localize('argv.force-renderer-accessibility', 'Forces the renderer to be accessible. ONLY change this if you are using a screen reader on Linux. On other platforms the renderer will automatically be accessible. This flag is automatically set if you have editor.accessibilitySupport: on.'),
+		};
+		schema.properties!['password-store'] = {
+			type: 'string',
+			description: localize('argv.passwordStore', "Configures the backend used to store secrets on Linux. This argument is ignored on Windows & macOS.")
 		};
 	}
 

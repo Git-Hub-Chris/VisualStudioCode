@@ -3,11 +3,14 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import assert from 'assert';
 import * as sinon from 'sinon';
-import * as assert from 'assert';
-import { memoize, createMemoizer, throttle } from 'vs/base/common/decorators';
+import { memoize, throttle } from '../../common/decorators.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from './utils.js';
 
 suite('Decorators', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('memoize should memoize methods', () => {
 		class Foo {
 			count = 0;
@@ -131,28 +134,6 @@ suite('Decorators', () => {
 		}
 	});
 
-	test('memoize clear', () => {
-		const memoizer = createMemoizer();
-		let counter = 0;
-		class Foo {
-			@memoizer
-			get answer() {
-				return ++counter;
-			}
-		}
-
-		const foo = new Foo();
-		assert.strictEqual(foo.answer, 1);
-		assert.strictEqual(foo.answer, 1);
-		memoizer.clear();
-		assert.strictEqual(foo.answer, 2);
-		assert.strictEqual(foo.answer, 2);
-		memoizer.clear();
-		assert.strictEqual(foo.answer, 3);
-		assert.strictEqual(foo.answer, 3);
-		assert.strictEqual(foo.answer, 3);
-	});
-
 	test('throttle', () => {
 		const spy = sinon.spy();
 		const clock = sinon.useFakeTimers();
@@ -183,7 +164,7 @@ suite('Decorators', () => {
 
 			clock.tick(200);
 			assert.deepStrictEqual(spy.args, [[1], [5]]);
-			spy.reset();
+			spy.resetHistory();
 
 			t.report(4);
 			t.report(5);

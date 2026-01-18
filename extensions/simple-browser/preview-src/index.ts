@@ -5,7 +5,6 @@
 
 import { onceDocumentLoaded } from './events';
 
-declare let acquireVsCodeApi: any;
 const vscode = acquireVsCodeApi();
 
 function getSettings() {
@@ -91,17 +90,24 @@ onceDocumentLoaded(() => {
 	toggleFocusLockIndicatorEnabled(settings.focusLockIndicatorEnabled);
 
 	function navigateTo(rawUrl: string): void {
+		let safeUrl: string | null = null;
 		try {
 			const url = new URL(rawUrl);
-
-			// Try to bust the cache for the iframe
-			// There does not appear to be any way to reliably do this except modifying the url
-			url.searchParams.append('vscodeBrowserReqId', Date.now().toString());
-
-			iframe.src = url.toString();
+			if (url.protocol === 'http:' || url.protocol === 'https:') {
+				// Try to bust the cache for the iframe
+				url.searchParams.append('vscodeBrowserReqId', Date.now().toString());
+				safeUrl = url.toString();
+			}
 		} catch {
-			iframe.src = rawUrl;
+			// On parse error, do not attempt to match with regex; keep safeUrl as null.
 		}
+		if (safeUrl) {
+			iframe.src = safeUrl;
+		} else {
+			// Optionally, display an error or set to about:blank
+			iframe.src = 'about:blank';
+		}
+		vscode.setState({ url: rawUrl });
 	}
 });
 

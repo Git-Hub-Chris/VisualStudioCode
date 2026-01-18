@@ -3,31 +3,34 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { checksum } from 'vs/base/node/crypto';
-import { join } from 'vs/base/common/path';
+import * as fs from 'fs';
 import { tmpdir } from 'os';
-import { promises } from 'fs';
-import { rimraf, writeFile } from 'vs/base/node/pfs';
-import { flakySuite, getRandomTestPath } from 'vs/base/test/node/testUtils';
+import { join } from '../../common/path.js';
+import { checksum } from '../../node/crypto.js';
+import { Promises } from '../../node/pfs.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../common/utils.js';
+import { flakySuite, getRandomTestPath } from './testUtils.js';
 
 flakySuite('Crypto', () => {
 
 	let testDir: string;
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	setup(function () {
 		testDir = getRandomTestPath(tmpdir(), 'vsctests', 'crypto');
 
-		return promises.mkdir(testDir, { recursive: true });
+		return fs.promises.mkdir(testDir, { recursive: true });
 	});
 
 	teardown(function () {
-		return rimraf(testDir);
+		return Promises.rm(testDir);
 	});
 
 	test('checksum', async () => {
 		const testFile = join(testDir, 'checksum.txt');
-		await writeFile(testFile, 'Hello World');
+		await Promises.writeFile(testFile, 'Hello World');
 
-		await checksum(testFile, '0a4d55a8d778e5022fab701977c5d840bbc486d0');
+		await checksum(testFile, 'a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e');
 	});
 });

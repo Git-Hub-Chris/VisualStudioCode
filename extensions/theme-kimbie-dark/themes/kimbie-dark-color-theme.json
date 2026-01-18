@@ -29,7 +29,7 @@
 		"statusBar.debuggingBackground": "#423523",
 		"statusBar.noFolderBackground": "#423523",
 		"statusBarItem.remoteBackground": "#6e583b",
-		"ports.iconRunningProcessforeground": "#369432",
+		"ports.iconRunningProcessForeground": "#369432",
 		"activityBar.background": "#221a0f",
 		"activityBar.foreground": "#d3af86",
 		"sideBar.background": "#362712",
@@ -60,7 +60,12 @@
 			}
 		},
 		{
-			"scope": ["meta.embedded", "source.groovy.embedded"],
+			"scope": [
+				"meta.embedded",
+				"source.groovy.embedded",
+				"string meta.image.inline.markdown",
+				"variable.legacy.builtin.python"
+			],
 			"settings": {
 				"foreground": "#d3af86"
 			}
@@ -118,6 +123,7 @@
 				"keyword.operator.new.cpp",
 				"keyword.operator.delete.cpp",
 				"keyword.other.using",
+				"keyword.other.directive.using",
 				"keyword.other.operator"
 			],
 			"settings": {
@@ -181,7 +187,8 @@
 			"scope": [
 				"string",
 				"constant.other.symbol",
-				"entity.other.inherited-class"
+				"entity.other.inherited-class",
+				"punctuation.separator.namespace.ruby"
 			],
 			"settings": {
 				"foreground": "#889b4a"
@@ -293,6 +300,12 @@
 			"settings": {
 				"fontStyle": "italic",
 				"foreground": "#98676a"
+			}
+		},
+		{
+			"scope": "markup.strikethrough",
+			"settings": {
+				"fontStyle": "strikethrough"
 			}
 		},
 		{

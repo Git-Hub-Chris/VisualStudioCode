@@ -3,66 +3,51 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { INullableProcessEnvironment, IOpenExtensionWindowResult } from 'vs/platform/debug/common/extensionHostDebug';
-import { IProcessEnvironment } from 'vs/base/common/platform';
-import { parseArgs, OPTIONS } from 'vs/platform/environment/node/argv';
-import { createServer, AddressInfo } from 'net';
-import { ExtensionHostDebugBroadcastChannel } from 'vs/platform/debug/common/extensionHostDebugIpc';
-import { IWindowsMainService, OpenContext } from 'vs/platform/windows/electron-main/windows';
+import { AddressInfo, createServer } from 'net';
+import { IOpenExtensionWindowResult } from '../common/extensionHostDebug.js';
+import { ExtensionHostDebugBroadcastChannel } from '../common/extensionHostDebugIpc.js';
+import { OPTIONS, parseArgs } from '../../environment/node/argv.js';
+import { IWindowsMainService, OpenContext } from '../../windows/electron-main/windows.js';
 
 export class ElectronExtensionHostDebugBroadcastChannel<TContext> extends ExtensionHostDebugBroadcastChannel<TContext> {
 
-	constructor(private windowsMainService: IWindowsMainService) {
+	constructor(
+		private windowsMainService: IWindowsMainService
+	) {
 		super();
 	}
 
 	override call(ctx: TContext, command: string, arg?: any): Promise<any> {
 		if (command === 'openExtensionDevelopmentHostWindow') {
-			return this.openExtensionDevelopmentHostWindow(arg[0], arg[1], arg[2]);
+			return this.openExtensionDevelopmentHostWindow(arg[0], arg[1]);
 		} else {
 			return super.call(ctx, command, arg);
 		}
 	}
 
-	private async openExtensionDevelopmentHostWindow(args: string[], env: INullableProcessEnvironment, debugRenderer: boolean): Promise<IOpenExtensionWindowResult> {
+	private async openExtensionDevelopmentHostWindow(args: string[], debugRenderer: boolean): Promise<IOpenExtensionWindowResult> {
 		const pargs = parseArgs(args, OPTIONS);
 		pargs.debugRenderer = debugRenderer;
 
 		const extDevPaths = pargs.extensionDevelopmentPath;
 		if (!extDevPaths) {
-			return {};
+			return { success: false };
 		}
 
-		// split INullableProcessEnvironment into a IProcessEnvironment and an array of keys to be deleted
-		// TODO: support to delete env vars; currently the "deletes" are ignored
-		let userEnv: IProcessEnvironment | undefined;
-		//let userEnvDeletes: string[] = [];
-		const keys = Object.keys(env);
-		for (let k of keys) {
-			let value = env[k];
-			if (value === null) {
-				//userEnvDeletes.push(k);
-			} else {
-				if (!userEnv) {
-					userEnv = Object.create(null) as IProcessEnvironment;
-				}
-				userEnv[k] = value;
-			}
-		}
-
-		const [codeWindow] = this.windowsMainService.openExtensionDevelopmentHostWindow(extDevPaths, {
+		const [codeWindow] = await this.windowsMainService.openExtensionDevelopmentHostWindow(extDevPaths, {
 			context: OpenContext.API,
 			cli: pargs,
-			userEnv: userEnv
+			forceProfile: pargs.profile,
+			forceTempProfile: pargs['profile-temp']
 		});
 
 		if (!debugRenderer) {
-			return {};
+			return { success: true };
 		}
 
 		const win = codeWindow.win;
 		if (!win) {
-			return {};
+			return { success: true };
 		}
 
 		const debug = win.webContents.debugger;
@@ -80,7 +65,7 @@ export class ElectronExtensionHostDebugBroadcastChannel<TContext> extends Extens
 				}
 			};
 
-			const onMessage = (_event: Event, method: string, params: unknown, sessionId?: string) =>
+			const onMessage = (_event: Electron.Event, method: string, params: unknown, sessionId?: string) =>
 				writeMessage(({ method, params, sessionId }));
 
 			win.on('close', () => {
@@ -127,6 +112,6 @@ export class ElectronExtensionHostDebugBroadcastChannel<TContext> extends Extens
 		await new Promise<void>(r => server.listen(0, r));
 		win.on('close', () => server.close());
 
-		return { rendererDebugPort: (server.address() as AddressInfo).port };
+		return { rendererDebugPort: (server.address() as AddressInfo).port, success: true };
 	}
 }

@@ -16,6 +16,16 @@
   "categories": [
     "Programming Languages"
   ],
+  "capabilities": {
+    "virtualWorkspaces": false,
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "%workspaceTrust%",
+      "restrictedConfigurations": [
+        "php.validate.executablePath"
+      ]
+    }
+  },
   "contributes": {
     "configuration": {
       "title": "%configuration.title%",
@@ -57,34 +67,18 @@
         "fileMatch": "composer.json",
         "url": "https://getcomposer.org/schema.json"
       }
-    ],
-    "commands": [
-      {
-        "title": "%command.untrustValidationExecutable%",
-        "category": "%commands.categroy.php%",
-        "command": "php.untrustValidationExecutable"
-      }
-    ],
-    "menus": {
-      "commandPalette": [
-        {
-          "command": "php.untrustValidationExecutable",
-          "when": "php.untrustValidationExecutableContext"
-        }
-      ]
-    }
+    ]
   },
   "scripts": {
     "compile": "npx gulp compile-extension:php-language-features",
     "watch": "npx gulp watch-extension:php-language-features"
   },
   "dependencies": {
-    "vscode-nls": "^4.0.0",
-    "which": "^2.0.2"
+    "which": "^6.0.0"
   },
   "devDependencies": {
-    "@types/node": "^12.19.9",
-    "@types/which": "^2.0.0"
+    "@types/node": "25.x",
+    "@types/which": "^3.0.4"
   },
   "repository": {
     "type": "git",
