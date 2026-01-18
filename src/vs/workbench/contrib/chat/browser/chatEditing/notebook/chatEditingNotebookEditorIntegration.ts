@@ -364,7 +364,7 @@ class ChatEditingNotebookEditorWidgetIntegration extends Disposable implements I
 
 	private async revealChangeInView(cell: ICellViewModel, lines: LineRange): Promise<void> {
 		await this.notebookEditor.focusNotebookCell(cell, 'editor', { focusEditorLine: lines.startLineNumber });
-		await this.notebookEditor.revealRangeInCenterAsync(cell, new Range(lines.startLineNumber, 0, lines.endLineNumberExclusive, 0));
+		await this.notebookEditor.revealRangeInCenterIfOutsideViewportAsync(cell, new Range(lines.startLineNumber, 0, lines.endLineNumberExclusive, 0));
 	}
 
 	next(wrap: boolean): boolean {
@@ -381,17 +381,13 @@ class ChatEditingNotebookEditorWidgetIntegration extends Disposable implements I
 		}
 
 		// go to next
-		// first check if we are at the end of the current change
 		switch (currentChange.change.type) {
 			case 'modified':
 				{
-					const cellIntegration = this.getCell(currentChange.change.modifiedCellIndex);
-					if (cellIntegration) {
-						if (cellIntegration.next(false)) {
-							this._currentChange.set({ change: currentChange.change, index: cellIntegration.currentIndex.get() }, undefined);
-							return true;
-						}
-					}
+					// first check if we are at the end of the current change
+					const isLastChangeInCell = currentChange.index === this.lastChangeIndex(currentChange.change);
+					const index = isLastChangeInCell ? 0 : currentChange.index + 1;
+					const change = isLastChangeInCell ? changes[changes.indexOf(currentChange.change) + 1] : currentChange.change;
 
 					const isLastChangeInCell = currentChange.index === lastChangeIndex(currentChange.change);
 					const index = isLastChangeInCell ? 0 : currentChange.index + 1;
@@ -440,13 +436,9 @@ class ChatEditingNotebookEditorWidgetIntegration extends Disposable implements I
 		switch (currentChange.change.type) {
 			case 'modified':
 				{
-					const cellIntegration = this.getCell(currentChange.change.modifiedCellIndex);
-					if (cellIntegration) {
-						if (cellIntegration.previous(false)) {
-							this._currentChange.set({ change: currentChange.change, index: cellIntegration.currentIndex.get() }, undefined);
-							return true;
-						}
-					}
+					// first check if we are at the first change within the cell
+					const isFirstChangeInCell = currentChange.index === 0;
+					const change = isFirstChangeInCell ? changes[changes.indexOf(currentChange.change) - 1] : currentChange.change;
 
 					const isFirstChangeInCell = currentChange.index === 0;
 					const index = isFirstChangeInCell ? 0 : currentChange.index - 1;
