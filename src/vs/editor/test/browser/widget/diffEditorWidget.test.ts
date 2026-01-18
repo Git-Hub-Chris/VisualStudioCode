@@ -3,16 +3,12 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import assert from 'assert';
-import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { UnchangedRegion } from '../../../browser/widget/diffEditor/diffEditorViewModel.js';
-import { LineRange } from '../../../common/core/lineRange.js';
-import { DetailedLineRangeMapping } from '../../../common/diff/rangeMapping.js';
+import * as assert from 'assert';
+import { UnchangedRegion } from 'vs/editor/browser/widget/diffEditor/diffEditorViewModel';
+import { LineRange } from 'vs/editor/common/core/lineRange';
+import { DetailedLineRangeMapping } from 'vs/editor/common/diff/rangeMapping';
 
 suite('DiffEditorWidget2', () => {
-
-	ensureNoDisposablesAreLeakedInTestSuite();
-
 	suite('UnchangedRegion', () => {
 		function serialize(regions: UnchangedRegion[]): unknown {
 			return regions.map(r => `${r.originalUnchangedRange} - ${r.modifiedUnchangedRange}`);
