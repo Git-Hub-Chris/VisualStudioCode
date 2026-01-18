@@ -3,17 +3,18 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { $, createStyleSheet, h, isInShadowDOM, reset } from 'vs/base/browser/dom';
-import { renderLabelWithIcons } from 'vs/base/browser/ui/iconLabel/iconLabels';
-import { hash } from 'vs/base/common/hash';
-import { Disposable, IDisposable, toDisposable } from 'vs/base/common/lifecycle';
-import { autorun, derived, IObservable, transaction } from 'vs/base/common/observable';
-import { ICodeEditor, IViewZoneChangeAccessor } from 'vs/editor/browser/editorBrowser';
-import { EditorOption, EDITOR_FONT_DEFAULTS } from 'vs/editor/common/config/editorOptions';
-import { localize } from 'vs/nls';
-import { ModifiedBaseRange, ModifiedBaseRangeState, ModifiedBaseRangeStateKind } from 'vs/workbench/contrib/mergeEditor/browser/model/modifiedBaseRange';
-import { FixedZoneWidget } from 'vs/workbench/contrib/mergeEditor/browser/view/fixedZoneWidget';
-import { MergeEditorViewModel } from 'vs/workbench/contrib/mergeEditor/browser/view/viewModel';
+import { $, h, isInShadowDOM, reset } from '../../../../../base/browser/dom.js';
+import { createStyleSheet } from '../../../../../base/browser/domStylesheets.js';
+import { renderLabelWithIcons } from '../../../../../base/browser/ui/iconLabel/iconLabels.js';
+import { hash } from '../../../../../base/common/hash.js';
+import { Disposable, IDisposable } from '../../../../../base/common/lifecycle.js';
+import { autorun, derived, IObservable, transaction } from '../../../../../base/common/observable.js';
+import { ICodeEditor, IViewZoneChangeAccessor } from '../../../../../editor/browser/editorBrowser.js';
+import { EditorOption, EDITOR_FONT_DEFAULTS } from '../../../../../editor/common/config/editorOptions.js';
+import { localize } from '../../../../../nls.js';
+import { ModifiedBaseRange, ModifiedBaseRangeState, ModifiedBaseRangeStateKind } from '../model/modifiedBaseRange.js';
+import { FixedZoneWidget } from './fixedZoneWidget.js';
+import { MergeEditorViewModel } from './viewModel.js';
 
 export class ConflictActionsFactory extends Disposable {
 	private readonly _styleClassName: string;
@@ -32,12 +33,8 @@ export class ConflictActionsFactory extends Disposable {
 		this._styleElement = createStyleSheet(
 			isInShadowDOM(this._editor.getContainerDomNode())
 				? this._editor.getContainerDomNode()
-				: undefined
+				: undefined, undefined, this._store
 		);
-
-		this._register(toDisposable(() => {
-			this._styleElement.remove();
-		}));
 
 		this._updateLensStyle();
 	}
@@ -58,8 +55,8 @@ export class ConflictActionsFactory extends Disposable {
 			newStyle += `${this._styleClassName} { font-family: var(${fontFamilyVar}), ${EDITOR_FONT_DEFAULTS.fontFamily}}`;
 		}
 		this._styleElement.textContent = newStyle;
-		this._editor.getContainerDomNode().style.setProperty(fontFamilyVar, fontFamily ?? 'inherit');
-		this._editor.getContainerDomNode().style.setProperty(fontFeaturesVar, editorFontInfo.fontFeatureSettings);
+		this._editor.getContainerDomNode().style?.setProperty(fontFamilyVar, fontFamily ?? 'inherit');
+		this._editor.getContainerDomNode().style?.setProperty(fontFeaturesVar, editorFontInfo.fontFeatureSettings);
 	}
 
 	private _getLayoutInfo() {
@@ -96,7 +93,8 @@ export class ActionsSource {
 	}
 
 	private getItemsInput(inputNumber: 1 | 2): IObservable<IContentWidgetAction[]> {
-		return derived('items', reader => {
+		return derived(reader => {
+			/** @description items */
 			const viewModel = this.viewModel;
 			const modifiedBaseRange = this.modifiedBaseRange;
 
@@ -127,16 +125,21 @@ export class ActionsSource {
 								model.setState(
 									modifiedBaseRange,
 									state.withInputValue(inputNumber, true, false),
-									true,
+									inputNumber,
 									tx
 								);
+								model.telemetry.reportAcceptInvoked(inputNumber, state.includesInput(otherInputNumber));
 							});
 						}, localize('acceptTooltip', "Accept {0} in the result document.", inputData.title))
 					);
 
 					if (modifiedBaseRange.canBeCombined) {
+						const commandName = modifiedBaseRange.isOrderRelevant
+							? localize('acceptBoth0First', "Accept Combination ({0} First)", inputData.title)
+							: localize('acceptBoth', "Accept Combination");
+
 						result.push(
-							command(localize('acceptBoth', "Accept Combination"), async () => {
+							command(commandName, async () => {
 								transaction((tx) => {
 									model.setState(
 										modifiedBaseRange,
@@ -146,6 +149,7 @@ export class ActionsSource {
 										true,
 										tx
 									);
+									model.telemetry.reportSmartCombinationInvoked(state.includesInput(otherInputNumber));
 								});
 							}, localize('acceptBothTooltip', "Accept an automatic combination of both sides in the result document.")),
 						);
@@ -157,9 +161,10 @@ export class ActionsSource {
 								model.setState(
 									modifiedBaseRange,
 									state.withInputValue(inputNumber, true, false),
-									true,
+									inputNumber,
 									tx
 								);
+								model.telemetry.reportAcceptInvoked(inputNumber, state.includesInput(otherInputNumber));
 							});
 						}, localize('appendTooltip', "Append {0} to the result document.", inputData.title))
 					);
@@ -171,15 +176,29 @@ export class ActionsSource {
 									model.setState(
 										modifiedBaseRange,
 										state.withInputValue(inputNumber, true, true),
-										true,
+										inputNumber,
 										tx
 									);
+									model.telemetry.reportSmartCombinationInvoked(state.includesInput(otherInputNumber));
 								});
 							}, localize('acceptBothTooltip', "Accept an automatic combination of both sides in the result document.")),
 						);
 					}
 				}
 
+				if (!model.isInputHandled(modifiedBaseRange, inputNumber).read(reader)) {
+					result.push(
+						command(
+							localize('ignore', 'Ignore'),
+							async () => {
+								transaction((tx) => {
+									model.setInputHandled(modifiedBaseRange, inputNumber, true, tx);
+								});
+							},
+							localize('markAsHandledTooltip', "Don't take this side of the conflict.")
+						)
+					);
+				}
 
 			}
 			return result;
@@ -189,7 +208,7 @@ export class ActionsSource {
 	public readonly itemsInput1 = this.getItemsInput(1);
 	public readonly itemsInput2 = this.getItemsInput(2);
 
-	public readonly resultItems = derived('items', reader => {
+	public readonly resultItems = derived(this, reader => {
 		const viewModel = this.viewModel;
 		const modifiedBaseRange = this.modifiedBaseRange;
 
@@ -241,6 +260,7 @@ export class ActionsSource {
 								true,
 								tx
 							);
+							model.telemetry.reportRemoveInvoked(1, state.includesInput(2));
 						});
 					},
 					localize('removeTooltip', 'Remove {0} from the result document.', model.input1.title)
@@ -259,6 +279,7 @@ export class ActionsSource {
 								true,
 								tx
 							);
+							model.telemetry.reportRemoveInvoked(2, state.includesInput(1));
 						});
 					},
 					localize('removeTooltip', 'Remove {0} from the result document.', model.input2.title)
@@ -285,6 +306,7 @@ export class ActionsSource {
 								true,
 								tx
 							);
+							model.telemetry.reportResetToBaseInvoked();
 						});
 					},
 					localize('resetToBaseTooltip', 'Reset this conflict to the common ancestor of both the right and left changes.')
@@ -292,28 +314,14 @@ export class ActionsSource {
 			);
 		}
 
-		if (state.kind === ModifiedBaseRangeStateKind.base && !model.isHandled(modifiedBaseRange).read(reader)) {
-			result.push(
-				command(
-					localize('markAsHandled', 'Mark As Handled'),
-					async () => {
-						transaction((tx) => {
-							model.setHandled(modifiedBaseRange, true, tx);
-						});
-					},
-					localize('markAsHandledTooltip', 'Marks this conflict as handled.')
-				)
-			);
-		}
-
 		return result;
 	});
 
-	public readonly isEmpty = derived('isEmpty', reader => {
+	public readonly isEmpty = derived(this, reader => {
 		return this.itemsInput1.read(reader).length + this.itemsInput2.read(reader).length + this.resultItems.read(reader).length === 0;
 	});
 
-	public readonly inputIsEmpty = derived('inputIsEmpty', reader => {
+	public readonly inputIsEmpty = derived(this, reader => {
 		return this.itemsInput1.read(reader).length + this.itemsInput2.read(reader).length === 0;
 	});
 }
@@ -351,7 +359,8 @@ class ActionsContentWidget extends FixedZoneWidget {
 
 		this._domNode.classList.add(className);
 
-		this._register(autorun('update commands', (reader) => {
+		this._register(autorun(reader => {
+			/** @description update commands */
 			const i = items.read(reader);
 			this.setState(i);
 		}));

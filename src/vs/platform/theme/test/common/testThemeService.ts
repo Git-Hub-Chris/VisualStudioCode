@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Color } from 'vs/base/common/color';
-import { Emitter, Event } from 'vs/base/common/event';
-import { IconContribution } from 'vs/platform/theme/common/iconRegistry';
-import { ColorScheme } from 'vs/platform/theme/common/theme';
-import { IColorTheme, IFileIconTheme, IProductIconTheme, IThemeService, ITokenStyle } from 'vs/platform/theme/common/themeService';
+import { Color } from '../../../../base/common/color.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
+import { IconContribution } from '../../common/iconRegistry.js';
+import { ColorScheme } from '../../common/theme.js';
+import { IColorTheme, IFileIconTheme, IProductIconTheme, IThemeChangeEvent, IThemeService, ITokenStyle } from '../../common/themeService.js';
 
 export class TestColorTheme implements IColorTheme {
 
@@ -40,13 +40,13 @@ export class TestColorTheme implements IColorTheme {
 	}
 }
 
-export class TestFileIconTheme implements IFileIconTheme {
+class TestFileIconTheme implements IFileIconTheme {
 	hasFileIcons = false;
 	hasFolderIcons = false;
 	hidesExplorerArrows = false;
 }
 
-export class UnthemedProductIconTheme implements IProductIconTheme {
+class UnthemedProductIconTheme implements IProductIconTheme {
 	getIcon(contribution: IconContribution) {
 		return undefined;
 	}
@@ -58,7 +58,7 @@ export class TestThemeService implements IThemeService {
 	_colorTheme: IColorTheme;
 	_fileIconTheme: IFileIconTheme;
 	_productIconTheme: IProductIconTheme;
-	_onThemeChange = new Emitter<IColorTheme>();
+	_onThemeChange = new Emitter<IThemeChangeEvent>();
 	_onFileIconThemeChange = new Emitter<IFileIconTheme>();
 	_onProductIconThemeChange = new Emitter<IProductIconTheme>();
 
@@ -78,10 +78,10 @@ export class TestThemeService implements IThemeService {
 	}
 
 	fireThemeChange() {
-		this._onThemeChange.fire(this._colorTheme);
+		this._onThemeChange.fire({ theme: this._colorTheme });
 	}
 
-	public get onDidColorThemeChange(): Event<IColorTheme> {
+	public get onDidColorThemeChange(): Event<IThemeChangeEvent> {
 		return this._onThemeChange.event;
 	}
 

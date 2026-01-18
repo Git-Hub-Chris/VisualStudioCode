@@ -4,10 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import * as nls from 'vscode-nls';
 import { CommandManager } from '../commandManager';
 
-const localize = nls.loadMessageBundle();
 
 // Copied from markdown language service
 export enum DiagnosticCode {
@@ -22,14 +20,14 @@ class AddToIgnoreLinksQuickFixProvider implements vscode.CodeActionProvider {
 
 	private static readonly _addToIgnoreLinksCommandId = '_markdown.addToIgnoreLinks';
 
-	private static readonly metadata: vscode.CodeActionProviderMetadata = {
+	private static readonly _metadata: vscode.CodeActionProviderMetadata = {
 		providedCodeActionKinds: [
 			vscode.CodeActionKind.QuickFix
 		],
 	};
 
 	public static register(selector: vscode.DocumentSelector, commandManager: CommandManager): vscode.Disposable {
-		const reg = vscode.languages.registerCodeActionsProvider(selector, new AddToIgnoreLinksQuickFixProvider(), AddToIgnoreLinksQuickFixProvider.metadata);
+		const reg = vscode.languages.registerCodeActionsProvider(selector, new AddToIgnoreLinksQuickFixProvider(), AddToIgnoreLinksQuickFixProvider._metadata);
 		const commandReg = commandManager.register({
 			id: AddToIgnoreLinksQuickFixProvider._addToIgnoreLinksCommandId,
 			execute(resource: vscode.Uri, path: string) {
@@ -55,7 +53,7 @@ class AddToIgnoreLinksQuickFixProvider implements vscode.CodeActionProvider {
 					const hrefText = (diagnostic as any).data?.hrefText;
 					if (hrefText) {
 						const fix = new vscode.CodeAction(
-							localize('ignoreLinksQuickFix.title', "Exclude '{0}' from link validation.", hrefText),
+							vscode.l10n.t("Exclude '{0}' from link validation.", hrefText),
 							vscode.CodeActionKind.QuickFix);
 
 						fix.command = {
@@ -74,10 +72,61 @@ class AddToIgnoreLinksQuickFixProvider implements vscode.CodeActionProvider {
 	}
 }
 
+function registerMarkdownStatusItem(selector: vscode.DocumentSelector, commandManager: CommandManager): vscode.Disposable {
+	const statusItem = vscode.languages.createLanguageStatusItem('markdownStatus', selector);
+
+	const enabledSettingId = 'validate.enabled';
+	const commandId = '_markdown.toggleValidation';
+
+	const commandSub = commandManager.register({
+		id: commandId,
+		execute: (enabled: boolean) => {
+			vscode.workspace.getConfiguration('markdown').update(enabledSettingId, enabled);
+		}
+	});
+
+	const update = () => {
+		const activeDoc = vscode.window.activeTextEditor?.document;
+		const markdownDoc = activeDoc?.languageId === 'markdown' ? activeDoc : undefined;
+
+		const enabled = vscode.workspace.getConfiguration('markdown', markdownDoc).get(enabledSettingId);
+		if (enabled) {
+			statusItem.text = vscode.l10n.t('Markdown link validation enabled');
+			statusItem.command = {
+				command: commandId,
+				arguments: [false],
+				title: vscode.l10n.t('Disable'),
+				tooltip: vscode.l10n.t('Disable validation of Markdown links'),
+			};
+		} else {
+			statusItem.text = vscode.l10n.t('Markdown link validation disabled');
+			statusItem.command = {
+				command: commandId,
+				arguments: [true],
+				title: vscode.l10n.t('Enable'),
+				tooltip: vscode.l10n.t('Enable validation of Markdown links'),
+			};
+		}
+	};
+	update();
+
+	return vscode.Disposable.from(
+		statusItem,
+		commandSub,
+		vscode.workspace.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration('markdown.' + enabledSettingId)) {
+				update();
+			}
+		}),
+	);
+}
 
 export function registerDiagnosticSupport(
 	selector: vscode.DocumentSelector,
 	commandManager: CommandManager,
 ): vscode.Disposable {
-	return AddToIgnoreLinksQuickFixProvider.register(selector, commandManager);
+	return vscode.Disposable.from(
+		AddToIgnoreLinksQuickFixProvider.register(selector, commandManager),
+		registerMarkdownStatusItem(selector, commandManager),
+	);
 }

@@ -16,7 +16,7 @@ export function rndName() {
 export const testFs = new TestFS('fake-fs', true);
 vscode.workspace.registerFileSystemProvider(testFs.scheme, testFs, { isCaseSensitive: testFs.isCaseSensitive });
 
-export async function createRandomFile(contents = '', dir: vscode.Uri | undefined = undefined, ext = ''): Promise<vscode.Uri> {
+export async function createRandomFile(contents: string | Uint8Array = '', dir: vscode.Uri | undefined = undefined, ext = ''): Promise<vscode.Uri> {
 	let fakeFile: vscode.Uri;
 	if (dir) {
 		assert.strictEqual(dir.scheme, testFs.scheme);
@@ -66,10 +66,10 @@ export function delay(ms: number) {
 	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export function withLogDisabled(runnable: () => Promise<any>): () => Promise<void> {
+function withLogLevel(level: string, runnable: () => Promise<any>): () => Promise<void> {
 	return async (): Promise<void> => {
 		const logLevel = await vscode.commands.executeCommand('_extensionTests.getLogLevel');
-		await vscode.commands.executeCommand('_extensionTests.setLogLevel', 6 /* critical */);
+		await vscode.commands.executeCommand('_extensionTests.setLogLevel', level);
 
 		try {
 			await runnable();
@@ -77,6 +77,14 @@ export function withLogDisabled(runnable: () => Promise<any>): () => Promise<voi
 			await vscode.commands.executeCommand('_extensionTests.setLogLevel', logLevel);
 		}
 	};
+}
+
+export function withLogDisabled(runnable: () => Promise<any>): () => Promise<void> {
+	return withLogLevel('off', runnable);
+}
+
+export function withVerboseLogs(runnable: () => Promise<any>): () => Promise<void> {
+	return withLogLevel('trace', runnable);
 }
 
 export function assertNoRpc() {

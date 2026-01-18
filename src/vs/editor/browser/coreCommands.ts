@@ -3,32 +3,34 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as nls from 'vs/nls';
-import { isFirefox } from 'vs/base/browser/browser';
-import { KeyCode, KeyMod } from 'vs/base/common/keyCodes';
-import * as types from 'vs/base/common/types';
-import { status } from 'vs/base/browser/ui/aria/aria';
-import { ICodeEditor } from 'vs/editor/browser/editorBrowser';
-import { Command, EditorCommand, ICommandOptions, registerEditorCommand, MultiCommand, UndoCommand, RedoCommand, SelectAllCommand } from 'vs/editor/browser/editorExtensions';
-import { ICodeEditorService } from 'vs/editor/browser/services/codeEditorService';
-import { ColumnSelection, IColumnSelectResult } from 'vs/editor/common/cursor/cursorColumnSelection';
-import { CursorState, EditOperationType, IColumnSelectData, PartialCursorState } from 'vs/editor/common/cursorCommon';
-import { DeleteOperations } from 'vs/editor/common/cursor/cursorDeleteOperations';
-import { CursorChangeReason } from 'vs/editor/common/cursorEvents';
-import { CursorMove as CursorMove_, CursorMoveCommands } from 'vs/editor/common/cursor/cursorMoveCommands';
-import { TypeOperations } from 'vs/editor/common/cursor/cursorTypeOperations';
-import { IPosition, Position } from 'vs/editor/common/core/position';
-import { Range } from 'vs/editor/common/core/range';
-import { Handler, ScrollType } from 'vs/editor/common/editorCommon';
-import { EditorContextKeys } from 'vs/editor/common/editorContextKeys';
-import { VerticalRevealType } from 'vs/editor/common/viewEvents';
-import { ICommandHandlerDescription } from 'vs/platform/commands/common/commands';
-import { ContextKeyExpr } from 'vs/platform/contextkey/common/contextkey';
-import { ServicesAccessor } from 'vs/platform/instantiation/common/instantiation';
-import { KeybindingWeight, KeybindingsRegistry } from 'vs/platform/keybinding/common/keybindingsRegistry';
-import { EditorOption } from 'vs/editor/common/config/editorOptions';
-import { IViewModel } from 'vs/editor/common/viewModel';
-import { ISelection } from 'vs/editor/common/core/selection';
+import * as nls from '../../nls.js';
+import { isFirefox } from '../../base/browser/browser.js';
+import { KeyCode, KeyMod } from '../../base/common/keyCodes.js';
+import * as types from '../../base/common/types.js';
+import { status } from '../../base/browser/ui/aria/aria.js';
+import { ICodeEditor } from './editorBrowser.js';
+import { Command, EditorCommand, ICommandOptions, registerEditorCommand, MultiCommand, UndoCommand, RedoCommand, SelectAllCommand } from './editorExtensions.js';
+import { ICodeEditorService } from './services/codeEditorService.js';
+import { ColumnSelection, IColumnSelectResult } from '../common/cursor/cursorColumnSelection.js';
+import { CursorState, EditOperationType, IColumnSelectData, PartialCursorState } from '../common/cursorCommon.js';
+import { DeleteOperations } from '../common/cursor/cursorDeleteOperations.js';
+import { CursorChangeReason } from '../common/cursorEvents.js';
+import { CursorMove as CursorMove_, CursorMoveCommands } from '../common/cursor/cursorMoveCommands.js';
+import { TypeOperations } from '../common/cursor/cursorTypeOperations.js';
+import { IPosition, Position } from '../common/core/position.js';
+import { Range } from '../common/core/range.js';
+import { Handler, ScrollType } from '../common/editorCommon.js';
+import { EditorContextKeys } from '../common/editorContextKeys.js';
+import { VerticalRevealType } from '../common/viewEvents.js';
+import { ICommandMetadata } from '../../platform/commands/common/commands.js';
+import { ContextKeyExpr } from '../../platform/contextkey/common/contextkey.js';
+import { ServicesAccessor } from '../../platform/instantiation/common/instantiation.js';
+import { KeybindingWeight, KeybindingsRegistry } from '../../platform/keybinding/common/keybindingsRegistry.js';
+import { EditorOption } from '../common/config/editorOptions.js';
+import { IViewModel } from '../common/viewModel.js';
+import { ISelection } from '../common/core/selection.js';
+import { getActiveElement, isEditableElement } from '../../base/browser/dom.js';
+import { EnterOperation } from '../common/cursor/cursorTypeEditOperations.js';
 
 const CORE_WEIGHT = KeybindingWeight.EditorCore;
 
@@ -73,7 +75,7 @@ export namespace EditorScroll_ {
 		return true;
 	};
 
-	export const description = <ICommandHandlerDescription>{
+	export const metadata: ICommandMetadata = {
 		description: 'Scroll editor in the given direction',
 		args: [
 			{
@@ -121,7 +123,9 @@ export namespace EditorScroll_ {
 	 */
 	export const RawDirection = {
 		Up: 'up',
+		Right: 'right',
 		Down: 'down',
+		Left: 'left'
 	};
 
 	/**
@@ -132,7 +136,8 @@ export namespace EditorScroll_ {
 		WrappedLine: 'wrappedLine',
 		Page: 'page',
 		HalfPage: 'halfPage',
-		Editor: 'editor'
+		Editor: 'editor',
+		Column: 'column'
 	};
 
 	/**
@@ -152,8 +157,14 @@ export namespace EditorScroll_ {
 			case RawDirection.Up:
 				direction = Direction.Up;
 				break;
+			case RawDirection.Right:
+				direction = Direction.Right;
+				break;
 			case RawDirection.Down:
 				direction = Direction.Down;
+				break;
+			case RawDirection.Left:
+				direction = Direction.Left;
 				break;
 			default:
 				// Illegal arguments
@@ -176,6 +187,9 @@ export namespace EditorScroll_ {
 				break;
 			case RawUnit.Editor:
 				unit = Unit.Editor;
+				break;
+			case RawUnit.Column:
+				unit = Unit.Column;
 				break;
 			default:
 				unit = Unit.WrappedLine;
@@ -201,9 +215,12 @@ export namespace EditorScroll_ {
 		select: boolean;
 	}
 
+
 	export const enum Direction {
 		Up = 1,
-		Down = 2
+		Right = 2,
+		Down = 3,
+		Left = 4
 	}
 
 	export const enum Unit {
@@ -211,7 +228,8 @@ export namespace EditorScroll_ {
 		WrappedLine = 2,
 		Page = 3,
 		HalfPage = 4,
-		Editor = 5
+		Editor = 5,
+		Column = 6
 	}
 }
 
@@ -235,7 +253,7 @@ export namespace RevealLine_ {
 		return true;
 	};
 
-	export const description = <ICommandHandlerDescription>{
+	export const metadata: ICommandMetadata = {
 		description: 'Reveal the given line at the given logical position',
 		args: [
 			{
@@ -299,9 +317,9 @@ abstract class EditorOrNativeTextInputCommand {
 		// 2. handle case when focus is in some other `input` / `textarea`.
 		target.addImplementation(1000, 'generic-dom-input-textarea', (accessor: ServicesAccessor, args: unknown) => {
 			// Only if focused on an element that allows for entering text
-			const activeElement = <HTMLElement>document.activeElement;
-			if (activeElement && ['input', 'textarea'].indexOf(activeElement.tagName.toLowerCase()) >= 0) {
-				this.runDOMCommand();
+			const activeElement = getActiveElement();
+			if (activeElement && isEditableElement(activeElement)) {
+				this.runDOMCommand(activeElement);
 				return true;
 			}
 			return false;
@@ -327,7 +345,7 @@ abstract class EditorOrNativeTextInputCommand {
 		return true;
 	}
 
-	public abstract runDOMCommand(): void;
+	public abstract runDOMCommand(activeElement: Element): void;
 	public abstract runEditorCommand(accessor: ServicesAccessor | null, editor: ICodeEditor, args: unknown): void | Promise<void>;
 }
 
@@ -380,7 +398,7 @@ export namespace CoreNavigationCommands {
 				]
 			);
 			if (cursorStateChanged && args.revealType !== NavigationCommandRevealType.None) {
-				viewModel.revealPrimaryCursor(args.source, true, true);
+				viewModel.revealAllCursors(args.source, true, true);
 			}
 		}
 	}
@@ -572,7 +590,7 @@ export namespace CoreNavigationCommands {
 			super({
 				id: 'cursorMove',
 				precondition: undefined,
-				description: CursorMove_.description
+				metadata: CursorMove_.metadata
 			});
 		}
 
@@ -592,7 +610,7 @@ export namespace CoreNavigationCommands {
 				CursorChangeReason.Explicit,
 				CursorMoveImpl._move(viewModel, viewModel.getCursorStates(), args)
 			);
-			viewModel.revealPrimaryCursor(source, true);
+			viewModel.revealAllCursors(source, true);
 		}
 
 		private static _move(viewModel: IViewModel, cursors: CursorState[], args: CursorMove_.ParsedArguments): PartialCursorState[] | null {
@@ -661,7 +679,7 @@ export namespace CoreNavigationCommands {
 				CursorChangeReason.Explicit,
 				CursorMoveCommands.simpleMove(viewModel, viewModel.getCursorStates(), args.direction, args.select, args.value, args.unit)
 			);
-			viewModel.revealPrimaryCursor(dynamicArgs.source, true);
+			viewModel.revealAllCursors(dynamicArgs.source, true);
 		}
 	}
 
@@ -976,7 +994,7 @@ export namespace CoreNavigationCommands {
 				CursorChangeReason.Explicit,
 				CursorMoveCommands.moveToBeginningOfLine(viewModel, viewModel.getCursorStates(), this._inSelectionMode)
 			);
-			viewModel.revealPrimaryCursor(args.source, true);
+			viewModel.revealAllCursors(args.source, true);
 		}
 	}
 
@@ -1020,7 +1038,7 @@ export namespace CoreNavigationCommands {
 				CursorChangeReason.Explicit,
 				this._exec(viewModel.getCursorStates())
 			);
-			viewModel.revealPrimaryCursor(args.source, true);
+			viewModel.revealAllCursors(args.source, true);
 		}
 
 		private _exec(cursors: CursorState[]): PartialCursorState[] {
@@ -1078,7 +1096,7 @@ export namespace CoreNavigationCommands {
 				CursorChangeReason.Explicit,
 				CursorMoveCommands.moveToEndOfLine(viewModel, viewModel.getCursorStates(), this._inSelectionMode, args.sticky || false)
 			);
-			viewModel.revealPrimaryCursor(args.source, true);
+			viewModel.revealAllCursors(args.source, true);
 		}
 	}
 
@@ -1093,7 +1111,7 @@ export namespace CoreNavigationCommands {
 			primary: KeyCode.End,
 			mac: { primary: KeyCode.End, secondary: [KeyMod.CtrlCmd | KeyCode.RightArrow] }
 		},
-		description: {
+		metadata: {
 			description: `Go to End`,
 			args: [{
 				name: 'args',
@@ -1122,7 +1140,7 @@ export namespace CoreNavigationCommands {
 			primary: KeyMod.Shift | KeyCode.End,
 			mac: { primary: KeyMod.Shift | KeyCode.End, secondary: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.RightArrow] }
 		},
-		description: {
+		metadata: {
 			description: `Select to End`,
 			args: [{
 				name: 'args',
@@ -1156,7 +1174,7 @@ export namespace CoreNavigationCommands {
 				CursorChangeReason.Explicit,
 				this._exec(viewModel, viewModel.getCursorStates())
 			);
-			viewModel.revealPrimaryCursor(args.source, true);
+			viewModel.revealAllCursors(args.source, true);
 		}
 
 		private _exec(viewModel: IViewModel, cursors: CursorState[]): PartialCursorState[] {
@@ -1211,7 +1229,7 @@ export namespace CoreNavigationCommands {
 				CursorChangeReason.Explicit,
 				CursorMoveCommands.moveToBeginningOfBuffer(viewModel, viewModel.getCursorStates(), this._inSelectionMode)
 			);
-			viewModel.revealPrimaryCursor(args.source, true);
+			viewModel.revealAllCursors(args.source, true);
 		}
 	}
 
@@ -1255,7 +1273,7 @@ export namespace CoreNavigationCommands {
 				CursorChangeReason.Explicit,
 				CursorMoveCommands.moveToEndOfBuffer(viewModel, viewModel.getCursorStates(), this._inSelectionMode)
 			);
-			viewModel.revealPrimaryCursor(args.source, true);
+			viewModel.revealAllCursors(args.source, true);
 		}
 	}
 
@@ -1290,8 +1308,30 @@ export namespace CoreNavigationCommands {
 			super({
 				id: 'editorScroll',
 				precondition: undefined,
-				description: EditorScroll_.description
+				metadata: EditorScroll_.metadata
 			});
+		}
+
+		determineScrollMethod(args: EditorScroll_.ParsedArguments) {
+			const horizontalUnits = [EditorScroll_.Unit.Column];
+			const verticalUnits = [
+				EditorScroll_.Unit.Line,
+				EditorScroll_.Unit.WrappedLine,
+				EditorScroll_.Unit.Page,
+				EditorScroll_.Unit.HalfPage,
+				EditorScroll_.Unit.Editor,
+				EditorScroll_.Unit.Column
+			];
+			const horizontalDirections = [EditorScroll_.Direction.Left, EditorScroll_.Direction.Right];
+			const verticalDirections = [EditorScroll_.Direction.Up, EditorScroll_.Direction.Down];
+
+			if (horizontalUnits.includes(args.unit) && horizontalDirections.includes(args.direction)) {
+				return this._runHorizontalEditorScroll.bind(this);
+			}
+			if (verticalUnits.includes(args.unit) && verticalDirections.includes(args.direction)) {
+				return this._runVerticalEditorScroll.bind(this);
+			}
+			return null;
 		}
 
 		public runCoreEditorCommand(viewModel: IViewModel, args: Partial<EditorScrollCommandOptions>): void {
@@ -1300,10 +1340,15 @@ export namespace CoreNavigationCommands {
 				// illegal arguments
 				return;
 			}
-			this._runEditorScroll(viewModel, args.source, parsed);
+			const runEditorScroll = this.determineScrollMethod(parsed);
+			if (!runEditorScroll) {
+				// Incompatible unit and direction
+				return;
+			}
+			runEditorScroll(viewModel, args.source, parsed);
 		}
 
-		_runEditorScroll(viewModel: IViewModel, source: string | null | undefined, args: EditorScroll_.ParsedArguments): void {
+		_runVerticalEditorScroll(viewModel: IViewModel, source: string | null | undefined, args: EditorScroll_.ParsedArguments): void {
 
 			const desiredScrollTop = this._computeDesiredScrollTop(viewModel, args);
 
@@ -1326,7 +1371,8 @@ export namespace CoreNavigationCommands {
 
 			if (args.unit === EditorScroll_.Unit.Line) {
 				// scrolling by model lines
-				const visibleViewRange = viewModel.getCompletelyVisibleViewRange();
+				const futureViewport = viewModel.viewLayout.getFutureViewport();
+				const visibleViewRange = viewModel.getCompletelyVisibleViewRangeAtScrollTop(futureViewport.top);
 				const visibleModelRange = viewModel.coordinatesConverter.convertViewRangeToModelRange(visibleViewRange);
 
 				let desiredTopModelLineNumber: number;
@@ -1361,6 +1407,16 @@ export namespace CoreNavigationCommands {
 			const deltaLines = (args.direction === EditorScroll_.Direction.Up ? -1 : 1) * noOfLines;
 			return viewModel.viewLayout.getCurrentScrollTop() + deltaLines * viewModel.cursorConfig.lineHeight;
 		}
+
+		_runHorizontalEditorScroll(viewModel: IViewModel, source: string | null | undefined, args: EditorScroll_.ParsedArguments): void {
+			const desiredScrollLeft = this._computeDesiredScrollLeft(viewModel, args);
+			viewModel.viewLayout.setScrollPosition({ scrollLeft: desiredScrollLeft }, ScrollType.Smooth);
+		}
+
+		_computeDesiredScrollLeft(viewModel: IViewModel, args: EditorScroll_.ParsedArguments) {
+			const deltaColumns = (args.direction === EditorScroll_.Direction.Left ? -1 : 1) * args.value;
+			return viewModel.viewLayout.getCurrentScrollLeft() + deltaColumns * viewModel.cursorConfig.typicalHalfwidthCharacterWidth;
+		}
 	}
 
 	export const EditorScroll: EditorScrollImpl = registerEditorCommand(new EditorScrollImpl());
@@ -1380,12 +1436,13 @@ export namespace CoreNavigationCommands {
 		}
 
 		runCoreEditorCommand(viewModel: IViewModel, args: Partial<BaseCommandOptions>): void {
-			EditorScroll._runEditorScroll(viewModel, args.source, {
-				direction: EditorScroll_.Direction.Up,
-				unit: EditorScroll_.Unit.WrappedLine,
+			EditorScroll.runCoreEditorCommand(viewModel, {
+				to: EditorScroll_.RawDirection.Up,
+				by: EditorScroll_.RawUnit.WrappedLine,
 				value: 1,
 				revealCursor: false,
-				select: false
+				select: false,
+				source: args.source
 			});
 		}
 	});
@@ -1406,12 +1463,13 @@ export namespace CoreNavigationCommands {
 		}
 
 		runCoreEditorCommand(viewModel: IViewModel, args: Partial<BaseCommandOptions>): void {
-			EditorScroll._runEditorScroll(viewModel, args.source, {
-				direction: EditorScroll_.Direction.Up,
-				unit: EditorScroll_.Unit.Page,
+			EditorScroll.runCoreEditorCommand(viewModel, {
+				to: EditorScroll_.RawDirection.Up,
+				by: EditorScroll_.RawUnit.Page,
 				value: 1,
 				revealCursor: false,
-				select: false
+				select: false,
+				source: args.source
 			});
 		}
 	});
@@ -1429,12 +1487,13 @@ export namespace CoreNavigationCommands {
 		}
 
 		runCoreEditorCommand(viewModel: IViewModel, args: Partial<BaseCommandOptions>): void {
-			EditorScroll._runEditorScroll(viewModel, args.source, {
-				direction: EditorScroll_.Direction.Up,
-				unit: EditorScroll_.Unit.Editor,
+			EditorScroll.runCoreEditorCommand(viewModel, {
+				to: EditorScroll_.RawDirection.Up,
+				by: EditorScroll_.RawUnit.Editor,
 				value: 1,
 				revealCursor: false,
-				select: false
+				select: false,
+				source: args.source
 			});
 		}
 	});
@@ -1454,12 +1513,13 @@ export namespace CoreNavigationCommands {
 		}
 
 		runCoreEditorCommand(viewModel: IViewModel, args: Partial<BaseCommandOptions>): void {
-			EditorScroll._runEditorScroll(viewModel, args.source, {
-				direction: EditorScroll_.Direction.Down,
-				unit: EditorScroll_.Unit.WrappedLine,
+			EditorScroll.runCoreEditorCommand(viewModel, {
+				to: EditorScroll_.RawDirection.Down,
+				by: EditorScroll_.RawUnit.WrappedLine,
 				value: 1,
 				revealCursor: false,
-				select: false
+				select: false,
+				source: args.source
 			});
 		}
 	});
@@ -1480,12 +1540,13 @@ export namespace CoreNavigationCommands {
 		}
 
 		runCoreEditorCommand(viewModel: IViewModel, args: Partial<BaseCommandOptions>): void {
-			EditorScroll._runEditorScroll(viewModel, args.source, {
-				direction: EditorScroll_.Direction.Down,
-				unit: EditorScroll_.Unit.Page,
+			EditorScroll.runCoreEditorCommand(viewModel, {
+				to: EditorScroll_.RawDirection.Down,
+				by: EditorScroll_.RawUnit.Page,
 				value: 1,
 				revealCursor: false,
-				select: false
+				select: false,
+				source: args.source
 			});
 		}
 	});
@@ -1503,12 +1564,61 @@ export namespace CoreNavigationCommands {
 		}
 
 		runCoreEditorCommand(viewModel: IViewModel, args: Partial<BaseCommandOptions>): void {
-			EditorScroll._runEditorScroll(viewModel, args.source, {
-				direction: EditorScroll_.Direction.Down,
-				unit: EditorScroll_.Unit.Editor,
+			EditorScroll.runCoreEditorCommand(viewModel, {
+				to: EditorScroll_.RawDirection.Down,
+				by: EditorScroll_.RawUnit.Editor,
 				value: 1,
 				revealCursor: false,
-				select: false
+				select: false,
+				source: args.source
+			});
+		}
+	});
+
+	export const ScrollLeft: CoreEditorCommand<BaseCommandOptions> = registerEditorCommand(new class extends CoreEditorCommand<BaseCommandOptions> {
+		constructor() {
+			super({
+				id: 'scrollLeft',
+				precondition: undefined,
+				kbOpts: {
+					weight: CORE_WEIGHT,
+					kbExpr: EditorContextKeys.textInputFocus,
+				}
+			});
+		}
+
+		runCoreEditorCommand(viewModel: IViewModel, args: Partial<BaseCommandOptions>): void {
+			EditorScroll.runCoreEditorCommand(viewModel, {
+				to: EditorScroll_.RawDirection.Left,
+				by: EditorScroll_.RawUnit.Column,
+				value: 2,
+				revealCursor: false,
+				select: false,
+				source: args.source
+			});
+		}
+	});
+
+	export const ScrollRight: CoreEditorCommand<BaseCommandOptions> = registerEditorCommand(new class extends CoreEditorCommand<BaseCommandOptions> {
+		constructor() {
+			super({
+				id: 'scrollRight',
+				precondition: undefined,
+				kbOpts: {
+					weight: CORE_WEIGHT,
+					kbExpr: EditorContextKeys.textInputFocus,
+				}
+			});
+		}
+
+		runCoreEditorCommand(viewModel: IViewModel, args: Partial<BaseCommandOptions>): void {
+			EditorScroll.runCoreEditorCommand(viewModel, {
+				to: EditorScroll_.RawDirection.Right,
+				by: EditorScroll_.RawUnit.Column,
+				value: 2,
+				revealCursor: false,
+				select: false,
+				source: args.source
 			});
 		}
 	});
@@ -1535,7 +1645,7 @@ export namespace CoreNavigationCommands {
 				]
 			);
 			if (args.revealType !== NavigationCommandRevealType.None) {
-				viewModel.revealPrimaryCursor(args.source, true, true);
+				viewModel.revealAllCursors(args.source, true, true);
 			}
 		}
 	}
@@ -1601,7 +1711,7 @@ export namespace CoreNavigationCommands {
 				]
 			);
 			if (args.revealType !== NavigationCommandRevealType.None) {
-				viewModel.revealPrimaryCursor(args.source, false, true);
+				viewModel.revealAllCursors(args.source, false, true);
 			}
 		}
 	}
@@ -1680,7 +1790,7 @@ export namespace CoreNavigationCommands {
 					CursorMoveCommands.cancelSelection(viewModel, viewModel.getPrimaryCursorState())
 				]
 			);
-			viewModel.revealPrimaryCursor(args.source, true);
+			viewModel.revealAllCursors(args.source, true);
 		}
 	});
 
@@ -1707,7 +1817,7 @@ export namespace CoreNavigationCommands {
 					viewModel.getPrimaryCursorState()
 				]
 			);
-			viewModel.revealPrimaryCursor(args.source, true);
+			viewModel.revealAllCursors(args.source, true);
 			status(nls.localize('removedCursor', "Removed secondary cursors"));
 		}
 	});
@@ -1719,7 +1829,7 @@ export namespace CoreNavigationCommands {
 			super({
 				id: 'revealLine',
 				precondition: undefined,
-				description: RevealLine_.description
+				metadata: RevealLine_.metadata
 			});
 		}
 
@@ -1767,13 +1877,13 @@ export namespace CoreNavigationCommands {
 		constructor() {
 			super(SelectAllCommand);
 		}
-		public runDOMCommand(): void {
+		public runDOMCommand(activeElement: Element): void {
 			if (isFirefox) {
-				(<HTMLInputElement>document.activeElement).focus();
-				(<HTMLInputElement>document.activeElement).select();
+				(<HTMLInputElement>activeElement).focus();
+				(<HTMLInputElement>activeElement).select();
 			}
 
-			document.execCommand('selectAll');
+			activeElement.ownerDocument.execCommand('selectAll');
 		}
 		public runEditorCommand(accessor: ServicesAccessor, editor: ICodeEditor, args: unknown): void {
 			const viewModel = editor._getViewModel();
@@ -1879,7 +1989,7 @@ export namespace CoreEditingCommands {
 
 		public runCoreEditingCommand(editor: ICodeEditor, viewModel: IViewModel, args: unknown): void {
 			editor.pushUndoStop();
-			editor.executeCommands(this.id, TypeOperations.lineBreakInsert(viewModel.cursorConfig, viewModel.model, viewModel.getCursorStates().map(s => s.modelState.selection)));
+			editor.executeCommands(this.id, EnterOperation.lineBreakInsert(viewModel.cursorConfig, viewModel.model, viewModel.getCursorStates().map(s => s.modelState.selection)));
 		}
 	});
 
@@ -1982,8 +2092,8 @@ export namespace CoreEditingCommands {
 		constructor() {
 			super(UndoCommand);
 		}
-		public runDOMCommand(): void {
-			document.execCommand('undo');
+		public runDOMCommand(activeElement: Element): void {
+			activeElement.ownerDocument.execCommand('undo');
 		}
 		public runEditorCommand(accessor: ServicesAccessor | null, editor: ICodeEditor, args: unknown): void | Promise<void> {
 			if (!editor.hasModel() || editor.getOption(EditorOption.readOnly) === true) {
@@ -1997,8 +2107,8 @@ export namespace CoreEditingCommands {
 		constructor() {
 			super(RedoCommand);
 		}
-		public runDOMCommand(): void {
-			document.execCommand('redo');
+		public runDOMCommand(activeElement: Element): void {
+			activeElement.ownerDocument.execCommand('redo');
 		}
 		public runEditorCommand(accessor: ServicesAccessor | null, editor: ICodeEditor, args: unknown): void | Promise<void> {
 			if (!editor.hasModel() || editor.getOption(EditorOption.readOnly) === true) {
@@ -2016,11 +2126,11 @@ class EditorHandlerCommand extends Command {
 
 	private readonly _handlerId: string;
 
-	constructor(id: string, handlerId: string, description?: ICommandHandlerDescription) {
+	constructor(id: string, handlerId: string, metadata?: ICommandMetadata) {
 		super({
 			id: id,
 			precondition: undefined,
-			description: description
+			metadata
 		});
 		this._handlerId = handlerId;
 	}
@@ -2035,9 +2145,9 @@ class EditorHandlerCommand extends Command {
 	}
 }
 
-function registerOverwritableCommand(handlerId: string, description?: ICommandHandlerDescription): void {
+function registerOverwritableCommand(handlerId: string, metadata?: ICommandMetadata): void {
 	registerCommand(new EditorHandlerCommand('default:' + handlerId, handlerId));
-	registerCommand(new EditorHandlerCommand(handlerId, handlerId, description));
+	registerCommand(new EditorHandlerCommand(handlerId, handlerId, metadata));
 }
 
 registerOverwritableCommand(Handler.Type, {

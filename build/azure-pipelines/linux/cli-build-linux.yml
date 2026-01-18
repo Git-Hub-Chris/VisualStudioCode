@@ -1,11 +1,5 @@
 parameters:
-  - name: VSCODE_BUILD_LINUX_ALPINE
-    type: boolean
-    default: false
   - name: VSCODE_BUILD_LINUX
-    type: boolean
-    default: false
-  - name: VSCODE_BUILD_LINUX_ALPINE_ARM64
     type: boolean
     default: false
   - name: VSCODE_BUILD_LINUX_ARM64
@@ -14,74 +8,82 @@ parameters:
   - name: VSCODE_BUILD_LINUX_ARMHF
     type: boolean
     default: false
+  - name: VSCODE_CHECK_ONLY
+    type: boolean
+    default: false
   - name: VSCODE_QUALITY
     type: string
-  - name: channel
-    type: string
-    default: stable
 
 steps:
-  # inspired by: https://github.com/emk/rust-musl-builder/blob/main/Dockerfile
-  - bash: |
-      set -e
-      sudo apt-get update
-      sudo apt-get install -yq build-essential curl file git graphviz musl-dev musl-tools linux-libc-dev pkgconf zip unzip xutils-dev ninja-build
-      sudo ln -s "/usr/bin/g++" "/usr/bin/musl-g++" || echo "link exists"
-    displayName: Install build dependencies
-
-  # the cmake version on the 20.04 repo is too old for vcpkg
-  - bash: |
-      set -e
-      sudo apt remove --auto-remove cmake -y
-      curl -L https://github.com/Kitware/CMake/releases/download/v3.24.2/cmake-3.24.2-linux-aarch64.sh -o $(Build.ArtifactStagingDirectory)/cmake.sh
-      cd $(Build.ArtifactStagingDirectory) && echo "f5aaa0ad735554cdf10401311cf47858f822537e5f80b05bc8aa282d6e9dbb5d4d235c77d1299904a1156dec6d4000defc74ae891a43c1b2101367554b241ba1  cmake.sh" | sha512sum -c
-      sudo rm -rf /opt/cmake /usr/local/bin/cmake
-      sudo mkdir /opt/cmake && sudo sh $(Build.ArtifactStagingDirectory)/cmake.sh --skip-license --prefix=/opt/cmake
-      sudo ln -s /opt/cmake/bin/cmake /usr/local/bin/cmake
-    displayName: Update cmake
-    condition: and(succeeded(), eq(variables.VCPKG_FORCE_SYSTEM_BINARIES, '1'))
-
-  - ${{ if eq(parameters.VSCODE_BUILD_LINUX_ARMHF, true) }}:
-    - bash: |
-        set -e
-        sudo apt-get install -yq gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf
-      displayName: Install cross compilation toolchains
-
-  - template: ../vcpkg-install-posix.yml
-    parameters:
-      targets:
-        - ${{ if or(eq(parameters.VSCODE_BUILD_LINUX, true), eq(parameters.VSCODE_BUILD_LINUX_ALPINE, true)) }}:
-          - x64-linux
-        - ${{ if or(eq(parameters.VSCODE_BUILD_LINUX_ARM64, true), eq(parameters.VSCODE_BUILD_LINUX_ALPINE_ARM64, true)) }}:
-          - arm64-linux
-        - ${{ if eq(parameters.VSCODE_BUILD_LINUX_ARMHF, true) }}:
-          - arm-linux
-      vcpkgDir: $(Build.SourcesDirectory)/build/azure-pipelines/cli/vcpkg
-      vcpkgArgs: --overlay-ports=$(Build.SourcesDirectory)/build/azure-pipelines/cli/vcpkg-overlay-ports
-      targetDirectory: $(Build.ArtifactStagingDirectory)/deps
-
   - task: NodeTool@0
     inputs:
-      versionSpec: "16.x"
+      versionSource: fromFile
+      versionFilePath: .nvmrc
+      nodejsMirror: https://github.com/joaomoreno/node-mirror/releases/download
 
-  - template: ../mixin-distro-posix.yml
-    parameters:
-      VSCODE_QUALITY: ${{ variables.VSCODE_QUALITY }}
+  - ${{ if ne(parameters.VSCODE_QUALITY, 'oss') }}:
+    - template: ../cli/cli-apply-patches.yml@self
+
+  - task: Npm@1
+    displayName: Download openssl prebuilt
+    inputs:
+      command: custom
+      customCommand: pack @vscode-internal/openssl-prebuilt@0.0.11
+      customRegistry: useFeed
+      customFeed: "Monaco/openssl-prebuilt"
+      workingDir: $(Build.ArtifactStagingDirectory)
 
   - script: |
       set -e
-      node build/azure-pipelines/cli/prepare.js
-    displayName: Prepare CLI build
+      mkdir $(Build.ArtifactStagingDirectory)/openssl
+      tar -xvzf $(Build.ArtifactStagingDirectory)/vscode-internal-openssl-prebuilt-0.0.11.tgz --strip-components=1 --directory=$(Build.ArtifactStagingDirectory)/openssl
+    displayName: Extract openssl prebuilt
+
+  - ${{ if ne(parameters.VSCODE_QUALITY, 'oss') }}:
+    - script: node build/setup-npm-registry.js $NPM_REGISTRY build
+      condition: and(succeeded(), ne(variables['NPM_REGISTRY'], 'none'))
+      displayName: Setup NPM Registry
+
+    - script: |
+        set -e
+        # Set the private NPM registry to the global npmrc file
+        # so that authentication works for subfolders like build/, remote/, extensions/ etc
+        # which does not have their own .npmrc file
+        npm config set registry "$NPM_REGISTRY"
+        echo "##vso[task.setvariable variable=NPMRC_PATH]$(npm config get userconfig)"
+      condition: and(succeeded(), ne(variables['NPM_REGISTRY'], 'none'))
+      displayName: Setup NPM
+
+    - task: npmAuthenticate@0
+      inputs:
+        workingFile: $(NPMRC_PATH)
+      condition: and(succeeded(), ne(variables['NPM_REGISTRY'], 'none'))
+      displayName: Setup NPM Authentication
+
+  - script: |
+      set -e
+
+      for i in {1..5}; do # try 5 times
+        npm ci && break
+        if [ $i -eq 5 ]; then
+          echo "Npm install failed too many times" >&2
+          exit 1
+        fi
+        echo "Npm install failed $i, trying again..."
+      done
+    workingDirectory: build
     env:
       GITHUB_TOKEN: "$(github-distro-mixin-password)"
+    displayName: Install build dependencies
 
-  - template: ../cli/install-rust-posix.yml
+  - script: |
+      set -e
+      mkdir -p $(Build.SourcesDirectory)/.build
+    displayName: Create .build folder for misc dependencies
+
+  - template: ../cli/install-rust-posix.yml@self
     parameters:
       targets:
-        - ${{ if eq(parameters.VSCODE_BUILD_LINUX_ALPINE_ARM64, true) }}:
-          - aarch64-unknown-linux-musl
-        - ${{ if eq(parameters.VSCODE_BUILD_LINUX_ALPINE, true) }}:
-          - x86_64-unknown-linux-musl
         - ${{ if eq(parameters.VSCODE_BUILD_LINUX_ARM64, true) }}:
           - aarch64-unknown-linux-gnu
         - ${{ if eq(parameters.VSCODE_BUILD_LINUX, true) }}:
@@ -89,52 +91,69 @@ steps:
         - ${{ if eq(parameters.VSCODE_BUILD_LINUX_ARMHF, true) }}:
           - armv7-unknown-linux-gnueabihf
 
-  - ${{ if eq(parameters.VSCODE_BUILD_LINUX_ALPINE_ARM64, true) }}:
-    - template: ../cli/cli-compile-and-publish.yml
-      parameters:
-        VSCODE_CLI_TARGET: aarch64-unknown-linux-musl
-        VSCODE_CLI_ARTIFACT: vscode_cli_alpine_arm64_cli
-        VSCODE_CLI_ENV:
-          CXX_aarch64-unknown-linux-musl: musl-g++
-          CC_aarch64-unknown-linux-musl: musl-gcc
-          OPENSSL_LIB_DIR: $(Build.ArtifactStagingDirectory)/deps/arm64-linux/lib
-          OPENSSL_INCLUDE_DIR: $(Build.ArtifactStagingDirectory)/deps/arm64-linux/include
-
-  - ${{ if eq(parameters.VSCODE_BUILD_LINUX_ALPINE, true) }}:
-    - template: ../cli/cli-compile-and-publish.yml
-      parameters:
-        VSCODE_CLI_TARGET: x86_64-unknown-linux-musl
-        VSCODE_CLI_ARTIFACT: vscode_cli_alpine_x64_cli
-        VSCODE_CLI_ENV:
-          CXX_aarch64-unknown-linux-musl: musl-g++
-          CC_aarch64-unknown-linux-musl: musl-gcc
-          OPENSSL_LIB_DIR: $(Build.ArtifactStagingDirectory)/deps/x64-linux/lib
-          OPENSSL_INCLUDE_DIR: $(Build.ArtifactStagingDirectory)/deps/x64-linux/include
-
   - ${{ if eq(parameters.VSCODE_BUILD_LINUX_ARM64, true) }}:
-    - template: ../cli/cli-compile-and-publish.yml
+    - template: ../cli/cli-compile.yml@self
       parameters:
+        VSCODE_QUALITY: ${{ parameters.VSCODE_QUALITY }}
         VSCODE_CLI_TARGET: aarch64-unknown-linux-gnu
         VSCODE_CLI_ARTIFACT: vscode_cli_linux_arm64_cli
+        VSCODE_CHECK_ONLY: ${{ parameters.VSCODE_CHECK_ONLY }}
         VSCODE_CLI_ENV:
-          OPENSSL_LIB_DIR: $(Build.ArtifactStagingDirectory)/deps/arm64-linux/lib
-          OPENSSL_INCLUDE_DIR: $(Build.ArtifactStagingDirectory)/deps/arm64-linux/include
+          OPENSSL_LIB_DIR: $(Build.ArtifactStagingDirectory)/openssl/arm64-linux/lib
+          OPENSSL_INCLUDE_DIR: $(Build.ArtifactStagingDirectory)/openssl/arm64-linux/include
+          SYSROOT_ARCH: arm64
 
   - ${{ if eq(parameters.VSCODE_BUILD_LINUX, true) }}:
-    - template: ../cli/cli-compile-and-publish.yml
+    - template: ../cli/cli-compile.yml@self
       parameters:
+        VSCODE_QUALITY: ${{ parameters.VSCODE_QUALITY }}
         VSCODE_CLI_TARGET: x86_64-unknown-linux-gnu
         VSCODE_CLI_ARTIFACT: vscode_cli_linux_x64_cli
+        VSCODE_CHECK_ONLY: ${{ parameters.VSCODE_CHECK_ONLY }}
         VSCODE_CLI_ENV:
-          OPENSSL_LIB_DIR: $(Build.ArtifactStagingDirectory)/deps/x64-linux/lib
-          OPENSSL_INCLUDE_DIR: $(Build.ArtifactStagingDirectory)/deps/x64-linux/include
+          OPENSSL_LIB_DIR: $(Build.ArtifactStagingDirectory)/openssl/x64-linux/lib
+          OPENSSL_INCLUDE_DIR: $(Build.ArtifactStagingDirectory)/openssl/x64-linux/include
+          SYSROOT_ARCH: amd64
 
   - ${{ if eq(parameters.VSCODE_BUILD_LINUX_ARMHF, true) }}:
-    - template: ../cli/cli-compile-and-publish.yml
+    - template: ../cli/cli-compile.yml@self
       parameters:
+        VSCODE_QUALITY: ${{ parameters.VSCODE_QUALITY }}
         VSCODE_CLI_TARGET: armv7-unknown-linux-gnueabihf
         VSCODE_CLI_ARTIFACT: vscode_cli_linux_armhf_cli
+        VSCODE_CHECK_ONLY: ${{ parameters.VSCODE_CHECK_ONLY }}
         VSCODE_CLI_ENV:
-          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
-          OPENSSL_LIB_DIR: $(Build.ArtifactStagingDirectory)/deps/arm-linux/lib
-          OPENSSL_INCLUDE_DIR: $(Build.ArtifactStagingDirectory)/deps/arm-linux/include
+          OPENSSL_LIB_DIR: $(Build.ArtifactStagingDirectory)/openssl/arm-linux/lib
+          OPENSSL_INCLUDE_DIR: $(Build.ArtifactStagingDirectory)/openssl/arm-linux/include
+          SYSROOT_ARCH: armhf
+
+  - ${{ if not(parameters.VSCODE_CHECK_ONLY) }}:
+    - ${{ if eq(parameters.VSCODE_BUILD_LINUX_ARMHF, true) }}:
+      - task: 1ES.PublishPipelineArtifact@1
+        inputs:
+          targetPath: $(Build.ArtifactStagingDirectory)/vscode_cli_linux_armhf_cli.tar.gz
+          artifactName: vscode_cli_linux_armhf_cli
+          sbomBuildDropPath: $(Build.ArtifactStagingDirectory)/cli
+          sbomPackageName: "VS Code Linux armhf CLI"
+          sbomPackageVersion: $(Build.SourceVersion)
+        displayName: Publish vscode_cli_linux_armhf_cli artifact
+
+    - ${{ if eq(parameters.VSCODE_BUILD_LINUX, true) }}:
+      - task: 1ES.PublishPipelineArtifact@1
+        inputs:
+          targetPath: $(Build.ArtifactStagingDirectory)/vscode_cli_linux_x64_cli.tar.gz
+          artifactName: vscode_cli_linux_x64_cli
+          sbomBuildDropPath: $(Build.ArtifactStagingDirectory)/cli
+          sbomPackageName: "VS Code Linux x64 CLI"
+          sbomPackageVersion: $(Build.SourceVersion)
+        displayName: Publish vscode_cli_linux_x64_cli artifact
+
+    - ${{ if eq(parameters.VSCODE_BUILD_LINUX_ARM64, true) }}:
+      - task: 1ES.PublishPipelineArtifact@1
+        inputs:
+          targetPath: $(Build.ArtifactStagingDirectory)/vscode_cli_linux_arm64_cli.tar.gz
+          artifactName: vscode_cli_linux_arm64_cli
+          sbomBuildDropPath: $(Build.ArtifactStagingDirectory)/cli
+          sbomPackageName: "VS Code Linux arm64 CLI"
+          sbomPackageVersion: $(Build.SourceVersion)
+        displayName: Publish vscode_cli_linux_arm64_cli artifact

@@ -3,17 +3,17 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { CancellationToken } from 'vs/base/common/cancellation';
-import { ITextModel } from 'vs/editor/common/model';
-import { computeIndentLevel } from 'vs/editor/common/model/utils';
-import { FoldingMarkers } from 'vs/editor/common/languages/languageConfiguration';
-import { ILanguageConfigurationService } from 'vs/editor/common/languages/languageConfigurationRegistry';
-import { FoldingRegions, MAX_LINE_NUMBER } from 'vs/editor/contrib/folding/browser/foldingRanges';
-import { FoldingLimitReporter, RangeProvider } from './folding';
+import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { ITextModel } from '../../../common/model.js';
+import { computeIndentLevel } from '../../../common/model/utils.js';
+import { FoldingMarkers } from '../../../common/languages/languageConfiguration.js';
+import { ILanguageConfigurationService } from '../../../common/languages/languageConfigurationRegistry.js';
+import { FoldingRegions, MAX_LINE_NUMBER } from './foldingRanges.js';
+import { FoldingLimitReporter, RangeProvider } from './folding.js';
 
 const MAX_FOLDING_REGIONS_FOR_INDENT_DEFAULT = 5000;
 
-export const ID_INDENT_PROVIDER = 'indent';
+const ID_INDENT_PROVIDER = 'indent';
 
 export class IndentRangeProvider implements RangeProvider {
 	readonly id = ID_INDENT_PROVIDER;
@@ -66,7 +66,7 @@ export class RangesCollector {
 	public toIndentRanges(model: ITextModel) {
 		const limit = this._foldingRangesLimit.limit;
 		if (this._length <= limit) {
-			this._foldingRangesLimit.report({ limited: false, computed: this._length });
+			this._foldingRangesLimit.update(this._length, false);
 
 			// reverse and create arrays of the exact length
 			const startIndexes = new Uint32Array(this._length);
@@ -77,7 +77,7 @@ export class RangesCollector {
 			}
 			return new FoldingRegions(startIndexes, endIndexes);
 		} else {
-			this._foldingRangesLimit.report({ limited: limit, computed: this._length });
+			this._foldingRangesLimit.update(this._length, limit);
 
 			let entries = 0;
 			let maxIndent = this._indentOccurrences.length;
@@ -120,7 +120,7 @@ interface PreviousRegion {
 
 const foldingRangesLimitDefault: FoldingLimitReporter = {
 	limit: MAX_FOLDING_REGIONS_FOR_INDENT_DEFAULT,
-	report: () => { }
+	update: () => { }
 };
 
 export function computeRanges(model: ITextModel, offSide: boolean, markers?: FoldingMarkers, foldingRangesLimit: FoldingLimitReporter = foldingRangesLimitDefault): FoldingRegions {

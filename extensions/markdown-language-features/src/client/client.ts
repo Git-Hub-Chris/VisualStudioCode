@@ -4,16 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import { BaseLanguageClient, LanguageClientOptions, NotebookDocumentSyncRegistrationType } from 'vscode-languageclient';
-import * as nls from 'vscode-nls';
+import { BaseLanguageClient, LanguageClientOptions, NotebookDocumentSyncRegistrationType, Range, TextEdit } from 'vscode-languageclient';
 import { IMdParser } from '../markdownEngine';
-import * as proto from './protocol';
-import { looksLikeMarkdownPath, markdownFileExtensions } from '../util/file';
-import { VsCodeMdWorkspace } from './workspace';
-import { FileWatcherManager } from './fileWatchingManager';
 import { IDisposable } from '../util/dispose';
-
-const localize = nls.loadMessageBundle();
+import { looksLikeMarkdownPath, markdownFileExtensions } from '../util/file';
+import { FileWatcherManager } from './fileWatchingManager';
+import { InMemoryDocument } from './inMemoryDocument';
+import * as proto from './protocol';
+import { VsCodeMdWorkspace } from './workspace';
 
 export type LanguageClientConstructor = (name: string, description: string, clientOptions: LanguageClientOptions) => BaseLanguageClient;
 
@@ -40,6 +38,21 @@ export class MdLanguageClient implements IDisposable {
 	getReferencesToFileInWorkspace(resource: vscode.Uri, token: vscode.CancellationToken) {
 		return this._client.sendRequest(proto.getReferencesToFileInWorkspace, { uri: resource.toString() }, token);
 	}
+
+	prepareUpdatePastedLinks(doc: vscode.Uri, ranges: readonly vscode.Range[], token: vscode.CancellationToken) {
+		return this._client.sendRequest(proto.prepareUpdatePastedLinks, {
+			uri: doc.toString(),
+			ranges: ranges.map(range => Range.create(range.start.line, range.start.character, range.end.line, range.end.character)),
+		}, token);
+	}
+
+	getUpdatePastedLinksEdit(pastingIntoDoc: vscode.Uri, edits: readonly vscode.TextEdit[], metadata: string, token: vscode.CancellationToken) {
+		return this._client.sendRequest(proto.getUpdatePastedLinksEdit, {
+			metadata,
+			pasteIntoDoc: pastingIntoDoc.toString(),
+			edits: edits.map(edit => TextEdit.replace(edit.range, edit.newText)),
+		}, token);
+	}
 }
 
 export async function startClient(factory: LanguageClientConstructor, parser: IMdParser): Promise<MdLanguageClient> {
@@ -54,6 +67,7 @@ export async function startClient(factory: LanguageClientConstructor, parser: IM
 		},
 		initializationOptions: {
 			markdownFileExtensions,
+			i10lLocation: vscode.l10n.uri?.toJSON(),
 		},
 		diagnosticPullOptions: {
 			onChange: true,
@@ -62,9 +76,12 @@ export async function startClient(factory: LanguageClientConstructor, parser: IM
 				return looksLikeMarkdownPath(resource);
 			},
 		},
+		markdown: {
+			supportHtml: true,
+		}
 	};
 
-	const client = factory('markdown', localize('markdownServer.name', 'Markdown Language Server'), clientOptions);
+	const client = factory('markdown', vscode.l10n.t("Markdown Language Server"), clientOptions);
 
 	client.registerProposedFeatures();
 
@@ -85,11 +102,15 @@ export async function startClient(factory: LanguageClientConstructor, parser: IM
 
 	client.onRequest(proto.parse, async (e) => {
 		const uri = vscode.Uri.parse(e.uri);
-		const doc = await workspace.getOrLoadMarkdownDocument(uri);
-		if (doc) {
-			return parser.tokenize(doc);
+		if (typeof e.text === 'string') {
+			return parser.tokenize(new InMemoryDocument(uri, e.text, -1));
 		} else {
-			return [];
+			const doc = await workspace.getOrLoadMarkdownDocument(uri);
+			if (doc) {
+				return parser.tokenize(doc);
+			} else {
+				return [];
+			}
 		}
 	});
 

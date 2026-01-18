@@ -3,30 +3,28 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Delayer } from 'vs/base/common/async';
-import { VSBuffer, VSBufferReadableStream } from 'vs/base/common/buffer';
-import { Schemas } from 'vs/base/common/network';
-import { consumeStream } from 'vs/base/common/stream';
-import { ProxyChannel } from 'vs/base/parts/ipc/common/ipc';
-import { IAccessibilityService } from 'vs/platform/accessibility/common/accessibility';
-import { IMenuService } from 'vs/platform/actions/common/actions';
-import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { IContextMenuService } from 'vs/platform/contextview/browser/contextView';
-import { IFileService } from 'vs/platform/files/common/files';
-import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
-import { IMainProcessService } from 'vs/platform/ipc/electron-sandbox/services';
-import { ILogService } from 'vs/platform/log/common/log';
-import { INativeHostService } from 'vs/platform/native/electron-sandbox/native';
-import { INotificationService } from 'vs/platform/notification/common/notification';
-import { IRemoteAuthorityResolverService } from 'vs/platform/remote/common/remoteAuthorityResolver';
-import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
-import { ITunnelService } from 'vs/platform/tunnel/common/tunnel';
-import { FindInFrameOptions, IWebviewManagerService } from 'vs/platform/webview/common/webviewManagerService';
-import { WebviewThemeDataProvider } from 'vs/workbench/contrib/webview/browser/themeing';
-import { WebviewInitInfo } from 'vs/workbench/contrib/webview/browser/webview';
-import { WebviewElement } from 'vs/workbench/contrib/webview/browser/webviewElement';
-import { WindowIgnoreMenuShortcutsManager } from 'vs/workbench/contrib/webview/electron-sandbox/windowIgnoreMenuShortcutsManager';
-import { IWorkbenchEnvironmentService } from 'vs/workbench/services/environment/common/environmentService';
+import { Delayer } from '../../../../base/common/async.js';
+import { VSBuffer, VSBufferReadableStream } from '../../../../base/common/buffer.js';
+import { Schemas } from '../../../../base/common/network.js';
+import { consumeStream } from '../../../../base/common/stream.js';
+import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
+import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
+import { INativeHostService } from '../../../../platform/native/common/native.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { IRemoteAuthorityResolverService } from '../../../../platform/remote/common/remoteAuthorityResolver.js';
+import { ITunnelService } from '../../../../platform/tunnel/common/tunnel.js';
+import { FindInFrameOptions, IWebviewManagerService } from '../../../../platform/webview/common/webviewManagerService.js';
+import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
+import { WebviewThemeDataProvider } from '../browser/themeing.js';
+import { WebviewInitInfo } from '../browser/webview.js';
+import { WebviewElement } from '../browser/webviewElement.js';
+import { WindowIgnoreMenuShortcutsManager } from './windowIgnoreMenuShortcutsManager.js';
 
 /**
  * Webview backed by an iframe but that uses Electron APIs to power the webview.
@@ -49,23 +47,21 @@ export class ElectronWebviewElement extends WebviewElement {
 		@IContextMenuService contextMenuService: IContextMenuService,
 		@ITunnelService tunnelService: ITunnelService,
 		@IFileService fileService: IFileService,
-		@ITelemetryService telemetryService: ITelemetryService,
 		@IWorkbenchEnvironmentService environmentService: IWorkbenchEnvironmentService,
 		@IRemoteAuthorityResolverService remoteAuthorityResolverService: IRemoteAuthorityResolverService,
-		@IMenuService menuService: IMenuService,
 		@ILogService logService: ILogService,
 		@IConfigurationService configurationService: IConfigurationService,
 		@IMainProcessService mainProcessService: IMainProcessService,
 		@INotificationService notificationService: INotificationService,
-		@INativeHostService private readonly nativeHostService: INativeHostService,
+		@INativeHostService private readonly _nativeHostService: INativeHostService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IAccessibilityService accessibilityService: IAccessibilityService,
 	) {
 		super(initInfo, webviewThemeDataProvider,
-			configurationService, contextMenuService, menuService, notificationService, environmentService,
-			fileService, logService, remoteAuthorityResolverService, telemetryService, tunnelService, instantiationService, accessibilityService);
+			configurationService, contextMenuService, notificationService, environmentService,
+			fileService, logService, remoteAuthorityResolverService, tunnelService, instantiationService, accessibilityService);
 
-		this._webviewKeyboardHandler = new WindowIgnoreMenuShortcutsManager(configurationService, mainProcessService, nativeHostService);
+		this._webviewKeyboardHandler = new WindowIgnoreMenuShortcutsManager(configurationService, mainProcessService, _nativeHostService);
 
 		this._webviewMainService = ProxyChannel.toService<IWebviewManagerService>(mainProcessService.getChannel('webview'));
 
@@ -127,7 +123,7 @@ export class ElectronWebviewElement extends WebviewElement {
 		} else {
 			// continuing the find, so set findNext to false
 			const options: FindInFrameOptions = { forward: !previous, findNext: false, matchCase: false };
-			this._webviewMainService.findInFrame({ windowId: this.nativeHostService.windowId }, this.id, value, options);
+			this._webviewMainService.findInFrame({ windowId: this._nativeHostService.windowId }, this.id, value, options);
 		}
 	}
 
@@ -145,7 +141,7 @@ export class ElectronWebviewElement extends WebviewElement {
 
 		this._iframeDelayer.trigger(() => {
 			this._findStarted = true;
-			this._webviewMainService.findInFrame({ windowId: this.nativeHostService.windowId }, this.id, value, options);
+			this._webviewMainService.findInFrame({ windowId: this._nativeHostService.windowId }, this.id, value, options);
 		});
 	}
 
@@ -155,7 +151,7 @@ export class ElectronWebviewElement extends WebviewElement {
 		}
 		this._iframeDelayer.cancel();
 		this._findStarted = false;
-		this._webviewMainService.stopFindInFrame({ windowId: this.nativeHostService.windowId }, this.id, {
+		this._webviewMainService.stopFindInFrame({ windowId: this._nativeHostService.windowId }, this.id, {
 			keepSelection
 		});
 		this._onDidStopFind.fire();

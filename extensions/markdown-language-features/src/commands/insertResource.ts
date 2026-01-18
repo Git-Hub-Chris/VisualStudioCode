@@ -4,13 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import * as nls from 'vscode-nls';
+import { Utils } from 'vscode-uri';
 import { Command } from '../commandManager';
-import { createUriListSnippet, getParentDocumentUri, imageFileExtensions } from '../languageFeatures/dropIntoEditor';
+import { createUriListSnippet, linkEditKind } from '../languageFeatures/copyFiles/shared';
+import { mediaFileExtensions } from '../util/mimes';
 import { coalesce } from '../util/arrays';
+import { getParentDocumentUri } from '../util/document';
 import { Schemes } from '../util/schemes';
-
-const localize = nls.loadMessageBundle();
 
 
 export class InsertLinkFromWorkspace implements Command {
@@ -24,14 +24,17 @@ export class InsertLinkFromWorkspace implements Command {
 
 		resources ??= await vscode.window.showOpenDialog({
 			canSelectFiles: true,
-			canSelectFolders: true,
+			canSelectFolders: false,
 			canSelectMany: true,
-			openLabel: localize('insertLink.openLabel', "Insert link"),
-			title: localize('insertLink.title', "Insert link"),
+			openLabel: vscode.l10n.t("Insert link"),
+			title: vscode.l10n.t("Insert link"),
 			defaultUri: getDefaultUri(activeEditor.document),
 		});
+		if (!resources) {
+			return;
+		}
 
-		return insertLink(activeEditor, resources ?? [], false);
+		return insertLink(activeEditor, resources, false);
 	}
 }
 
@@ -49,45 +52,50 @@ export class InsertImageFromWorkspace implements Command {
 			canSelectFolders: false,
 			canSelectMany: true,
 			filters: {
-				[localize('insertImage.imagesLabel', "Images")]: Array.from(imageFileExtensions)
+				[vscode.l10n.t("Media")]: Array.from(mediaFileExtensions.keys())
 			},
-			openLabel: localize('insertImage.openLabel', "Insert image"),
-			title: localize('insertImage.title', "Insert image"),
+			openLabel: vscode.l10n.t("Insert image"),
+			title: vscode.l10n.t("Insert image"),
 			defaultUri: getDefaultUri(activeEditor.document),
 		});
+		if (!resources) {
+			return;
+		}
 
-		return insertLink(activeEditor, resources ?? [], true);
+		return insertLink(activeEditor, resources, true);
 	}
 }
 
 function getDefaultUri(document: vscode.TextDocument) {
-	const docUri = getParentDocumentUri(document);
+	const docUri = getParentDocumentUri(document.uri);
 	if (docUri.scheme === Schemes.untitled) {
 		return vscode.workspace.workspaceFolders?.[0]?.uri;
 	}
-	return docUri;
+	return Utils.dirname(docUri);
 }
 
-async function insertLink(activeEditor: vscode.TextEditor, selectedFiles: vscode.Uri[], insertAsImage: boolean): Promise<void> {
-	if (!selectedFiles.length) {
-		return;
+async function insertLink(activeEditor: vscode.TextEditor, selectedFiles: readonly vscode.Uri[], insertAsMedia: boolean): Promise<void> {
+	const edit = createInsertLinkEdit(activeEditor, selectedFiles, insertAsMedia);
+	if (edit) {
+		await vscode.workspace.applyEdit(edit);
 	}
-
-	const edit = createInsertLinkEdit(activeEditor, selectedFiles, insertAsImage);
-	await vscode.workspace.applyEdit(edit);
 }
 
-function createInsertLinkEdit(activeEditor: vscode.TextEditor, selectedFiles: vscode.Uri[], insertAsImage: boolean) {
+function createInsertLinkEdit(activeEditor: vscode.TextEditor, selectedFiles: readonly vscode.Uri[], insertAsMedia: boolean) {
 	const snippetEdits = coalesce(activeEditor.selections.map((selection, i): vscode.SnippetTextEdit | undefined => {
 		const selectionText = activeEditor.document.getText(selection);
-		const snippet = createUriListSnippet(activeEditor.document, selectedFiles, {
-			insertAsImage: insertAsImage,
+		const snippet = createUriListSnippet(activeEditor.document.uri, selectedFiles.map(uri => ({ uri })), {
+			linkKindHint: insertAsMedia ? 'media' : linkEditKind,
 			placeholderText: selectionText,
 			placeholderStartIndex: (i + 1) * selectedFiles.length,
+			separator: insertAsMedia ? '\n' : ' ',
 		});
 
-		return snippet ? new vscode.SnippetTextEdit(selection, snippet) : undefined;
+		return snippet ? new vscode.SnippetTextEdit(selection, snippet.snippet) : undefined;
 	}));
+	if (!snippetEdits.length) {
+		return;
+	}
 
 	const edit = new vscode.WorkspaceEdit();
 	edit.set(activeEditor.document.uri, snippetEdits);

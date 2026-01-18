@@ -4,34 +4,38 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import { disposeAll } from 'vscode-markdown-languageservice/out/util/dispose';
-import { ResourceMap } from 'vscode-markdown-languageservice/out/util/resourceMap';
 import { Utils } from 'vscode-uri';
-import { IDisposable } from '../util/dispose';
+import { disposeAll, IDisposable } from '../util/dispose';
+import { ResourceMap } from '../util/resourceMap';
 import { Schemes } from '../util/schemes';
 
 type DirWatcherEntry = {
 	readonly uri: vscode.Uri;
-	readonly listeners: IDisposable[];
+	readonly disposables: readonly IDisposable[];
 };
 
 
 export class FileWatcherManager {
 
-	private readonly fileWatchers = new Map<number, {
+	private readonly _fileWatchers = new Map<number, {
 		readonly watcher: vscode.FileSystemWatcher;
 		readonly dirWatchers: DirWatcherEntry[];
 	}>();
 
-	private readonly dirWatchers = new ResourceMap<{
+	private readonly _dirWatchers = new ResourceMap<{
 		readonly watcher: vscode.FileSystemWatcher;
 		refCount: number;
 	}>();
 
 	create(id: number, uri: vscode.Uri, watchParentDirs: boolean, listeners: { create?: () => void; change?: () => void; delete?: () => void }): void {
+		// Non-writable file systems do not support file watching
+		if (!vscode.workspace.fs.isWritableFileSystem(uri.scheme)) {
+			return;
+		}
+
 		const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(uri, '*'), !listeners.create, !listeners.change, !listeners.delete);
 		const parentDirWatchers: DirWatcherEntry[] = [];
-		this.fileWatchers.set(id, { watcher, dirWatchers: parentDirWatchers });
+		this._fileWatchers.set(id, { watcher, dirWatchers: parentDirWatchers });
 
 		if (listeners.create) { watcher.onDidCreate(listeners.create); }
 		if (listeners.change) { watcher.onDidChange(listeners.change); }
@@ -40,19 +44,19 @@ export class FileWatcherManager {
 		if (watchParentDirs && uri.scheme !== Schemes.untitled) {
 			// We need to watch the parent directories too for when these are deleted / created
 			for (let dirUri = Utils.dirname(uri); dirUri.path.length > 1; dirUri = Utils.dirname(dirUri)) {
-				const dirWatcher: DirWatcherEntry = { uri: dirUri, listeners: [] };
+				const disposables: IDisposable[] = [];
 
-				let parentDirWatcher = this.dirWatchers.get(dirUri);
+				let parentDirWatcher = this._dirWatchers.get(dirUri);
 				if (!parentDirWatcher) {
 					const glob = new vscode.RelativePattern(Utils.dirname(dirUri), Utils.basename(dirUri));
 					const parentWatcher = vscode.workspace.createFileSystemWatcher(glob, !listeners.create, true, !listeners.delete);
 					parentDirWatcher = { refCount: 0, watcher: parentWatcher };
-					this.dirWatchers.set(dirUri, parentDirWatcher);
+					this._dirWatchers.set(dirUri, parentDirWatcher);
 				}
 				parentDirWatcher.refCount++;
 
 				if (listeners.create) {
-					dirWatcher.listeners.push(parentDirWatcher.watcher.onDidCreate(async () => {
+					disposables.push(parentDirWatcher.watcher.onDidCreate(async () => {
 						// Just because the parent dir was created doesn't mean our file was created
 						try {
 							const stat = await vscode.workspace.fs.stat(uri);
@@ -68,25 +72,25 @@ export class FileWatcherManager {
 				if (listeners.delete) {
 					// When the parent dir is deleted, consider our file deleted too
 					// TODO: this fires if the file previously did not exist and then the parent is deleted
-					dirWatcher.listeners.push(parentDirWatcher.watcher.onDidDelete(listeners.delete));
+					disposables.push(parentDirWatcher.watcher.onDidDelete(listeners.delete));
 				}
 
-				parentDirWatchers.push(dirWatcher);
+				parentDirWatchers.push({ uri: dirUri, disposables });
 			}
 		}
 	}
 
 	delete(id: number): void {
-		const entry = this.fileWatchers.get(id);
+		const entry = this._fileWatchers.get(id);
 		if (entry) {
 			for (const dirWatcher of entry.dirWatchers) {
-				disposeAll(dirWatcher.listeners);
+				disposeAll(dirWatcher.disposables);
 
-				const dirWatcherEntry = this.dirWatchers.get(dirWatcher.uri);
+				const dirWatcherEntry = this._dirWatchers.get(dirWatcher.uri);
 				if (dirWatcherEntry) {
 					if (--dirWatcherEntry.refCount <= 0) {
 						dirWatcherEntry.watcher.dispose();
-						this.dirWatchers.delete(dirWatcher.uri);
+						this._dirWatchers.delete(dirWatcher.uri);
 					}
 				}
 			}
@@ -94,6 +98,6 @@ export class FileWatcherManager {
 			entry.watcher.dispose();
 		}
 
-		this.fileWatchers.delete(id);
+		this._fileWatchers.delete(id);
 	}
 }

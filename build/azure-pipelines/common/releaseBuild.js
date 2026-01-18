@@ -29,9 +29,9 @@ async function getConfig(client, quality) {
     return res.resources[0];
 }
 async function main(force) {
-    const commit = process.env['VSCODE_DISTRO_COMMIT'] || getEnv('BUILD_SOURCEVERSION');
+    const commit = getEnv('BUILD_SOURCEVERSION');
     const quality = getEnv('VSCODE_QUALITY');
-    const aadCredentials = new identity_1.ClientSecretCredential(process.env['AZURE_TENANT_ID'], process.env['AZURE_CLIENT_ID'], process.env['AZURE_CLIENT_SECRET']);
+    const aadCredentials = new identity_1.ClientAssertionCredential(process.env['AZURE_TENANT_ID'], process.env['AZURE_CLIENT_ID'], () => Promise.resolve(process.env['AZURE_ID_TOKEN']));
     const client = new cosmos_1.CosmosClient({ endpoint: process.env['AZURE_DOCUMENTDB_ENDPOINT'], aadCredentials });
     if (!force) {
         const config = await getConfig(client, quality);
@@ -46,10 +46,12 @@ async function main(force) {
     await (0, retry_1.retry)(() => scripts.storedProcedure('releaseBuild').execute('', [commit]));
 }
 const [, , force] = process.argv;
-main(force === 'true').then(() => {
+console.log(process.argv);
+main(/^true$/i.test(force)).then(() => {
     console.log('Build successfully released');
     process.exit(0);
 }, err => {
     console.error(err);
     process.exit(1);
 });
+//# sourceMappingURL=releaseBuild.js.map
