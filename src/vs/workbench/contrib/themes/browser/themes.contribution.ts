@@ -75,7 +75,7 @@ class MarketplaceThemesPicker {
 		@IQuickInputService private readonly quickInputService: IQuickInputService,
 		@ILogService private readonly logService: ILogService,
 		@IProgressService private readonly progressService: IProgressService,
-		@IPaneCompositePartService private readonly paneCompositeService: IPaneCompositePartService,
+		@IExtensionsWorkbenchService private readonly extensionsWorkbenchService: IExtensionsWorkbenchService,
 		@IDialogService private readonly dialogService: IDialogService
 	) {
 		this._installedExtensions = extensionManagementService.getInstalled().then(installed => {
@@ -191,9 +191,9 @@ class MarketplaceThemesPicker {
 				if (isItem(e.item)) {
 					const extensionId = e.item.theme?.extensionData?.extensionId;
 					if (extensionId) {
-						openExtensionViewlet(this.paneCompositeService, `@id:${extensionId}`);
+						this.extensionsWorkbenchService.openSearch(`@id:${extensionId}`);
 					} else {
-						openExtensionViewlet(this.paneCompositeService, `${this.marketplaceQuery} ${quickpick.value}`);
+						this.extensionsWorkbenchService.openSearch(`${this.marketplaceQuery} ${quickpick.value}`);
 					}
 				}
 			}));
@@ -222,7 +222,7 @@ class MarketplaceThemesPicker {
 			disposables.add(this.onDidChange(() => {
 				let items = this.themes;
 				if (this._searchOngoing) {
-					items = items.concat({ label: '$(sync~spin) Searching for themes...', id: undefined, alwaysShow: true });
+					items = items.concat({ label: '$(loading~spin) Searching for themes...', id: undefined, alwaysShow: true });
 				} else if (items.length === 0 && this._searchError) {
 					items = [{ label: `$(error) ${localize('search.error', 'Error while searching for themes: {0}', this._searchError)}`, id: undefined, alwaysShow: true }];
 				}
@@ -242,7 +242,7 @@ class MarketplaceThemesPicker {
 	}
 
 	private async installExtension(galleryExtension: IGalleryExtension) {
-		openExtensionViewlet(this.paneCompositeService, `@id:${galleryExtension.identifier.id}`);
+		this.extensionsWorkbenchService.openSearch(`@id:${galleryExtension.identifier.id}`);
 		const result = await this.dialogService.confirm({
 			message: localize('installExtension.confirm', "This will install extension '{0}' published by '{1}'. Do you want to continue?", galleryExtension.displayName, galleryExtension.publisherDisplayName),
 			primaryButton: localize('installExtension.button.ok', "OK")
@@ -297,7 +297,7 @@ class InstalledThemesPicker {
 		private readonly getMarketplaceColorThemes: (publisher: string, name: string, version: string) => Promise<IWorkbenchTheme[]>,
 		@IQuickInputService private readonly quickInputService: IQuickInputService,
 		@IExtensionGalleryService private readonly extensionGalleryService: IExtensionGalleryService,
-		@IPaneCompositePartService private readonly paneCompositeService: IPaneCompositePartService,
+		@IExtensionsWorkbenchService private readonly extensionsWorkbenchService: IExtensionsWorkbenchService,
 		@IExtensionResourceLoaderService private readonly extensionResourceLoaderService: IExtensionResourceLoaderService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService
 	) {
@@ -355,7 +355,7 @@ class InstalledThemesPicker {
 					const theme = quickpick.selectedItems[0];
 					if (!theme || theme.configureItem) { // 'pick in marketplace' entry
 						if (!theme || theme.configureItem === ConfigureItem.EXTENSIONS_VIEW) {
-							openExtensionViewlet(this.paneCompositeService, `${this.options.marketplaceTag} ${quickpick.value}`);
+							this.extensionsWorkbenchService.openSearch(`${this.options.marketplaceTag} ${quickpick.value}`);
 						} else if (theme.configureItem === ConfigureItem.BROWSE_GALLERY) {
 							if (marketplaceThemePicker) {
 								const res = await marketplaceThemePicker.openQuickPick(quickpick.value, currentTheme, selectTheme);
@@ -383,9 +383,9 @@ class InstalledThemesPicker {
 					if (isItem(e.item)) {
 						const extensionId = e.item.theme?.extensionData?.extensionId;
 						if (extensionId) {
-							openExtensionViewlet(this.paneCompositeService, `@id:${extensionId}`);
+							this.extensionsWorkbenchService.openSearch(`@id:${extensionId}`);
 						} else {
-							openExtensionViewlet(this.paneCompositeService, `${this.options.marketplaceTag} ${quickpick.value}`);
+							this.extensionsWorkbenchService.openSearch(`${this.options.marketplaceTag} ${quickpick.value}`);
 						}
 					}
 				}));
@@ -600,14 +600,6 @@ function configurationEntry(label: string, configureItem: ConfigureItem): QuickP
 	};
 }
 
-function openExtensionViewlet(paneCompositeService: IPaneCompositePartService, query: string) {
-	return paneCompositeService.openPaneComposite(VIEWLET_ID, ViewContainerLocation.Sidebar, true).then(viewlet => {
-		if (viewlet) {
-			(viewlet?.getViewPaneContainer() as IExtensionsViewPaneContainer).search(query);
-			viewlet.focus();
-		}
-	});
-}
 interface ThemeItem extends IQuickPickItem {
 	readonly id: string | undefined;
 	readonly theme?: IWorkbenchTheme;
@@ -665,7 +657,7 @@ registerAction2(class extends Action2 {
 
 		const theme = themeService.getColorTheme();
 		const colors = Registry.as<IColorRegistry>(ColorRegistryExtensions.ColorContribution).getColors();
-		const colorIds = colors.map(c => c.id).sort();
+		const colorIds = colors.filter(c => !c.deprecationMessage).map(c => c.id).sort();
 		const resultingColors: { [key: string]: string | null } = {};
 		const inherited: string[] = [];
 		for (const colorId of colorIds) {
@@ -818,7 +810,7 @@ MenuRegistry.appendMenuItem(MenuId.GlobalActivity, {
 	order: 7
 } satisfies ISubmenuItem);
 MenuRegistry.appendMenuItem(MenuId.MenubarPreferencesMenu, {
-	title: localize({ key: 'miSelectTheme', comment: ['&& denotes a mnemonic'] }, "&&Theme"),
+	title: localize({ key: 'miSelectTheme', comment: ['&& denotes a mnemonic'] }, "&&Themes"),
 	submenu: ThemesSubMenu,
 	group: '2_configuration',
 	order: 7
