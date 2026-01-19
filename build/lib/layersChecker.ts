@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as ts from 'typescript';
+import ts from 'typescript';
 import { readFileSync, existsSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { match } from 'minimatch';
@@ -24,7 +24,6 @@ import { match } from 'minimatch';
 // Types we assume are present in all implementations of JS VMs (node.js, browsers)
 // Feel free to add more core types as you see needed if present in node.js and browsers
 const CORE_TYPES = [
-	'require', // from our AMD loader
 	'setTimeout',
 	'clearTimeout',
 	'setInterval',
@@ -69,11 +68,21 @@ const CORE_TYPES = [
 	'fetch',
 	'RequestInit',
 	'Headers',
+	'Request',
 	'Response',
+	'Body',
+	'__type',
 	'__global',
+	'Performance',
 	'PerformanceMark',
 	'PerformanceObserver',
-	'ImportMeta'
+	'ImportMeta',
+
+	// webcrypto has been available since Node.js 19, but still live in dom.d.ts
+	'Crypto',
+	'SubtleCrypto',
+	'JsonWebKey',
+	'MessageEvent',
 ];
 
 // Types that are defined in a common layer but are known to be only

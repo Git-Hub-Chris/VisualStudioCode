@@ -3,33 +3,70 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.optimizeTask = optimizeTask;
+exports.bundleTask = bundleTask;
 exports.minifyTask = minifyTask;
-const es = require("event-stream");
-const gulp = require("gulp");
-const concat = require("gulp-concat");
-const filter = require("gulp-filter");
-const path = require("path");
-const fs = require("fs");
-const pump = require("pump");
-const VinylFile = require("vinyl");
-const bundle = require("./bundle");
+const event_stream_1 = __importDefault(require("event-stream"));
+const gulp_1 = __importDefault(require("gulp"));
+const gulp_filter_1 = __importDefault(require("gulp-filter"));
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
+const pump_1 = __importDefault(require("pump"));
+const vinyl_1 = __importDefault(require("vinyl"));
+const bundle = __importStar(require("./bundle"));
 const postcss_1 = require("./postcss");
-const esbuild = require("esbuild");
-const sourcemaps = require("gulp-sourcemaps");
-const REPO_ROOT_PATH = path.join(__dirname, '../..');
+const esbuild_1 = __importDefault(require("esbuild"));
+const gulp_sourcemaps_1 = __importDefault(require("gulp-sourcemaps"));
+const fancy_log_1 = __importDefault(require("fancy-log"));
+const ansi_colors_1 = __importDefault(require("ansi-colors"));
+const REPO_ROOT_PATH = path_1.default.join(__dirname, '../..');
 const DEFAULT_FILE_HEADER = [
     '/*!--------------------------------------------------------',
     ' * Copyright (C) Microsoft Corporation. All rights reserved.',
     ' *--------------------------------------------------------*/'
 ].join('\n');
-function optimizeESMTask(opts) {
-    const resourcesStream = es.through(); // this stream will contain the resources
-    const bundlesStream = es.through(); // this stream will contain the bundled files
+function bundleESMTask(opts) {
+    const resourcesStream = event_stream_1.default.through(); // this stream will contain the resources
+    const bundlesStream = event_stream_1.default.through(); // this stream will contain the bundled files
     const entryPoints = opts.entryPoints.map(entryPoint => {
         if (typeof entryPoint === 'string') {
-            return { name: path.parse(entryPoint).name };
+            return { name: path_1.default.parse(entryPoint).name };
         }
         return entryPoint;
     });
@@ -39,49 +76,63 @@ function optimizeESMTask(opts) {
         entryPoint.include?.forEach(allMentionedModules.add, allMentionedModules);
         entryPoint.exclude?.forEach(allMentionedModules.add, allMentionedModules);
     }
-    allMentionedModules.delete('vs/css'); // TODO@esm remove this when vs/css is removed
     const bundleAsync = async () => {
         const files = [];
         const tasks = [];
         for (const entryPoint of entryPoints) {
-            console.log(`[bundle] '${entryPoint.name}'`);
+            (0, fancy_log_1.default)(`Bundled entry point: ${ansi_colors_1.default.yellow(entryPoint.name)}...`);
             // support for 'dest' via esbuild#in/out
             const dest = entryPoint.dest?.replace(/\.[^/.]+$/, '') ?? entryPoint.name;
-            // boilerplate massage
+            // banner contents
             const banner = {
                 js: DEFAULT_FILE_HEADER,
                 css: DEFAULT_FILE_HEADER
             };
-            const tslibPath = path.join(require.resolve('tslib'), '../tslib.es6.js');
-            banner.js += await fs.promises.readFile(tslibPath, 'utf-8');
-            const boilerplateTrimmer = {
-                name: 'boilerplate-trimmer',
+            // TS Boilerplate
+            if (!opts.skipTSBoilerplateRemoval?.(entryPoint.name)) {
+                const tslibPath = path_1.default.join(require.resolve('tslib'), '../tslib.es6.js');
+                banner.js += await fs_1.default.promises.readFile(tslibPath, 'utf-8');
+            }
+            const contentsMapper = {
+                name: 'contents-mapper',
                 setup(build) {
-                    build.onLoad({ filter: /\.js$/ }, async (args) => {
-                        const contents = await fs.promises.readFile(args.path, 'utf-8');
-                        const newContents = bundle.removeAllTSBoilerplate(contents);
+                    build.onLoad({ filter: /\.js$/ }, async ({ path }) => {
+                        const contents = await fs_1.default.promises.readFile(path, 'utf-8');
+                        // TS Boilerplate
+                        let newContents;
+                        if (!opts.skipTSBoilerplateRemoval?.(entryPoint.name)) {
+                            newContents = bundle.removeAllTSBoilerplate(contents);
+                        }
+                        else {
+                            newContents = contents;
+                        }
+                        // File Content Mapper
+                        const mapper = opts.fileContentMapper?.(path.replace(/\\/g, '/'));
+                        if (mapper) {
+                            newContents = await mapper(newContents);
+                        }
                         return { contents: newContents };
                     });
                 }
             };
-            const overrideExternalPlugin = {
-                name: 'override-external',
+            const externalOverride = {
+                name: 'external-override',
                 setup(build) {
                     // We inline selected modules that are we depend on on startup without
                     // a conditional `await import(...)` by hooking into the resolution.
                     build.onResolve({ filter: /^minimist$/ }, () => {
-                        return { path: path.join(REPO_ROOT_PATH, 'node_modules', 'minimist', 'index.js'), external: false };
+                        return { path: path_1.default.join(REPO_ROOT_PATH, 'node_modules', 'minimist', 'index.js'), external: false };
                     });
                 },
             };
-            const task = esbuild.build({
+            const task = esbuild_1.default.build({
                 bundle: true,
                 external: entryPoint.exclude,
                 packages: 'external', // "external all the things", see https://esbuild.github.io/api/#packages
                 platform: 'neutral', // makes esm
                 format: 'esm',
                 sourcemap: 'external',
-                plugins: [boilerplateTrimmer, overrideExternalPlugin],
+                plugins: [contentsMapper, externalOverride],
                 target: ['es2022'],
                 loader: {
                     '.ttf': 'file',
@@ -93,37 +144,27 @@ function optimizeESMTask(opts) {
                 banner: entryPoint.name === 'vs/workbench/workbench.web.main' ? undefined : banner, // TODO@esm remove line when we stop supporting web-amd-esm-bridge
                 entryPoints: [
                     {
-                        in: path.join(REPO_ROOT_PATH, opts.src, `${entryPoint.name}.js`),
+                        in: path_1.default.join(REPO_ROOT_PATH, opts.src, `${entryPoint.name}.js`),
                         out: dest,
                     }
                 ],
-                outdir: path.join(REPO_ROOT_PATH, opts.src),
+                outdir: path_1.default.join(REPO_ROOT_PATH, opts.src),
                 write: false, // enables res.outputFiles
                 metafile: true, // enables res.metafile
+                // minify: NOT enabled because we have a separate minify task that takes care of the TSLib banner as well
             }).then(res => {
                 for (const file of res.outputFiles) {
-                    let contents = file.contents;
                     let sourceMapFile = undefined;
                     if (file.path.endsWith('.js')) {
-                        if (opts.fileContentMapper) {
-                            // UGLY the fileContentMapper is per file but at this point we have all files
-                            // bundled already. So, we call the mapper for the same contents but each file
-                            // that has been included in the bundle...
-                            let newText = file.text;
-                            for (const input of Object.keys(res.metafile.inputs)) {
-                                newText = opts.fileContentMapper(newText, input);
-                            }
-                            contents = Buffer.from(newText);
-                        }
                         sourceMapFile = res.outputFiles.find(f => f.path === `${file.path}.map`);
                     }
                     const fileProps = {
-                        contents: Buffer.from(contents),
+                        contents: Buffer.from(file.contents),
                         sourceMap: sourceMapFile ? JSON.parse(sourceMapFile.text) : undefined, // support gulp-sourcemaps
                         path: file.path,
-                        base: path.join(REPO_ROOT_PATH, opts.src)
+                        base: path_1.default.join(REPO_ROOT_PATH, opts.src)
                     };
-                    files.push(new VinylFile(fileProps));
+                    files.push(new vinyl_1.default(fileProps));
                 }
             });
             tasks.push(task);
@@ -133,34 +174,21 @@ function optimizeESMTask(opts) {
     };
     bundleAsync().then((output) => {
         // bundle output (JS, CSS, SVG...)
-        es.readArray(output.files).pipe(bundlesStream);
+        event_stream_1.default.readArray(output.files).pipe(bundlesStream);
         // forward all resources
-        gulp.src(opts.resources ?? [], { base: `${opts.src}`, allowEmpty: true }).pipe(resourcesStream);
+        gulp_1.default.src(opts.resources ?? [], { base: `${opts.src}`, allowEmpty: true }).pipe(resourcesStream);
     });
-    const result = es.merge(bundlesStream, resourcesStream);
+    const result = event_stream_1.default.merge(bundlesStream, resourcesStream);
     return result
-        .pipe(sourcemaps.write('./', {
+        .pipe(gulp_sourcemaps_1.default.write('./', {
         sourceRoot: undefined,
         addComment: true,
         includeContent: true
     }));
 }
-function optimizeManualTask(options) {
-    const concatenations = options.map(opt => {
-        return gulp
-            .src(opt.src)
-            .pipe(concat(opt.out));
-    });
-    return es.merge(...concatenations);
-}
-function optimizeTask(opts) {
+function bundleTask(opts) {
     return function () {
-        const optimizers = [];
-        optimizers.push(optimizeESMTask(opts.esm));
-        if (opts.manual) {
-            optimizers.push(optimizeManualTask(opts.manual));
-        }
-        return es.merge(...optimizers).pipe(gulp.dest(opts.out));
+        return bundleESMTask(opts.esm).pipe(gulp_1.default.dest(opts.out));
     };
 }
 function minifyTask(src, sourceMapBaseUrl) {
@@ -168,16 +196,17 @@ function minifyTask(src, sourceMapBaseUrl) {
     return cb => {
         const cssnano = require('cssnano');
         const svgmin = require('gulp-svgmin');
-        const jsFilter = filter('**/*.js', { restore: true });
-        const cssFilter = filter('**/*.css', { restore: true });
-        const svgFilter = filter('**/*.svg', { restore: true });
-        pump(gulp.src([src + '/**', '!' + src + '/**/*.map']), jsFilter, sourcemaps.init({ loadMaps: true }), es.map((f, cb) => {
-            esbuild.build({
+        const jsFilter = (0, gulp_filter_1.default)('**/*.js', { restore: true });
+        const cssFilter = (0, gulp_filter_1.default)('**/*.css', { restore: true });
+        const svgFilter = (0, gulp_filter_1.default)('**/*.svg', { restore: true });
+        (0, pump_1.default)(gulp_1.default.src([src + '/**', '!' + src + '/**/*.map']), jsFilter, gulp_sourcemaps_1.default.init({ loadMaps: true }), event_stream_1.default.map((f, cb) => {
+            esbuild_1.default.build({
                 entryPoints: [f.path],
                 minify: true,
                 sourcemap: 'external',
                 outdir: '.',
-                platform: 'node',
+                packages: 'external', // "external all the things", see https://esbuild.github.io/api/#packages
+                platform: 'neutral', // makes esm
                 target: ['es2022'],
                 write: false
             }).then(res => {
@@ -194,12 +223,12 @@ function minifyTask(src, sourceMapBaseUrl) {
                     cb(undefined, f);
                 }
             }, cb);
-        }), jsFilter.restore, cssFilter, (0, postcss_1.gulpPostcss)([cssnano({ preset: 'default' })]), cssFilter.restore, svgFilter, svgmin(), svgFilter.restore, sourcemaps.write('./', {
+        }), jsFilter.restore, cssFilter, (0, postcss_1.gulpPostcss)([cssnano({ preset: 'default' })]), cssFilter.restore, svgFilter, svgmin(), svgFilter.restore, gulp_sourcemaps_1.default.write('./', {
             sourceMappingURL,
             sourceRoot: undefined,
             includeContent: true,
             addComment: true
-        }), gulp.dest(src + '-min'), (err) => cb(err));
+        }), gulp_1.default.dest(src + '-min'), (err) => cb(err));
     };
 }
 //# sourceMappingURL=optimize.js.map

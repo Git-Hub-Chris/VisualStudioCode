@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { getErrorMessage } from '../../../base/common/errors.js';
+import { isDefined } from '../../../base/common/types.js';
 import { TargetPlatform } from '../../extensions/common/extensions.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
 import { ILogService, LogLevel } from '../../log/common/log.js';
@@ -24,11 +25,11 @@ export interface IExtensionSignatureVerificationService {
 
 	/**
 	 * Verifies an extension file (.vsix) against a signature archive file.
-	 * @param { string } extensionId The extension identifier.
-	 * @param { string } version The extension version.
-	 * @param { string } vsixFilePath The extension file path.
-	 * @param { string } signatureArchiveFilePath The signature archive file path.
-	 * @returns { Promise<IExtensionSignatureVerificationResult | undefined> } returns the verification result or undefined if the verification was not executed.
+	 * @param extensionId The extension identifier.
+	 * @param version The extension version.
+	 * @param vsixFilePath The extension file path.
+	 * @param signatureArchiveFilePath The signature archive file path.
+	 * @returns returns the verification result or undefined if the verification was not executed.
 	 */
 	verify(extensionId: string, version: string, vsixFilePath: string, signatureArchiveFilePath: string, clientTargetPlatform?: TargetPlatform): Promise<IExtensionSignatureVerificationResult | undefined>;
 }
@@ -97,7 +98,7 @@ export class ExtensionSignatureVerificationService implements IExtensionSignatur
 
 		const duration = new Date().getTime() - startTime;
 
-		this.logService.info(`Extension signature verification result for ${extensionId}: ${result.code}. Executed: ${result.didExecute}. Duration: ${duration}ms.`);
+		this.logService.info(`Extension signature verification result for ${extensionId}: ${result.code}. ${isDefined(result.internalCode) ? `Internal Code: ${result.internalCode}. ` : ''}Executed: ${result.didExecute}. Duration: ${duration}ms.`);
 		this.logService.trace(`Extension signature verification output for ${extensionId}:\n${result.output}`);
 
 		type ExtensionSignatureVerificationClassification = {

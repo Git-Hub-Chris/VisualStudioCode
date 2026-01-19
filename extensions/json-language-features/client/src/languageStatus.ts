@@ -6,10 +6,9 @@
 import {
 	window, languages, Uri, Disposable, commands, QuickPickItem,
 	extensions, workspace, Extension, WorkspaceFolder, QuickPickItemKind,
-	ThemeIcon, TextDocument, LanguageStatusSeverity, l10n
+	ThemeIcon, TextDocument, LanguageStatusSeverity, l10n, DocumentSelector
 } from 'vscode';
 import { JSONLanguageStatus, JSONSchemaSettings } from './jsonClient';
-import { DocumentSelector } from 'vscode-languageclient';
 
 type ShowSchemasInput = {
 	schemas: string[];
@@ -186,13 +185,13 @@ export function createLanguageStatusItem(documentSelector: DocumentSelector, sta
 				const schemas = (await statusRequest(document.uri.toString())).schemas;
 				statusItem.detail = undefined;
 				if (schemas.length === 0) {
-					statusItem.text = l10n.t('No Schema Validation');
+					statusItem.text = l10n.t('No schema validation');
 					statusItem.detail = l10n.t('no JSON schema configured');
 				} else if (schemas.length === 1) {
-					statusItem.text = l10n.t('Schema Validated');
+					statusItem.text = l10n.t('Schema validated');
 					statusItem.detail = l10n.t('JSON schema configured');
 				} else {
-					statusItem.text = l10n.t('Schema Validated');
+					statusItem.text = l10n.t('Schema validated');
 					statusItem.detail = l10n.t('multiple JSON schemas configured');
 				}
 				statusItem.command = {

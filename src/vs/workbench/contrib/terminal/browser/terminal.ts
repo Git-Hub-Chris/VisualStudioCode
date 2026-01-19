@@ -14,7 +14,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { IKeyMods } from '../../../../platform/quickinput/common/quickInput.js';
 import { IMarkProperties, ITerminalCapabilityImplMap, ITerminalCapabilityStore, ITerminalCommand, TerminalCapability } from '../../../../platform/terminal/common/capabilities/capabilities.js';
 import { IMergedEnvironmentVariableCollection } from '../../../../platform/terminal/common/environmentVariable.js';
-import { IExtensionTerminalProfile, IReconnectionProperties, IShellIntegration, IShellLaunchConfig, ITerminalBackend, ITerminalDimensions, ITerminalLaunchError, ITerminalProfile, ITerminalTabLayoutInfoById, TerminalExitReason, TerminalIcon, TerminalLocation, TerminalShellType, TerminalType, TitleEventSource, WaitOnExitValue } from '../../../../platform/terminal/common/terminal.js';
+import { IExtensionTerminalProfile, IReconnectionProperties, IShellIntegration, IShellLaunchConfig, ITerminalBackend, ITerminalDimensions, ITerminalLaunchError, ITerminalProfile, ITerminalTabLayoutInfoById, TerminalExitReason, TerminalIcon, TerminalLocation, TerminalShellType, TerminalType, TitleEventSource, WaitOnExitValue, type IDecorationAddon } from '../../../../platform/terminal/common/terminal.js';
 import { IColorTheme } from '../../../../platform/theme/common/themeService.js';
 import { IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
@@ -31,6 +31,7 @@ import type { ICurrentPartialCommand } from '../../../../platform/terminal/commo
 import type { IXtermCore } from './xterm-private.js';
 import type { IMenu } from '../../../../platform/actions/common/actions.js';
 import type { Barrier } from '../../../../base/common/async.js';
+import type { IProgressState } from '@xterm/addon-progress';
 
 export const ITerminalService = createDecorator<ITerminalService>('terminalService');
 export const ITerminalConfigurationService = createDecorator<ITerminalConfigurationService>('terminalConfigurationService');
@@ -47,6 +48,8 @@ export interface ITerminalContribution extends IDisposable {
 	layout?(xterm: IXtermTerminal & { raw: RawXtermTerminal }, dimension: IDimension): void;
 	xtermOpen?(xterm: IXtermTerminal & { raw: RawXtermTerminal }): void;
 	xtermReady?(xterm: IXtermTerminal & { raw: RawXtermTerminal }): void;
+
+	handleMouseEvent?(event: MouseEvent): Promise<{ handled: boolean } | void> | { handled: boolean } | void;
 }
 
 /**
@@ -273,6 +276,8 @@ export interface ITerminalService extends ITerminalInstanceHost {
 	readonly onAnyInstanceProcessIdReady: Event<ITerminalInstance>;
 	readonly onAnyInstanceSelectionChange: Event<ITerminalInstance>;
 	readonly onAnyInstanceTitleChange: Event<ITerminalInstance>;
+	readonly onAnyInstanceShellTypeChanged: Event<ITerminalInstance>;
+	readonly onAnyInstanceAddedCapabilityType: Event<TerminalCapability>;
 
 	/**
 	 * Creates a terminal.
@@ -608,6 +613,7 @@ export interface ITerminalInstance extends IBaseTerminalInstance {
 	readonly processName: string;
 	readonly sequence?: string;
 	readonly staticTitle?: string;
+	readonly progressState?: IProgressState;
 	readonly workspaceFolder?: IWorkspaceFolder;
 	readonly cwd?: string;
 	readonly initialCwd?: string;
@@ -705,9 +711,6 @@ export interface ITerminalInstance extends IBaseTerminalInstance {
 	onDidSendText: Event<string>;
 	onDidChangeShellType: Event<TerminalShellType>;
 	onDidChangeVisibility: Event<boolean>;
-
-	onWillPaste: Event<string>;
-	onDidPaste: Event<string>;
 
 	/**
 	 * An event that fires when a terminal is dropped on this instance via drag and drop.
@@ -867,11 +870,6 @@ export interface ITerminalInstance extends IBaseTerminalInstance {
 	detachProcessAndDispose(reason: TerminalExitReason): Promise<void>;
 
 	/**
-	 * Copies the terminal selection to the clipboard.
-	 */
-	copySelection(asHtml?: boolean, command?: ITerminalCommand): Promise<void>;
-
-	/**
 	 * When the panel is hidden or a terminal in the editor area becomes inactive, reset the focus context key
 	 * to avoid issues like #147180.
 	 */
@@ -885,22 +883,6 @@ export interface ITerminalInstance extends IBaseTerminalInstance {
 	 * @param force Force focus even if there is a selection.
 	 */
 	focusWhenReady(force?: boolean): Promise<void>;
-
-	/**
-	 * Focuses and pastes the contents of the clipboard into the terminal instance.
-	 */
-	paste(): Promise<void>;
-
-	/**
-	 * Focuses and pastes the contents of the selection clipboard into the terminal instance.
-	 */
-	pasteSelection(): Promise<void>;
-
-	/**
-	 * Override the copy on selection feature with a custom value.
-	 * @param value Whether to enable copySelection.
-	 */
-	overrideCopyOnSelection(value: boolean): IDisposable;
 
 	/**
 	 * Send text to the terminal instance. The text is written to the stdin of the underlying pty
@@ -992,7 +974,7 @@ export interface ITerminalInstance extends IBaseTerminalInstance {
 
 	/**
 	 * Sets the terminal instance's dimensions to the values provided via the onDidOverrideDimensions event,
-	 * which allows overriding the the regular dimensions (fit to the size of the panel).
+	 * which allows overriding the regular dimensions (fit to the size of the panel).
 	 */
 	setOverrideDimensions(dimensions: ITerminalDimensions): void;
 
@@ -1036,12 +1018,6 @@ export interface ITerminalInstance extends IBaseTerminalInstance {
 	changeColor(color?: string, skipQuickPick?: boolean): Promise<string | undefined>;
 
 	/**
-	 * Triggers a quick pick that displays recent commands or cwds. Selecting one will
-	 * rerun it in the active terminal.
-	 */
-	runRecent(type: 'command' | 'cwd'): Promise<void>;
-
-	/**
 	 * Attempts to detect and kill the process listening on specified port.
 	 * If successful, places commandToRun on the command line
 	 */
@@ -1069,7 +1045,7 @@ export interface ITerminalInstance extends IBaseTerminalInstance {
 }
 
 export const enum XtermTerminalConstants {
-	SearchHighlightLimit = 1000
+	SearchHighlightLimit = 20000
 }
 
 export interface IXtermAttachToElementOptions {
@@ -1091,8 +1067,12 @@ export interface IXtermTerminal extends IDisposable {
 	 */
 	readonly shellIntegration: IShellIntegration;
 
+	readonly decorationAddon: IDecorationAddon;
+
 	readonly onDidChangeSelection: Event<void>;
 	readonly onDidChangeFindResults: Event<{ resultIndex: number; resultCount: number }>;
+	readonly onDidRequestRunCommand: Event<{ command: ITerminalCommand; noNewLine?: boolean }>;
+	readonly onDidRequestCopyAsHtml: Event<{ command: ITerminalCommand }>;
 
 	/**
 	 * Event fired when focus enters (fires with true) or leaves (false) the terminal.
@@ -1118,6 +1098,11 @@ export interface IXtermTerminal extends IDisposable {
 	 * Whether a canvas-based renderer is being used.
 	 */
 	readonly isGpuAccelerated: boolean;
+
+	/**
+	 * The last `onData` input event fired by {@link RawXtermTerminal.onData}.
+	 */
+	readonly lastInputEvent: string | undefined;
 
 	/**
 	 * Attached the terminal to the given element
@@ -1176,10 +1161,9 @@ export interface IXtermTerminal extends IDisposable {
 
 	/**
 	 * Copies the terminal selection.
-	 * @param {boolean} copyAsHtml Whether to copy selection as HTML, defaults to false.
+	 * @param copyAsHtml Whether to copy selection as HTML, defaults to false.
 	 */
-	copySelection(copyAsHtml?: boolean): void;
-
+	copySelection(copyAsHtml?: boolean, command?: ITerminalCommand): void;
 	/**
 	 * Focuses the terminal. Warning: {@link ITerminalInstance.focus} should be
 	 * preferred when dealing with terminal instances in order to get
