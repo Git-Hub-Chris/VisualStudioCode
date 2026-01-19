@@ -3,18 +3,18 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IAction } from '../../../../base/common/actions.js';
-import { equals } from '../../../../base/common/arrays.js';
-import { Emitter } from '../../../../base/common/event.js';
-import { DisposableStore, IDisposable, dispose } from '../../../../base/common/lifecycle.js';
-import './media/scm.css';
-import { localize } from '../../../../nls.js';
-import { getActionBarActions } from '../../../../platform/actions/browser/menuEntryActionViewItem.js';
-import { IMenu, IMenuService, MenuId, MenuRegistry } from '../../../../platform/actions/common/actions.js';
-import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
-import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
-import { ServiceCollection } from '../../../../platform/instantiation/common/serviceCollection.js';
-import { ISCMMenus, ISCMProvider, ISCMRepository, ISCMRepositoryMenus, ISCMResource, ISCMResourceGroup, ISCMService } from '../common/scm.js';
+import 'vs/css!./media/scm';
+import { Emitter } from 'vs/base/common/event';
+import { IDisposable, DisposableStore, dispose } from 'vs/base/common/lifecycle';
+import { IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
+import { IMenuService, MenuId, IMenu, MenuRegistry } from 'vs/platform/actions/common/actions';
+import { IAction } from 'vs/base/common/actions';
+import { createAndFillInActionBarActions } from 'vs/platform/actions/browser/menuEntryActionViewItem';
+import { ISCMResource, ISCMResourceGroup, ISCMProvider, ISCMRepository, ISCMService, ISCMMenus, ISCMRepositoryMenus } from 'vs/workbench/contrib/scm/common/scm';
+import { equals } from 'vs/base/common/arrays';
+import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
+import { ServiceCollection } from 'vs/platform/instantiation/common/serviceCollection';
+import { localize } from 'vs/nls';
 
 function actionEquals(a: IAction, b: IAction): boolean {
 	return a.id === b.id;
@@ -176,8 +176,6 @@ export class SCMRepositoryMenus implements ISCMRepositoryMenus, IDisposable {
 	private contextKeyService: IContextKeyService;
 
 	readonly titleMenu: SCMTitleMenu;
-	readonly repositoryMenu: IMenu;
-
 	private readonly resourceGroupMenusItems = new Map<ISCMResourceGroup, SCMMenusItem>();
 
 	private _repositoryContextMenu: IMenu | undefined;
@@ -276,8 +274,8 @@ export class SCMMenus implements ISCMMenus, IDisposable {
 		// Duplicate the `SCMTitle` menu items to the `SCMSourceControlInline` menu. We do this
 		// so that menu items can be independently hidden/shown in the "Source Control" and the
 		// "Source Control Repositories" views.
-		MenuRegistry.onDidChangeMenu(e => {
-			if (!e.has(MenuId.SCMTitle)) {
+		this.disposables.add(Event.runAndSubscribe(MenuRegistry.onDidChangeMenu, e => {
+			if (e && !e.has(MenuId.SCMTitle)) {
 				return;
 			}
 
@@ -285,7 +283,7 @@ export class SCMMenus implements ISCMMenus, IDisposable {
 			for (const menuItem of MenuRegistry.getMenuItems(MenuId.SCMTitle)) {
 				this.repositoryMenuDisposables.add(MenuRegistry.appendMenuItem(MenuId.SCMSourceControlInline, menuItem));
 			}
-		}, this, this.disposables);
+		}));
 	}
 
 	private onDidRemoveRepository(repository: ISCMRepository): void {
