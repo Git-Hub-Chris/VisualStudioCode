@@ -3,15 +3,15 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { localize } from 'vs/nls';
-import { Event } from 'vs/base/common/event';
-import { basename, extname } from 'vs/base/common/path';
-import { TernarySearchTree } from 'vs/base/common/ternarySearchTree';
-import { extname as resourceExtname, basenameOrAuthority, joinPath, extUriBiasedIgnorePathCase } from 'vs/base/common/resources';
-import { URI, UriComponents } from 'vs/base/common/uri';
-import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
-import { IEnvironmentService } from 'vs/platform/environment/common/environment';
-import { Schemas } from 'vs/base/common/network';
+import { localize } from '../../../nls.js';
+import { Event } from '../../../base/common/event.js';
+import { basename, extname } from '../../../base/common/path.js';
+import { TernarySearchTree } from '../../../base/common/ternarySearchTree.js';
+import { extname as resourceExtname, basenameOrAuthority, joinPath, extUriBiasedIgnorePathCase } from '../../../base/common/resources.js';
+import { URI, UriComponents } from '../../../base/common/uri.js';
+import { createDecorator } from '../../instantiation/common/instantiation.js';
+import { IEnvironmentService } from '../../environment/common/environment.js';
+import { Schemas } from '../../../base/common/network.js';
 
 export const IWorkspaceContextService = createDecorator<IWorkspaceContextService>('contextService');
 
@@ -329,16 +329,23 @@ export function isWorkspaceFolder(thing: unknown): thing is IWorkspaceFolder {
 
 export class Workspace implements IWorkspace {
 
-	private _foldersMap: TernarySearchTree<URI, WorkspaceFolder> = TernarySearchTree.forUris<WorkspaceFolder>(this._ignorePathCasing, () => true);
+	private foldersMap: TernarySearchTree<URI, WorkspaceFolder>;
+
 	private _folders!: WorkspaceFolder[];
+	get folders(): WorkspaceFolder[] { return this._folders; }
+	set folders(folders: WorkspaceFolder[]) {
+		this._folders = folders;
+		this.updateFoldersMap();
+	}
 
 	constructor(
 		private _id: string,
 		folders: WorkspaceFolder[],
 		private _transient: boolean,
 		private _configuration: URI | null,
-		private _ignorePathCasing: (key: URI) => boolean,
+		private ignorePathCasing: (key: URI) => boolean,
 	) {
+		this.foldersMap = TernarySearchTree.forUris<WorkspaceFolder>(this.ignorePathCasing, () => true);
 		this.folders = folders;
 	}
 
@@ -346,17 +353,8 @@ export class Workspace implements IWorkspace {
 		this._id = workspace.id;
 		this._configuration = workspace.configuration;
 		this._transient = workspace.transient;
-		this._ignorePathCasing = workspace._ignorePathCasing;
+		this.ignorePathCasing = workspace.ignorePathCasing;
 		this.folders = workspace.folders;
-	}
-
-	get folders(): WorkspaceFolder[] {
-		return this._folders;
-	}
-
-	set folders(folders: WorkspaceFolder[]) {
-		this._folders = folders;
-		this.updateFoldersMap();
 	}
 
 	get id(): string {
@@ -380,13 +378,13 @@ export class Workspace implements IWorkspace {
 			return null;
 		}
 
-		return this._foldersMap.findSubstr(resource) || null;
+		return this.foldersMap.findSubstr(resource) || null;
 	}
 
 	private updateFoldersMap(): void {
-		this._foldersMap = TernarySearchTree.forUris<WorkspaceFolder>(this._ignorePathCasing, () => true);
+		this.foldersMap = TernarySearchTree.forUris<WorkspaceFolder>(this.ignorePathCasing, () => true);
 		for (const folder of this.folders) {
-			this._foldersMap.set(folder.uri, folder);
+			this.foldersMap.set(folder.uri, folder);
 		}
 	}
 
@@ -440,26 +438,49 @@ export function toWorkspaceFolder(resource: URI): WorkspaceFolder {
 	return new WorkspaceFolder({ uri: resource, index: 0, name: basenameOrAuthority(resource) }, { uri: resource.toString() });
 }
 
-export const WORKSPACE_EXTENSION = 'code-workspace';
-export const WORKSPACE_SUFFIX = `.${WORKSPACE_EXTENSION}`;
-export const WORKSPACE_FILTER = [{ name: localize('codeWorkspace', "Code Workspace"), extensions: [WORKSPACE_EXTENSION] }];
-export const UNTITLED_WORKSPACE_NAME = 'workspace.json';
+export function toWorkspaceFolders(configuredFolders: IStoredWorkspaceFolder[], workspaceConfigFile: URI): WorkspaceFolder[] {
+	let result: WorkspaceFolder[] = [];
+	let seen: Set<string> = new Set();
 
-export function isUntitledWorkspace(path: URI, environmentService: IEnvironmentService): boolean {
-	return extUriBiasedIgnorePathCase.isEqualOrParent(path, environmentService.untitledWorkspacesHome);
-}
+	const extUri = resources.extUriBiasedIgnorePathCase; // To be replaced by the UriIdentityService as parameter: #108793
 
-export function isTemporaryWorkspace(workspace: IWorkspace): boolean;
-export function isTemporaryWorkspace(path: URI): boolean;
-export function isTemporaryWorkspace(arg1: IWorkspace | URI): boolean {
-	let path: URI | null | undefined;
-	if (URI.isUri(arg1)) {
-		path = arg1;
-	} else {
-		path = arg1.configuration;
+	const relativeTo = extUri.dirname(workspaceConfigFile);
+	for (let configuredFolder of configuredFolders) {
+		let uri: URI | null = null;
+		if (isRawFileWorkspaceFolder(configuredFolder)) {
+			if (configuredFolder.path) {
+				uri = extUri.resolvePath(relativeTo, configuredFolder.path);
+			}
+		} else if (isRawUriWorkspaceFolder(configuredFolder)) {
+			try {
+				uri = URI.parse(configuredFolder.uri);
+				// this makes sure all workspace folder are absolute
+				if (uri.path[0] !== '/') {
+					uri = uri.with({ path: '/' + uri.path });
+				}
+			} catch (e) {
+				console.warn(e);
+				// ignore
+			}
+		}
+		if (uri) {
+			// remove duplicates
+			let comparisonKey = extUri.getComparisonKey(uri);
+			if (!seen.has(comparisonKey)) {
+				seen.add(comparisonKey);
+
+				const name = configuredFolder.name || extUri.basenameOrAuthority(uri);
+				result.push(new WorkspaceFolder({ uri, name, index: result.length }, configuredFolder));
+			}
+		}
 	}
 
 	return path?.scheme === Schemas.tmp;
+}
+
+export const STANDALONE_EDITOR_WORKSPACE_ID = '4064f6ec-cb38-4ad0-af64-ee6467e63c82';
+export function isStandaloneEditorWorkspace(workspace: IWorkspace): boolean {
+	return workspace.id === STANDALONE_EDITOR_WORKSPACE_ID;
 }
 
 export function isSavedWorkspace(path: URI, environmentService: IEnvironmentService): boolean {
