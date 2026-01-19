@@ -10,20 +10,21 @@ import { clamp } from '../../../../../base/common/numbers.js';
 import { autorun, derived, IObservable, ITransaction, observableValue } from '../../../../../base/common/observable.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { OffsetEdit } from '../../../../../editor/common/core/offsetEdit.js';
-import { IDocumentDiff } from '../../../../../editor/common/diff/documentDiffProvider.js';
+import { TextEdit } from '../../../../../editor/common/languages.js';
 import { localize } from '../../../../../nls.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { observableConfigValue } from '../../../../../platform/observable/common/platformObservableUtils.js';
 import { editorBackground, registerColor, transparent } from '../../../../../platform/theme/common/colorRegistry.js';
+import { IUndoRedoElement, IUndoRedoService } from '../../../../../platform/undoRedo/common/undoRedo.js';
 import { IEditorPane } from '../../../../common/editor.js';
 import { IFilesConfigurationService } from '../../../../services/filesConfiguration/common/filesConfigurationService.js';
+import { ICellEditOperation } from '../../../notebook/common/notebookCommon.js';
 import { IChatAgentResult } from '../../common/chatAgents.js';
 import { ChatEditKind, IModifiedFileEntry, IModifiedFileEntryEditorIntegration, WorkingSetEntryState } from '../../common/chatEditingService.js';
 import { IChatResponseModel } from '../../common/chatModel.js';
 import { IChatService } from '../../common/chatService.js';
-import { ChatEditingTextModelContentProvider } from './chatEditingTextModelContentProviders.js';
 
 class AutoAcceptControl {
 	constructor(
@@ -33,7 +34,7 @@ class AutoAcceptControl {
 	) { }
 }
 
-export const pendingRewriteMinimap = registerColor('chatEdits.minimapColor',
+export const pendingRewriteMinimap = registerColor('minimap.chatEditHighlight',
 	transparent(editorBackground, 0.6),
 	localize('editorSelectionBackground', "Color of pending edit regions in the minimap"));
 
@@ -49,7 +50,7 @@ export abstract class AbstractChatEditingModifiedFileEntry extends Disposable im
 	protected readonly _onDidDelete = this._register(new Emitter<void>());
 	readonly onDidDelete = this._onDidDelete.event;
 
-	protected readonly _stateObs = observableValue<WorkingSetEntryState>(this, WorkingSetEntryState.Modified);
+	protected readonly _stateObs = observableValue<WorkingSetEntryState>(this, WorkingSetEntryState.Attached);
 	readonly state: IObservable<WorkingSetEntryState> = this._stateObs;
 
 	protected readonly _isCurrentlyBeingModifiedByObs = observableValue<IChatResponseModel | undefined>(this, undefined);
@@ -78,7 +79,7 @@ export abstract class AbstractChatEditingModifiedFileEntry extends Disposable im
 
 	private _refCounter: number = 1;
 
-	readonly originalURI: URI;
+	readonly abstract originalURI: URI;
 
 	constructor(
 		readonly modifiedURI: URI,
@@ -88,11 +89,10 @@ export abstract class AbstractChatEditingModifiedFileEntry extends Disposable im
 		@IFilesConfigurationService fileConfigService: IFilesConfigurationService,
 		@IChatService protected readonly _chatService: IChatService,
 		@IFileService protected readonly _fileService: IFileService,
+		@IUndoRedoService private readonly _undoRedoService: IUndoRedoService,
 		@IInstantiationService protected readonly _instantiationService: IInstantiationService,
 	) {
 		super();
-
-		this.originalURI = ChatEditingTextModelContentProvider.getFileURI(_telemetryInfo.sessionId, this.entryId, modifiedURI.path);
 
 		if (kind === ChatEditKind.Created) {
 			this.createdInRequestId = this._telemetryInfo.requestId;
@@ -219,20 +219,32 @@ export abstract class AbstractChatEditingModifiedFileEntry extends Disposable im
 	 */
 	protected abstract _createEditorIntegration(editor: IEditorPane): IModifiedFileEntryEditorIntegration;
 
-	abstract readonly diffInfo: IObservable<IDocumentDiff>;
 	abstract readonly changesCount: IObservable<number>;
 
 	acceptStreamingEditsStart(responseModel: IChatResponseModel, tx: ITransaction) {
 		this._resetEditsState(tx);
 		this._isCurrentlyBeingModifiedByObs.set(responseModel, tx);
 		this._autoAcceptCtrl.get()?.cancel();
+
+		const undoRedoElement = this._createUndoRedoElement(responseModel);
+		if (undoRedoElement) {
+			this._undoRedoService.pushElement(undoRedoElement);
+		}
 	}
+
+	protected abstract _createUndoRedoElement(response: IChatResponseModel): IUndoRedoElement | undefined;
+
+	abstract acceptAgentEdits(uri: URI, edits: (TextEdit | ICellEditOperation)[], isLastEdits: boolean, responseModel: IChatResponseModel): Promise<void>;
 
 	async acceptStreamingEditsEnd(tx: ITransaction) {
 		this._resetEditsState(tx);
 
-		// AUTO accept mode
-		if (!this.reviewMode.get() && !this._autoAcceptCtrl.get()) {
+		if (await this._areOriginalAndModifiedIdentical()) {
+			// ACCEPT if identical
+			this.accept(tx);
+
+		} else if (!this.reviewMode.get() && !this._autoAcceptCtrl.get()) {
+			// AUTO accept mode
 
 			const acceptTimeout = this._autoAcceptTimeout.get() * 1000;
 			const future = Date.now() + acceptTimeout;
@@ -260,10 +272,26 @@ export abstract class AbstractChatEditingModifiedFileEntry extends Disposable im
 		}
 	}
 
+	protected abstract _areOriginalAndModifiedIdentical(): Promise<boolean>;
+
 	protected _resetEditsState(tx: ITransaction): void {
 		this._isCurrentlyBeingModifiedByObs.set(undefined, tx);
 		this._rewriteRatioObs.set(0, tx);
 	}
+
+	// --- snapshot
+
+	abstract createSnapshot(requestId: string | undefined, undoStop: string | undefined): ISnapshotEntry;
+
+	abstract equalsSnapshot(snapshot: ISnapshotEntry | undefined): boolean;
+
+	abstract restoreFromSnapshot(snapshot: ISnapshotEntry): void;
+
+	// --- inital content
+
+	abstract resetToInitialContent(): void;
+
+	abstract initialContent: string;
 }
 
 export interface IModifiedEntryTelemetryInfo {

@@ -88,7 +88,14 @@ export function getShellIntegrationInjection(
 		envMixin['VSCODE_NONCE'] = options.shellIntegration.nonce;
 	}
 	if (shellLaunchConfig.shellIntegrationEnvironmentReporting) {
-		envMixin['VSCODE_SHELL_ENV_REPORTING'] = '1';
+		if (isWindows) {
+			const enableWindowsEnvReporting = options.windowsUseConptyDll || options.windowsEnableConpty && getWindowsBuildNumber() >= 22631;
+			if (enableWindowsEnvReporting) {
+				envMixin['VSCODE_SHELL_ENV_REPORTING'] = '1';
+			}
+		} else {
+			envMixin['VSCODE_SHELL_ENV_REPORTING'] = '1';
+		}
 	}
 	// Windows
 	if (isWindows) {
@@ -122,9 +129,6 @@ export function getShellIntegrationInjection(
 			newArgs = [...newArgs]; // Shallow clone the array to avoid setting the default array
 			newArgs[newArgs.length - 1] = format(newArgs[newArgs.length - 1], appRoot);
 			envMixin['VSCODE_STABLE'] = productService.quality === 'stable' ? '1' : '0';
-			if (!options.windowsUseConptyDll) {
-				envMixin['VSCODE_SHELL_ENV_REPORTING'] = '0';
-			}
 			return { newArgs, envMixin };
 		}
 		logService.warn(`Shell integration cannot be enabled for executable "${shellLaunchConfig.executable}" and args`, shellLaunchConfig.args);
@@ -229,6 +233,7 @@ export function getShellIntegrationInjection(
 				source: path.join(appRoot, 'out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-login.zsh'),
 				dest: path.join(zdotdir, '.zlogin')
 			});
+			envMixin['VSCODE_STABLE'] = productService.quality === 'stable' ? '1' : '0';
 			return { newArgs, envMixin, filesToCopy };
 		}
 	}

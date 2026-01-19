@@ -805,25 +805,27 @@ export class DisposableMap<K, V extends IDisposable = IDisposable> implements ID
 		this._store.delete(key);
 	}
 
-	/**
-	 * Delete the value stored for `key` from this map but return it. The caller is
-	 * responsible for disposing of the value.
-	 */
-	deleteAndLeak(key: K): V | undefined {
-		const value = this._store.get(key);
-		this._store.delete(key);
-		return value;
-	}
-
 	keys(): IterableIterator<K> {
 		return this._store.keys();
-	}
-
-	values(): IterableIterator<V> {
-		return this._store.values();
 	}
 
 	[Symbol.iterator](): IterableIterator<[K, V]> {
 		return this._store[Symbol.iterator]();
 	}
+}
+
+/**
+ * Call `then` on a Promise, unless the returned disposable is disposed.
+ */
+export function thenIfNotDisposed<T>(promise: Promise<T>, then: (result: T) => void): IDisposable {
+	let disposed = false;
+	promise.then(result => {
+		if (disposed) {
+			return;
+		}
+		then(result);
+	});
+	return toDisposable(() => {
+		disposed = true;
+	});
 }
