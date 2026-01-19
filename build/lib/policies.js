@@ -3,14 +3,16 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const child_process_1 = require("child_process");
 const fs_1 = require("fs");
-const path = require("path");
-const byline = require("byline");
+const path_1 = __importDefault(require("path"));
+const byline_1 = __importDefault(require("byline"));
 const ripgrep_1 = require("@vscode/ripgrep");
-const Parser = require("tree-sitter");
-const node_fetch_1 = require("node-fetch");
+const tree_sitter_1 = __importDefault(require("tree-sitter"));
 const { typescript } = require('tree-sitter-typescript');
 const product = require('../../product.json');
 const packageJson = require('../../package.json');
@@ -25,7 +27,11 @@ function isNlsStringArray(value) {
 }
 var PolicyType;
 (function (PolicyType) {
-    PolicyType[PolicyType["StringEnum"] = 0] = "StringEnum";
+    PolicyType["Boolean"] = "boolean";
+    PolicyType["Number"] = "number";
+    PolicyType["Object"] = "object";
+    PolicyType["String"] = "string";
+    PolicyType["StringEnum"] = "stringEnum";
 })(PolicyType || (PolicyType = {}));
 function renderADMLString(prefix, moduleName, nlsString, translations) {
     let value;
@@ -38,17 +44,30 @@ function renderADMLString(prefix, moduleName, nlsString, translations) {
     if (!value) {
         value = nlsString.value;
     }
-    return `<string id="${prefix}_${nlsString.nlsKey}">${value}</string>`;
+    return `<string id="${prefix}_${nlsString.nlsKey.replace(/\./g, '_')}">${value}</string>`;
+}
+function renderProfileString(_prefix, moduleName, nlsString, translations) {
+    let value;
+    if (translations) {
+        const moduleTranslations = translations[moduleName];
+        if (moduleTranslations) {
+            value = moduleTranslations[nlsString.nlsKey];
+        }
+    }
+    if (!value) {
+        value = nlsString.value;
+    }
+    return value;
 }
 class BasePolicy {
-    policyType;
+    type;
     name;
     category;
     minimumVersion;
     description;
     moduleName;
-    constructor(policyType, name, category, minimumVersion, description, moduleName) {
-        this.policyType = policyType;
+    constructor(type, name, category, minimumVersion, description, moduleName) {
+        this.type = type;
         this.name = name;
         this.category = category;
         this.minimumVersion = minimumVersion;
@@ -60,7 +79,7 @@ class BasePolicy {
     }
     renderADMX(regKey) {
         return [
-            `<policy name="${this.name}" class="Both" displayName="$(string.${this.name})" explainText="$(string.${this.name}_${this.description.nlsKey})" key="Software\\Policies\\Microsoft\\${regKey}" presentation="$(presentation.${this.name})">`,
+            `<policy name="${this.name}" class="Both" displayName="$(string.${this.name})" explainText="$(string.${this.name}_${this.description.nlsKey.replace(/\./g, '_')})" key="Software\\Policies\\Microsoft\\${regKey}" presentation="$(presentation.${this.name})">`,
             `	<parentCategory ref="${this.category.name.nlsKey}" />`,
             `	<supportedOn ref="Supported_${this.minimumVersion.replace(/\./g, '_')}" />`,
             `	<elements>`,
@@ -78,17 +97,25 @@ class BasePolicy {
     renderADMLPresentation() {
         return `<presentation id="${this.name}">${this.renderADMLPresentationContents()}</presentation>`;
     }
+    renderProfile() {
+        return [`<key>${this.name}</key>`, this.renderProfileValue()];
+    }
+    renderProfileManifest(translations) {
+        return `<dict>
+${this.renderProfileManifestValue(translations)}
+</dict>`;
+    }
 }
 class BooleanPolicy extends BasePolicy {
     static from(name, category, minimumVersion, description, moduleName, settingNode) {
-        const type = getStringProperty(settingNode, 'type');
+        const type = getStringProperty(moduleName, settingNode, 'type');
         if (type !== 'boolean') {
             return undefined;
         }
         return new BooleanPolicy(name, category, minimumVersion, description, moduleName);
     }
     constructor(name, category, minimumVersion, description, moduleName) {
-        super(PolicyType.StringEnum, name, category, minimumVersion, description, moduleName);
+        super(PolicyType.Boolean, name, category, minimumVersion, description, moduleName);
     }
     renderADMXElements() {
         return [
@@ -100,19 +127,39 @@ class BooleanPolicy extends BasePolicy {
     renderADMLPresentationContents() {
         return `<checkBox refId="${this.name}">${this.name}</checkBox>`;
     }
+    renderProfileValue() {
+        return `<false/>`;
+    }
+    renderProfileManifestValue(translations) {
+        return `<key>pfm_default</key>
+<false/>
+<key>pfm_description</key>
+<string>${renderProfileString(this.name, this.moduleName, this.description, translations)}</string>
+<key>pfm_name</key>
+<string>${this.name}</string>
+<key>pfm_title</key>
+<string>${this.name}</string>
+<key>pfm_type</key>
+<string>boolean</string>`;
+    }
 }
-class IntPolicy extends BasePolicy {
+class ParseError extends Error {
+    constructor(message, moduleName, node) {
+        super(`${message}. ${moduleName}.ts:${node.startPosition.row + 1}`);
+    }
+}
+class NumberPolicy extends BasePolicy {
     defaultValue;
     static from(name, category, minimumVersion, description, moduleName, settingNode) {
-        const type = getStringProperty(settingNode, 'type');
+        const type = getStringProperty(moduleName, settingNode, 'type');
         if (type !== 'number') {
             return undefined;
         }
-        const defaultValue = getIntProperty(settingNode, 'default');
+        const defaultValue = getNumberProperty(moduleName, settingNode, 'default');
         if (typeof defaultValue === 'undefined') {
-            throw new Error(`Missing required 'default' property.`);
+            throw new ParseError(`Missing required 'default' property.`, moduleName, settingNode);
         }
-        return new IntPolicy(name, category, minimumVersion, description, moduleName, defaultValue);
+        return new NumberPolicy(name, category, minimumVersion, description, moduleName, defaultValue);
     }
     constructor(name, category, minimumVersion, description, moduleName, defaultValue) {
         super(PolicyType.StringEnum, name, category, minimumVersion, description, moduleName);
@@ -127,17 +174,32 @@ class IntPolicy extends BasePolicy {
     renderADMLPresentationContents() {
         return `<decimalTextBox refId="${this.name}" defaultValue="${this.defaultValue}">${this.name}</decimalTextBox>`;
     }
+    renderProfileValue() {
+        return `<integer>${this.defaultValue}</integer>`;
+    }
+    renderProfileManifestValue(translations) {
+        return `<key>pfm_default</key>
+<integer>${this.defaultValue}</integer>
+<key>pfm_description</key>
+<string>${renderProfileString(this.name, this.moduleName, this.description, translations)}</string>
+<key>pfm_name</key>
+<string>${this.name}</string>
+<key>pfm_title</key>
+<string>${this.name}</string>
+<key>pfm_type</key>
+<string>integer</string>`;
+    }
 }
 class StringPolicy extends BasePolicy {
     static from(name, category, minimumVersion, description, moduleName, settingNode) {
-        const type = getStringProperty(settingNode, 'type');
+        const type = getStringProperty(moduleName, settingNode, 'type');
         if (type !== 'string') {
             return undefined;
         }
         return new StringPolicy(name, category, minimumVersion, description, moduleName);
     }
     constructor(name, category, minimumVersion, description, moduleName) {
-        super(PolicyType.StringEnum, name, category, minimumVersion, description, moduleName);
+        super(PolicyType.String, name, category, minimumVersion, description, moduleName);
     }
     renderADMXElements() {
         return [`<text id="${this.name}" valueName="${this.name}" required="true" />`];
@@ -145,28 +207,77 @@ class StringPolicy extends BasePolicy {
     renderADMLPresentationContents() {
         return `<textBox refId="${this.name}"><label>${this.name}:</label></textBox>`;
     }
+    renderProfileValue() {
+        return `<string></string>`;
+    }
+    renderProfileManifestValue(translations) {
+        return `<key>pfm_default</key>
+<string></string>
+<key>pfm_description</key>
+<string>${renderProfileString(this.name, this.moduleName, this.description, translations)}</string>
+<key>pfm_name</key>
+<string>${this.name}</string>
+<key>pfm_title</key>
+<string>${this.name}</string>
+<key>pfm_type</key>
+<string>string</string>`;
+    }
+}
+class ObjectPolicy extends BasePolicy {
+    static from(name, category, minimumVersion, description, moduleName, settingNode) {
+        const type = getStringProperty(moduleName, settingNode, 'type');
+        if (type !== 'object' && type !== 'array') {
+            return undefined;
+        }
+        return new ObjectPolicy(name, category, minimumVersion, description, moduleName);
+    }
+    constructor(name, category, minimumVersion, description, moduleName) {
+        super(PolicyType.Object, name, category, minimumVersion, description, moduleName);
+    }
+    renderADMXElements() {
+        return [`<multiText id="${this.name}" valueName="${this.name}" required="true" />`];
+    }
+    renderADMLPresentationContents() {
+        return `<multiTextBox refId="${this.name}" />`;
+    }
+    renderProfileValue() {
+        return `<string></string>`;
+    }
+    renderProfileManifestValue(translations) {
+        return `<key>pfm_default</key>
+<string></string>
+<key>pfm_description</key>
+<string>${renderProfileString(this.name, this.moduleName, this.description, translations)}</string>
+<key>pfm_name</key>
+<string>${this.name}</string>
+<key>pfm_title</key>
+<string>${this.name}</string>
+<key>pfm_type</key>
+<string>string</string>
+`;
+    }
 }
 class StringEnumPolicy extends BasePolicy {
     enum_;
     enumDescriptions;
     static from(name, category, minimumVersion, description, moduleName, settingNode) {
-        const type = getStringProperty(settingNode, 'type');
+        const type = getStringProperty(moduleName, settingNode, 'type');
         if (type !== 'string') {
             return undefined;
         }
-        const enum_ = getStringArrayProperty(settingNode, 'enum');
+        const enum_ = getStringArrayProperty(moduleName, settingNode, 'enum');
         if (!enum_) {
             return undefined;
         }
         if (!isStringArray(enum_)) {
-            throw new Error(`Property 'enum' should not be localized.`);
+            throw new ParseError(`Property 'enum' should not be localized.`, moduleName, settingNode);
         }
-        const enumDescriptions = getStringArrayProperty(settingNode, 'enumDescriptions');
+        const enumDescriptions = getStringArrayProperty(moduleName, settingNode, 'enumDescriptions');
         if (!enumDescriptions) {
-            throw new Error(`Missing required 'enumDescriptions' property.`);
+            throw new ParseError(`Missing required 'enumDescriptions' property.`, moduleName, settingNode);
         }
         else if (!isNlsStringArray(enumDescriptions)) {
-            throw new Error(`Property 'enumDescriptions' should be localized.`);
+            throw new ParseError(`Property 'enumDescriptions' should be localized.`, moduleName, settingNode);
         }
         return new StringEnumPolicy(name, category, minimumVersion, description, moduleName, enum_, enumDescriptions);
     }
@@ -191,8 +302,27 @@ class StringEnumPolicy extends BasePolicy {
     renderADMLPresentationContents() {
         return `<dropdownList refId="${this.name}" />`;
     }
+    renderProfileValue() {
+        return `<string>${this.enum_[0]}</string>`;
+    }
+    renderProfileManifestValue(translations) {
+        return `<key>pfm_default</key>
+<string>${this.enum_[0]}</string>
+<key>pfm_description</key>
+<string>${renderProfileString(this.name, this.moduleName, this.description, translations)}</string>
+<key>pfm_name</key>
+<string>${this.name}</string>
+<key>pfm_title</key>
+<string>${this.name}</string>
+<key>pfm_type</key>
+<string>string</string>
+<key>pfm_range_list</key>
+<array>
+	${this.enum_.map(e => `<string>${e}</string>`).join('\n	')}
+</array>`;
+    }
 }
-const IntQ = {
+const NumberQ = {
     Q: `(number) @value`,
     value(matches) {
         const match = matches[0];
@@ -240,46 +370,52 @@ const StringArrayQ = {
         });
     }
 };
-function getProperty(qtype, node, key) {
-    const query = new Parser.Query(typescript, `(
+function getProperty(qtype, moduleName, node, key) {
+    const query = new tree_sitter_1.default.Query(typescript, `(
 			(pair
 				key: [(property_identifier)(string)] @key
 				value: ${qtype.Q}
 			)
-			(#eq? @key ${key})
+			(#any-of? @key "${key}" "'${key}'")
 		)`);
-    return qtype.value(query.matches(node));
+    try {
+        return qtype.value(query.matches(node));
+    }
+    catch (e) {
+        throw new ParseError(e.message, moduleName, node);
+    }
 }
-function getIntProperty(node, key) {
-    return getProperty(IntQ, node, key);
+function getNumberProperty(moduleName, node, key) {
+    return getProperty(NumberQ, moduleName, node, key);
 }
-function getStringProperty(node, key) {
-    return getProperty(StringQ, node, key);
+function getStringProperty(moduleName, node, key) {
+    return getProperty(StringQ, moduleName, node, key);
 }
-function getStringArrayProperty(node, key) {
-    return getProperty(StringArrayQ, node, key);
+function getStringArrayProperty(moduleName, node, key) {
+    return getProperty(StringArrayQ, moduleName, node, key);
 }
 // TODO: add more policy types
 const PolicyTypes = [
     BooleanPolicy,
-    IntPolicy,
+    NumberPolicy,
     StringEnumPolicy,
     StringPolicy,
+    ObjectPolicy
 ];
 function getPolicy(moduleName, configurationNode, settingNode, policyNode, categories) {
-    const name = getStringProperty(policyNode, 'name');
+    const name = getStringProperty(moduleName, policyNode, 'name');
     if (!name) {
-        throw new Error(`Missing required 'name' property.`);
+        throw new ParseError(`Missing required 'name' property`, moduleName, policyNode);
     }
     else if (isNlsString(name)) {
-        throw new Error(`Property 'name' should be a literal string.`);
+        throw new ParseError(`Property 'name' should be a literal string`, moduleName, policyNode);
     }
-    const categoryName = getStringProperty(configurationNode, 'title');
+    const categoryName = getStringProperty(moduleName, configurationNode, 'title');
     if (!categoryName) {
-        throw new Error(`Missing required 'title' property.`);
+        throw new ParseError(`Missing required 'title' property`, moduleName, configurationNode);
     }
     else if (!isNlsString(categoryName)) {
-        throw new Error(`Property 'title' should be localized.`);
+        throw new ParseError(`Property 'title' should be localized`, moduleName, configurationNode);
     }
     const categoryKey = `${categoryName.nlsKey}:${categoryName.value}`;
     let category = categories.get(categoryKey);
@@ -287,19 +423,19 @@ function getPolicy(moduleName, configurationNode, settingNode, policyNode, categ
         category = { moduleName, name: categoryName };
         categories.set(categoryKey, category);
     }
-    const minimumVersion = getStringProperty(policyNode, 'minimumVersion');
+    const minimumVersion = getStringProperty(moduleName, policyNode, 'minimumVersion');
     if (!minimumVersion) {
-        throw new Error(`Missing required 'minimumVersion' property.`);
+        throw new ParseError(`Missing required 'minimumVersion' property.`, moduleName, policyNode);
     }
     else if (isNlsString(minimumVersion)) {
-        throw new Error(`Property 'minimumVersion' should be a literal string.`);
+        throw new ParseError(`Property 'minimumVersion' should be a literal string.`, moduleName, policyNode);
     }
-    const description = getStringProperty(settingNode, 'description');
+    const description = getStringProperty(moduleName, policyNode, 'description') ?? getStringProperty(moduleName, settingNode, 'description');
     if (!description) {
-        throw new Error(`Missing required 'description' property.`);
+        throw new ParseError(`Missing required 'description' property.`, moduleName, settingNode);
     }
     if (!isNlsString(description)) {
-        throw new Error(`Property 'description' should be localized.`);
+        throw new ParseError(`Property 'description' should be localized.`, moduleName, settingNode);
     }
     let result;
     for (const policyType of PolicyTypes) {
@@ -308,21 +444,21 @@ function getPolicy(moduleName, configurationNode, settingNode, policyNode, categ
         }
     }
     if (!result) {
-        throw new Error(`Failed to parse policy '${name}'.`);
+        throw new ParseError(`Failed to parse policy '${name}'.`, moduleName, settingNode);
     }
     return result;
 }
 function getPolicies(moduleName, node) {
-    const query = new Parser.Query(typescript, `
+    const query = new tree_sitter_1.default.Query(typescript, `
 		(
 			(call_expression
 				function: (member_expression property: (property_identifier) @registerConfigurationFn) (#eq? @registerConfigurationFn registerConfiguration)
 				arguments: (arguments	(object	(pair
-					key: [(property_identifier)(string)] @propertiesKey (#eq? @propertiesKey properties)
+					key: [(property_identifier)(string)] @propertiesKey (#any-of? @propertiesKey "properties" "'properties'")
 					value: (object (pair
-						key: [(property_identifier)(string)]
+						key: [(property_identifier)(string)(computed_property_name)]
 						value: (object (pair
-							key: [(property_identifier)(string)] @policyKey (#eq? @policyKey policy)
+							key: [(property_identifier)(string)] @policyKey (#any-of? @policyKey "policy" "'policy'")
 							value: (object) @policy
 						)) @setting
 					))
@@ -342,7 +478,7 @@ async function getFiles(root) {
     return new Promise((c, e) => {
         const result = [];
         const rg = (0, child_process_1.spawn)(ripgrep_1.rgPath, ['-l', 'registerConfiguration\\(', '-g', 'src/**/*.ts', '-g', '!src/**/test/**', root]);
-        const stream = byline(rg.stdout.setEncoding('utf8'));
+        const stream = (0, byline_1.default)(rg.stdout.setEncoding('utf8'));
         stream.on('data', path => result.push(path));
         stream.on('error', err => e(err));
         stream.on('end', () => c(result));
@@ -390,6 +526,186 @@ function renderADML(appName, versions, categories, policies, translations) {
 </policyDefinitionResources>
 `;
 }
+function renderProfileManifest(appName, bundleIdentifier, _versions, _categories, policies, translations) {
+    const requiredPayloadFields = `
+		<dict>
+			<key>pfm_default</key>
+			<string>Configure ${appName}</string>
+			<key>pfm_name</key>
+			<string>PayloadDescription</string>
+			<key>pfm_title</key>
+			<string>Payload Description</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>${appName}</string>
+			<key>pfm_name</key>
+			<string>PayloadDisplayName</string>
+			<key>pfm_require</key>
+			<string>always</string>
+			<key>pfm_title</key>
+			<string>Payload Display Name</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>${bundleIdentifier}</string>
+			<key>pfm_name</key>
+			<string>PayloadIdentifier</string>
+			<key>pfm_require</key>
+			<string>always</string>
+			<key>pfm_title</key>
+			<string>Payload Identifier</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>${bundleIdentifier}</string>
+			<key>pfm_name</key>
+			<string>PayloadType</string>
+			<key>pfm_require</key>
+			<string>always</string>
+			<key>pfm_title</key>
+			<string>Payload Type</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_name</key>
+			<string>PayloadUUID</string>
+			<key>pfm_require</key>
+			<string>always</string>
+			<key>pfm_title</key>
+			<string>Payload UUID</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_name</key>
+			<string>PayloadVersion</string>
+			<key>pfm_range_list</key>
+			<array>
+				<integer>1</integer>
+			</array>
+			<key>pfm_require</key>
+			<string>always</string>
+			<key>pfm_title</key>
+			<string>Payload Version</string>
+			<key>pfm_type</key>
+			<string>integer</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>Microsoft</string>
+			<key>pfm_name</key>
+			<string>PayloadOrganization</string>
+			<key>pfm_title</key>
+			<string>Payload Organization</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>`;
+    const profileManifestSubkeys = policies.map(policy => {
+        return policy.renderProfileManifest(translations);
+    }).join('');
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>pfm_app_url</key>
+    <string>https://code.visualstudio.com/</string>
+    <key>pfm_description</key>
+    <string>${appName} Managed Settings</string>
+    <key>pfm_documentation_url</key>
+    <string>https://code.visualstudio.com/docs/setup/enterprise</string>
+    <key>pfm_domain</key>
+    <string>${bundleIdentifier}</string>
+    <key>pfm_format_version</key>
+    <integer>1</integer>
+    <key>pfm_interaction</key>
+    <string>combined</string>
+    <key>pfm_last_modified</key>
+    <date>${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}</date>
+    <key>pfm_platforms</key>
+    <array>
+        <string>macOS</string>
+    </array>
+    <key>pfm_subkeys</key>
+    <array>
+	${requiredPayloadFields}
+	${profileManifestSubkeys}
+    </array>
+    <key>pfm_title</key>
+    <string>${appName}</string>
+    <key>pfm_unique</key>
+    <true/>
+    <key>pfm_version</key>
+    <integer>1</integer>
+</dict>
+</plist>`;
+}
+function renderMacOSPolicy(policies, translations) {
+    const appName = product.nameLong;
+    const bundleIdentifier = product.darwinBundleIdentifier;
+    const payloadUUID = product.darwinProfilePayloadUUID;
+    const UUID = product.darwinProfileUUID;
+    const versions = [...new Set(policies.map(p => p.minimumVersion)).values()].sort();
+    const categories = [...new Set(policies.map(p => p.category))];
+    const policyEntries = policies.map(policy => policy.renderProfile())
+        .flat()
+        .map(entry => `\t\t\t\t${entry}`)
+        .join('\n');
+    return {
+        profile: `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<key>PayloadContent</key>
+		<array>
+			<dict>
+				<key>PayloadDisplayName</key>
+				<string>${appName}</string>
+				<key>PayloadIdentifier</key>
+				<string>${bundleIdentifier}.${UUID}</string>
+				<key>PayloadType</key>
+				<string>${bundleIdentifier}</string>
+				<key>PayloadUUID</key>
+				<string>${UUID}</string>
+				<key>PayloadVersion</key>
+				<integer>1</integer>
+${policyEntries}
+			</dict>
+		</array>
+		<key>PayloadDescription</key>
+		<string>This profile manages ${appName}. For more information see https://code.visualstudio.com/docs/setup/enterprise</string>
+		<key>PayloadDisplayName</key>
+		<string>${appName}</string>
+		<key>PayloadIdentifier</key>
+		<string>${bundleIdentifier}</string>
+		<key>PayloadOrganization</key>
+		<string>Microsoft</string>
+		<key>PayloadType</key>
+		<string>Configuration</string>
+		<key>PayloadUUID</key>
+		<string>${payloadUUID}</string>
+		<key>PayloadVersion</key>
+		<integer>1</integer>
+		<key>TargetDeviceType</key>
+		<integer>5</integer>
+	</dict>
+</plist>`,
+        manifests: [{ languageId: 'en-us', contents: renderProfileManifest(appName, bundleIdentifier, versions, categories, policies) },
+            ...translations.map(({ languageId, languageTranslations }) => ({ languageId, contents: renderProfileManifest(appName, bundleIdentifier, versions, categories, policies, languageTranslations) }))
+        ]
+    };
+}
 function renderGP(policies, translations) {
     const appName = product.nameLong;
     const regKey = product.win32RegValueName;
@@ -426,7 +742,7 @@ async function getSpecificNLS(resourceUrlTemplate, languageId, version) {
         path: 'extension/translations/main.i18n.json'
     };
     const url = resourceUrlTemplate.replace(/\{([^}]+)\}/g, (_, key) => resource[key]);
-    const res = await (0, node_fetch_1.default)(url);
+    const res = await fetch(url);
     if (res.status !== 200) {
         throw new Error(`[${res.status}] Error downloading language pack ${languageId}@${version}`);
     }
@@ -447,7 +763,7 @@ function compareVersions(a, b) {
     return a[2] - b[2];
 }
 async function queryVersions(serviceUrl, languageId) {
-    const res = await (0, node_fetch_1.default)(`${serviceUrl}/extensionquery`, {
+    const res = await fetch(`${serviceUrl}/extensionquery`, {
         method: 'POST',
         headers: {
             'Accept': 'application/json;api-version=3.0-preview.1',
@@ -476,13 +792,13 @@ async function getNLS(extensionGalleryServiceUrl, resourceUrlTemplate, languageI
     return await getSpecificNLS(resourceUrlTemplate, languageId, latestCompatibleVersion);
 }
 async function parsePolicies() {
-    const parser = new Parser();
+    const parser = new tree_sitter_1.default();
     parser.setLanguage(typescript);
     const files = await getFiles(process.cwd());
-    const base = path.join(process.cwd(), 'src');
+    const base = path_1.default.join(process.cwd(), 'src');
     const policies = [];
     for (const file of files) {
-        const moduleName = path.relative(base, file).replace(/\.ts$/i, '').replace(/\\/g, '/');
+        const moduleName = path_1.default.relative(base, file).replace(/\.ts$/i, '').replace(/\\/g, '/');
         const contents = await fs_1.promises.readFile(file, { encoding: 'utf8' });
         const tree = parser.parse(contents);
         policies.push(...getPolicies(moduleName, tree.rootNode));
@@ -505,23 +821,57 @@ async function getTranslations() {
     return await Promise.all(languageIds.map(languageId => getNLS(extensionGalleryServiceUrl, resourceUrlTemplate, languageId, version)
         .then(languageTranslations => ({ languageId, languageTranslations }))));
 }
-async function main() {
-    const [policies, translations] = await Promise.all([parsePolicies(), getTranslations()]);
-    const { admx, adml } = await renderGP(policies, translations);
+async function windowsMain(policies, translations) {
     const root = '.build/policies/win32';
+    const { admx, adml } = await renderGP(policies, translations);
     await fs_1.promises.rm(root, { recursive: true, force: true });
     await fs_1.promises.mkdir(root, { recursive: true });
-    await fs_1.promises.writeFile(path.join(root, `${product.win32RegValueName}.admx`), admx.replace(/\r?\n/g, '\n'));
+    await fs_1.promises.writeFile(path_1.default.join(root, `${product.win32RegValueName}.admx`), admx.replace(/\r?\n/g, '\n'));
     for (const { languageId, contents } of adml) {
-        const languagePath = path.join(root, languageId === 'en-us' ? 'en-us' : Languages[languageId]);
+        const languagePath = path_1.default.join(root, languageId === 'en-us' ? 'en-us' : Languages[languageId]);
         await fs_1.promises.mkdir(languagePath, { recursive: true });
-        await fs_1.promises.writeFile(path.join(languagePath, `${product.win32RegValueName}.adml`), contents.replace(/\r?\n/g, '\n'));
+        await fs_1.promises.writeFile(path_1.default.join(languagePath, `${product.win32RegValueName}.adml`), contents.replace(/\r?\n/g, '\n'));
+    }
+}
+async function darwinMain(policies, translations) {
+    const bundleIdentifier = product.darwinBundleIdentifier;
+    if (!bundleIdentifier || !product.darwinProfilePayloadUUID || !product.darwinProfileUUID) {
+        throw new Error(`Missing required product information.`);
+    }
+    const root = '.build/policies/darwin';
+    const { profile, manifests } = await renderMacOSPolicy(policies, translations);
+    await fs_1.promises.rm(root, { recursive: true, force: true });
+    await fs_1.promises.mkdir(root, { recursive: true });
+    await fs_1.promises.writeFile(path_1.default.join(root, `${bundleIdentifier}.mobileconfig`), profile.replace(/\r?\n/g, '\n'));
+    for (const { languageId, contents } of manifests) {
+        const languagePath = path_1.default.join(root, languageId === 'en-us' ? 'en-us' : Languages[languageId]);
+        await fs_1.promises.mkdir(languagePath, { recursive: true });
+        await fs_1.promises.writeFile(path_1.default.join(languagePath, `${bundleIdentifier}.plist`), contents.replace(/\r?\n/g, '\n'));
+    }
+}
+async function main() {
+    const [policies, translations] = await Promise.all([parsePolicies(), getTranslations()]);
+    const platform = process.argv[2];
+    if (platform === 'darwin') {
+        await darwinMain(policies, translations);
+    }
+    else if (platform === 'win32') {
+        await windowsMain(policies, translations);
+    }
+    else {
+        console.error(`Usage: node build/lib/policies <darwin|win32>`);
+        process.exit(1);
     }
 }
 if (require.main === module) {
     main().catch(err => {
-        console.error(err);
+        if (err instanceof ParseError) {
+            console.error(`Parse Error:`, err.message);
+        }
+        else {
+            console.error(err);
+        }
         process.exit(1);
     });
 }
-//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoicG9saWNpZXMuanMiLCJzb3VyY2VSb290IjoiIiwic291cmNlcyI6WyJwb2xpY2llcy50cyJdLCJuYW1lcyI6W10sIm1hcHBpbmdzIjoiO0FBQUE7OztnR0FHZ0c7O0FBRWhHLGlEQUFzQztBQUN0QywyQkFBb0M7QUFDcEMsNkJBQTZCO0FBQzdCLGlDQUFpQztBQUNqQyw2Q0FBeUM7QUFDekMsc0NBQXNDO0FBQ3RDLDJDQUErQjtBQUMvQixNQUFNLEVBQUUsVUFBVSxFQUFFLEdBQUcsT0FBTyxDQUFDLHdCQUF3QixDQUFDLENBQUM7QUFDekQsTUFBTSxPQUFPLEdBQUcsT0FBTyxDQUFDLG9CQUFvQixDQUFDLENBQUM7QUFDOUMsTUFBTSxXQUFXLEdBQUcsT0FBTyxDQUFDLG9CQUFvQixDQUFDLENBQUM7QUFJbEQsU0FBUyxXQUFXLENBQUMsS0FBcUM7SUFDekQsT0FBTyxLQUFLLENBQUMsQ0FBQyxDQUFDLE9BQU8sS0FBSyxLQUFLLFFBQVEsQ0FBQyxDQUFDLENBQUMsS0FBSyxDQUFDO0FBQ2xELENBQUM7QUFFRCxTQUFTLGFBQWEsQ0FBQyxLQUE2QjtJQUNuRCxPQUFPLENBQUMsS0FBSyxDQUFDLElBQUksQ0FBQyxDQUFDLENBQUMsRUFBRSxDQUFDLFdBQVcsQ0FBQyxDQUFDLENBQUMsQ0FBQyxDQUFDO0FBQ3pDLENBQUM7QUFFRCxTQUFTLGdCQUFnQixDQUFDLEtBQTZCO0lBQ3RELE9BQU8sS0FBSyxDQUFDLEtBQUssQ0FBQyxDQUFDLENBQUMsRUFBRSxDQUFDLFdBQVcsQ0FBQyxDQUFDLENBQUMsQ0FBQyxDQUFDO0FBQ3pDLENBQUM7QUFPRCxJQUFLLFVBRUo7QUFGRCxXQUFLLFVBQVU7SUFDZCx1REFBVSxDQUFBO0FBQ1gsQ0FBQyxFQUZJLFVBQVUsS0FBVixVQUFVLFFBRWQ7QUFVRCxTQUFTLGdCQUFnQixDQUFDLE1BQWMsRUFBRSxVQUFrQixFQUFFLFNBQW9CLEVBQUUsWUFBbUM7SUFDdEgsSUFBSSxLQUF5QixDQUFDO0lBRTlCLElBQUksWUFBWSxFQUFFLENBQUM7UUFDbEIsTUFBTSxrQkFBa0IsR0FBRyxZQUFZLENBQUMsVUFBVSxDQUFDLENBQUM7UUFFcEQsSUFBSSxrQkFBa0IsRUFBRSxDQUFDO1lBQ3hCLEtBQUssR0FBRyxrQkFBa0IsQ0FBQyxTQUFTLENBQUMsTUFBTSxDQUFDLENBQUM7UUFDOUMsQ0FBQztJQUNGLENBQUM7SUFFRCxJQUFJLENBQUMsS0FBSyxFQUFFLENBQUM7UUFDWixLQUFLLEdBQUcsU0FBUyxDQUFDLEtBQUssQ0FBQztJQUN6QixDQUFDO0lBRUQsT0FBTyxlQUFlLE1BQU0sSUFBSSxTQUFTLENBQUMsTUFBTSxLQUFLLEtBQUssV0FBVyxDQUFDO0FBQ3ZFLENBQUM7QUFFRCxNQUFlLFVBQVU7SUFFYjtJQUNBO0lBQ0Q7SUFDQTtJQUNDO0lBQ0E7SUFOWCxZQUNXLFVBQXNCLEVBQ3RCLElBQVksRUFDYixRQUFrQixFQUNsQixjQUFzQixFQUNyQixXQUFzQixFQUN0QixVQUFrQjtRQUxsQixlQUFVLEdBQVYsVUFBVSxDQUFZO1FBQ3RCLFNBQUksR0FBSixJQUFJLENBQVE7UUFDYixhQUFRLEdBQVIsUUFBUSxDQUFVO1FBQ2xCLG1CQUFjLEdBQWQsY0FBYyxDQUFRO1FBQ3JCLGdCQUFXLEdBQVgsV0FBVyxDQUFXO1FBQ3RCLGVBQVUsR0FBVixVQUFVLENBQVE7SUFDekIsQ0FBQztJQUVLLGdCQUFnQixDQUFDLFNBQW9CLEVBQUUsWUFBbUM7UUFDbkYsT0FBTyxnQkFBZ0IsQ0FBQyxJQUFJLENBQUMsSUFBSSxFQUFFLElBQUksQ0FBQyxVQUFVLEVBQUUsU0FBUyxFQUFFLFlBQVksQ0FBQyxDQUFDO0lBQzlFLENBQUM7SUFFRCxVQUFVLENBQUMsTUFBYztRQUN4QixPQUFPO1lBQ04saUJBQWlCLElBQUksQ0FBQyxJQUFJLHdDQUF3QyxJQUFJLENBQUMsSUFBSSw0QkFBNEIsSUFBSSxDQUFDLElBQUksSUFBSSxJQUFJLENBQUMsV0FBVyxDQUFDLE1BQU0sMENBQTBDLE1BQU0sa0NBQWtDLElBQUksQ0FBQyxJQUFJLEtBQUs7WUFDM08seUJBQXlCLElBQUksQ0FBQyxRQUFRLENBQUMsSUFBSSxDQUFDLE1BQU0sTUFBTTtZQUN4RCxnQ0FBZ0MsSUFBSSxDQUFDLGNBQWMsQ0FBQyxPQUFPLENBQUMsS0FBSyxFQUFFLEdBQUcsQ0FBQyxNQUFNO1lBQzdFLGFBQWE7WUFDYixHQUFHLElBQUksQ0FBQyxrQkFBa0IsRUFBRTtZQUM1QixjQUFjO1lBQ2QsV0FBVztTQUNYLENBQUM7SUFDSCxDQUFDO0lBSUQsaUJBQWlCLENBQUMsWUFBbUM7UUFDcEQsT0FBTztZQUNOLGVBQWUsSUFBSSxDQUFDLElBQUksS0FBSyxJQUFJLENBQUMsSUFBSSxXQUFXO1lBQ2pELElBQUksQ0FBQyxnQkFBZ0IsQ0FBQyxJQUFJLENBQUMsV0FBVyxFQUFFLFlBQVksQ0FBQztTQUNyRCxDQUFDO0lBQ0gsQ0FBQztJQUVELHNCQUFzQjtRQUNyQixPQUFPLHFCQUFxQixJQUFJLENBQUMsSUFBSSxLQUFLLElBQUksQ0FBQyw4QkFBOEIsRUFBRSxpQkFBaUIsQ0FBQztJQUNsRyxDQUFDO0NBR0Q7QUFFRCxNQUFNLGFBQWMsU0FBUSxVQUFVO0lBRXJDLE1BQU0sQ0FBQyxJQUFJLENBQ1YsSUFBWSxFQUNaLFFBQWtCLEVBQ2xCLGNBQXNCLEVBQ3RCLFdBQXNCLEVBQ3RCLFVBQWtCLEVBQ2xCLFdBQThCO1FBRTlCLE1BQU0sSUFBSSxHQUFHLGlCQUFpQixDQUFDLFdBQVcsRUFBRSxNQUFNLENBQUMsQ0FBQztRQUVwRCxJQUFJLElBQUksS0FBSyxTQUFTLEVBQUUsQ0FBQztZQUN4QixPQUFPLFNBQVMsQ0FBQztRQUNsQixDQUFDO1FBRUQsT0FBTyxJQUFJLGFBQWEsQ0FBQyxJQUFJLEVBQUUsUUFBUSxFQUFFLGNBQWMsRUFBRSxXQUFXLEVBQUUsVUFBVSxDQUFDLENBQUM7SUFDbkYsQ0FBQztJQUVELFlBQ0MsSUFBWSxFQUNaLFFBQWtCLEVBQ2xCLGNBQXNCLEVBQ3RCLFdBQXNCLEVBQ3RCLFVBQWtCO1FBRWxCLEtBQUssQ0FBQyxVQUFVLENBQUMsVUFBVSxFQUFFLElBQUksRUFBRSxRQUFRLEVBQUUsY0FBYyxFQUFFLFdBQVcsRUFBRSxVQUFVLENBQUMsQ0FBQztJQUN2RixDQUFDO0lBRVMsa0JBQWtCO1FBQzNCLE9BQU87WUFDTixnQkFBZ0IsSUFBSSxDQUFDLElBQUksZ0JBQWdCLElBQUksQ0FBQyxJQUFJLElBQUk7WUFDdEQsNkZBQTZGO1lBQzdGLFlBQVk7U0FDWixDQUFDO0lBQ0gsQ0FBQztJQUVELDhCQUE4QjtRQUM3QixPQUFPLG9CQUFvQixJQUFJLENBQUMsSUFBSSxLQUFLLElBQUksQ0FBQyxJQUFJLGFBQWEsQ0FBQztJQUNqRSxDQUFDO0NBQ0Q7QUFFRCxNQUFNLFNBQVUsU0FBUSxVQUFVO0lBK0JiO0lBN0JwQixNQUFNLENBQUMsSUFBSSxDQUNWLElBQVksRUFDWixRQUFrQixFQUNsQixjQUFzQixFQUN0QixXQUFzQixFQUN0QixVQUFrQixFQUNsQixXQUE4QjtRQUU5QixNQUFNLElBQUksR0FBRyxpQkFBaUIsQ0FBQyxXQUFXLEVBQUUsTUFBTSxDQUFDLENBQUM7UUFFcEQsSUFBSSxJQUFJLEtBQUssUUFBUSxFQUFFLENBQUM7WUFDdkIsT0FBTyxTQUFTLENBQUM7UUFDbEIsQ0FBQztRQUVELE1BQU0sWUFBWSxHQUFHLGNBQWMsQ0FBQyxXQUFXLEVBQUUsU0FBUyxDQUFDLENBQUM7UUFFNUQsSUFBSSxPQUFPLFlBQVksS0FBSyxXQUFXLEVBQUUsQ0FBQztZQUN6QyxNQUFNLElBQUksS0FBSyxDQUFDLHNDQUFzQyxDQUFDLENBQUM7UUFDekQsQ0FBQztRQUVELE9BQU8sSUFBSSxTQUFTLENBQUMsSUFBSSxFQUFFLFFBQVEsRUFBRSxjQUFjLEVBQUUsV0FBVyxFQUFFLFVBQVUsRUFBRSxZQUFZLENBQUMsQ0FBQztJQUM3RixDQUFDO0lBRUQsWUFDQyxJQUFZLEVBQ1osUUFBa0IsRUFDbEIsY0FBc0IsRUFDdEIsV0FBc0IsRUFDdEIsVUFBa0IsRUFDQyxZQUFvQjtRQUV2QyxLQUFLLENBQUMsVUFBVSxDQUFDLFVBQVUsRUFBRSxJQUFJLEVBQUUsUUFBUSxFQUFFLGNBQWMsRUFBRSxXQUFXLEVBQUUsVUFBVSxDQUFDLENBQUM7UUFGbkUsaUJBQVksR0FBWixZQUFZLENBQVE7SUFHeEMsQ0FBQztJQUVTLGtCQUFrQjtRQUMzQixPQUFPO1lBQ04sZ0JBQWdCLElBQUksQ0FBQyxJQUFJLGdCQUFnQixJQUFJLENBQUMsSUFBSSxNQUFNO1lBQ3hELHVIQUF1SDtTQUN2SCxDQUFDO0lBQ0gsQ0FBQztJQUVELDhCQUE4QjtRQUM3QixPQUFPLDBCQUEwQixJQUFJLENBQUMsSUFBSSxtQkFBbUIsSUFBSSxDQUFDLFlBQVksS0FBSyxJQUFJLENBQUMsSUFBSSxtQkFBbUIsQ0FBQztJQUNqSCxDQUFDO0NBQ0Q7QUFFRCxNQUFNLFlBQWEsU0FBUSxVQUFVO0lBRXBDLE1BQU0sQ0FBQyxJQUFJLENBQ1YsSUFBWSxFQUNaLFFBQWtCLEVBQ2xCLGNBQXNCLEVBQ3RCLFdBQXNCLEVBQ3RCLFVBQWtCLEVBQ2xCLFdBQThCO1FBRTlCLE1BQU0sSUFBSSxHQUFHLGlCQUFpQixDQUFDLFdBQVcsRUFBRSxNQUFNLENBQUMsQ0FBQztRQUVwRCxJQUFJLElBQUksS0FBSyxRQUFRLEVBQUUsQ0FBQztZQUN2QixPQUFPLFNBQVMsQ0FBQztRQUNsQixDQUFDO1FBRUQsT0FBTyxJQUFJLFlBQVksQ0FBQyxJQUFJLEVBQUUsUUFBUSxFQUFFLGNBQWMsRUFBRSxXQUFXLEVBQUUsVUFBVSxDQUFDLENBQUM7SUFDbEYsQ0FBQztJQUVELFlBQ0MsSUFBWSxFQUNaLFFBQWtCLEVBQ2xCLGNBQXNCLEVBQ3RCLFdBQXNCLEVBQ3RCLFVBQWtCO1FBRWxCLEtBQUssQ0FBQyxVQUFVLENBQUMsVUFBVSxFQUFFLElBQUksRUFBRSxRQUFRLEVBQUUsY0FBYyxFQUFFLFdBQVcsRUFBRSxVQUFVLENBQUMsQ0FBQztJQUN2RixDQUFDO0lBRVMsa0JBQWtCO1FBQzNCLE9BQU8sQ0FBQyxhQUFhLElBQUksQ0FBQyxJQUFJLGdCQUFnQixJQUFJLENBQUMsSUFBSSxzQkFBc0IsQ0FBQyxDQUFDO0lBQ2hGLENBQUM7SUFFRCw4QkFBOEI7UUFDN0IsT0FBTyxtQkFBbUIsSUFBSSxDQUFDLElBQUksWUFBWSxJQUFJLENBQUMsSUFBSSxxQkFBcUIsQ0FBQztJQUMvRSxDQUFDO0NBQ0Q7QUFFRCxNQUFNLGdCQUFpQixTQUFRLFVBQVU7SUEyQzdCO0lBQ0E7SUExQ1gsTUFBTSxDQUFDLElBQUksQ0FDVixJQUFZLEVBQ1osUUFBa0IsRUFDbEIsY0FBc0IsRUFDdEIsV0FBc0IsRUFDdEIsVUFBa0IsRUFDbEIsV0FBOEI7UUFFOUIsTUFBTSxJQUFJLEdBQUcsaUJBQWlCLENBQUMsV0FBVyxFQUFFLE1BQU0sQ0FBQyxDQUFDO1FBRXBELElBQUksSUFBSSxLQUFLLFFBQVEsRUFBRSxDQUFDO1lBQ3ZCLE9BQU8sU0FBUyxDQUFDO1FBQ2xCLENBQUM7UUFFRCxNQUFNLEtBQUssR0FBRyxzQkFBc0IsQ0FBQyxXQUFXLEVBQUUsTUFBTSxDQUFDLENBQUM7UUFFMUQsSUFBSSxDQUFDLEtBQUssRUFBRSxDQUFDO1lBQ1osT0FBTyxTQUFTLENBQUM7UUFDbEIsQ0FBQztRQUVELElBQUksQ0FBQyxhQUFhLENBQUMsS0FBSyxDQUFDLEVBQUUsQ0FBQztZQUMzQixNQUFNLElBQUksS0FBSyxDQUFDLDBDQUEwQyxDQUFDLENBQUM7UUFDN0QsQ0FBQztRQUVELE1BQU0sZ0JBQWdCLEdBQUcsc0JBQXNCLENBQUMsV0FBVyxFQUFFLGtCQUFrQixDQUFDLENBQUM7UUFFakYsSUFBSSxDQUFDLGdCQUFnQixFQUFFLENBQUM7WUFDdkIsTUFBTSxJQUFJLEtBQUssQ0FBQywrQ0FBK0MsQ0FBQyxDQUFDO1FBQ2xFLENBQUM7YUFBTSxJQUFJLENBQUMsZ0JBQWdCLENBQUMsZ0JBQWdCLENBQUMsRUFBRSxDQUFDO1lBQ2hELE1BQU0sSUFBSSxLQUFLLENBQUMsa0RBQWtELENBQUMsQ0FBQztRQUNyRSxDQUFDO1FBRUQsT0FBTyxJQUFJLGdCQUFnQixDQUFDLElBQUksRUFBRSxRQUFRLEVBQUUsY0FBYyxFQUFFLFdBQVcsRUFBRSxVQUFVLEVBQUUsS0FBSyxFQUFFLGdCQUFnQixDQUFDLENBQUM7SUFDL0csQ0FBQztJQUVELFlBQ0MsSUFBWSxFQUNaLFFBQWtCLEVBQ2xCLGNBQXNCLEVBQ3RCLFdBQXNCLEVBQ3RCLFVBQWtCLEVBQ1IsS0FBZSxFQUNmLGdCQUE2QjtRQUV2QyxLQUFLLENBQUMsVUFBVSxDQUFDLFVBQVUsRUFBRSxJQUFJLEVBQUUsUUFBUSxFQUFFLGNBQWMsRUFBRSxXQUFXLEVBQUUsVUFBVSxDQUFDLENBQUM7UUFINUUsVUFBSyxHQUFMLEtBQUssQ0FBVTtRQUNmLHFCQUFnQixHQUFoQixnQkFBZ0IsQ0FBYTtJQUd4QyxDQUFDO0lBRVMsa0JBQWtCO1FBQzNCLE9BQU87WUFDTixhQUFhLElBQUksQ0FBQyxJQUFJLGdCQUFnQixJQUFJLENBQUMsSUFBSSxJQUFJO1lBQ25ELEdBQUcsSUFBSSxDQUFDLEtBQUssQ0FBQyxHQUFHLENBQUMsQ0FBQyxLQUFLLEVBQUUsS0FBSyxFQUFFLEVBQUUsQ0FBQyxnQ0FBZ0MsSUFBSSxDQUFDLElBQUksSUFBSSxJQUFJLENBQUMsZ0JBQWdCLENBQUMsS0FBSyxDQUFDLENBQUMsTUFBTSxxQkFBcUIsS0FBSywwQkFBMEIsQ0FBQztZQUN6SyxTQUFTO1NBQ1QsQ0FBQztJQUNILENBQUM7SUFFRCxpQkFBaUIsQ0FBQyxZQUFtQztRQUNwRCxPQUFPO1lBQ04sR0FBRyxLQUFLLENBQUMsaUJBQWlCLENBQUMsWUFBWSxDQUFDO1lBQ3hDLEdBQUcsSUFBSSxDQUFDLGdCQUFnQixDQUFDLEdBQUcsQ0FBQyxDQUFDLENBQUMsRUFBRSxDQUFDLElBQUksQ0FBQyxnQkFBZ0IsQ0FBQyxDQUFDLEVBQUUsWUFBWSxDQUFDLENBQUM7U0FDekUsQ0FBQztJQUNILENBQUM7SUFFRCw4QkFBOEI7UUFDN0IsT0FBTyx3QkFBd0IsSUFBSSxDQUFDLElBQUksTUFBTSxDQUFDO0lBQ2hELENBQUM7Q0FDRDtBQU9ELE1BQU0sSUFBSSxHQUFrQjtJQUMzQixDQUFDLEVBQUUsaUJBQWlCO0lBRXBCLEtBQUssQ0FBQyxPQUE0QjtRQUNqQyxNQUFNLEtBQUssR0FBRyxPQUFPLENBQUMsQ0FBQyxDQUFDLENBQUM7UUFFekIsSUFBSSxDQUFDLEtBQUssRUFBRSxDQUFDO1lBQ1osT0FBTyxTQUFTLENBQUM7UUFDbEIsQ0FBQztRQUVELE1BQU0sS0FBSyxHQUFHLEtBQUssQ0FBQyxRQUFRLENBQUMsTUFBTSxDQUFDLENBQUMsQ0FBQyxFQUFFLENBQUMsQ0FBQyxDQUFDLElBQUksS0FBSyxPQUFPLENBQUMsQ0FBQyxDQUFDLENBQUMsRUFBRSxJQUFJLENBQUMsSUFBSSxDQUFDO1FBRTNFLElBQUksQ0FBQyxLQUFLLEVBQUUsQ0FBQztZQUNaLE1BQU0sSUFBSSxLQUFLLENBQUMsb0NBQW9DLENBQUMsQ0FBQztRQUN2RCxDQUFDO1FBRUQsT0FBTyxRQUFRLENBQUMsS0FBSyxDQUFDLENBQUM7SUFDeEIsQ0FBQztDQUNELENBQUM7QUFFRixNQUFNLE9BQU8sR0FBOEI7SUFDMUMsQ0FBQyxFQUFFOzs7R0FHRDtJQUVGLEtBQUssQ0FBQyxPQUE0QjtRQUNqQyxNQUFNLEtBQUssR0FBRyxPQUFPLENBQUMsQ0FBQyxDQUFDLENBQUM7UUFFekIsSUFBSSxDQUFDLEtBQUssRUFBRSxDQUFDO1lBQ1osT0FBTyxTQUFTLENBQUM7UUFDbEIsQ0FBQztRQUVELE1BQU0sS0FBSyxHQUFHLEtBQUssQ0FBQyxRQUFRLENBQUMsTUFBTSxDQUFDLENBQUMsQ0FBQyxFQUFFLENBQUMsQ0FBQyxDQUFDLElBQUksS0FBSyxPQUFPLENBQUMsQ0FBQyxDQUFDLENBQUMsRUFBRSxJQUFJLENBQUMsSUFBSSxDQUFDO1FBRTNFLElBQUksQ0FBQyxLQUFLLEVBQUUsQ0FBQztZQUNaLE1BQU0sSUFBSSxLQUFLLENBQUMsb0NBQW9DLENBQUMsQ0FBQztRQUN2RCxDQUFDO1FBRUQsTUFBTSxNQUFNLEdBQUcsS0FBSyxDQUFDLFFBQVEsQ0FBQyxNQUFNLENBQUMsQ0FBQyxDQUFDLEVBQUUsQ0FBQyxDQUFDLENBQUMsSUFBSSxLQUFLLFFBQVEsQ0FBQyxDQUFDLENBQUMsQ0FBQyxFQUFFLElBQUksQ0FBQyxJQUFJLENBQUM7UUFFN0UsSUFBSSxNQUFNLEVBQUUsQ0FBQztZQUNaLE9BQU8sRUFBRSxLQUFLLEVBQUUsTUFBTSxFQUFFLENBQUM7UUFDMUIsQ0FBQzthQUFNLENBQUM7WUFDUCxPQUFPLEtBQUssQ0FBQztRQUNkLENBQUM7SUFDRixDQUFDO0NBQ0QsQ0FBQztBQUVGLE1BQU0sWUFBWSxHQUFrQztJQUNuRCxDQUFDLEVBQUUsVUFBVSxPQUFPLENBQUMsQ0FBQyxHQUFHO0lBRXpCLEtBQUssQ0FBQyxPQUE0QjtRQUNqQyxJQUFJLE9BQU8sQ0FBQyxNQUFNLEtBQUssQ0FBQyxFQUFFLENBQUM7WUFDMUIsT0FBTyxTQUFTLENBQUM7UUFDbEIsQ0FBQztRQUVELE9BQU8sT0FBTyxDQUFDLEdBQUcsQ0FBQyxLQUFLLENBQUMsRUFBRTtZQUMxQixPQUFPLE9BQU8sQ0FBQyxLQUFLLENBQUMsQ0FBQyxLQUFLLENBQUMsQ0FBdUIsQ0FBQztRQUNyRCxDQUFDLENBQUMsQ0FBQztJQUNKLENBQUM7Q0FDRCxDQUFDO0FBRUYsU0FBUyxXQUFXLENBQUksS0FBZSxFQUFFLElBQXVCLEVBQUUsR0FBVztJQUM1RSxNQUFNLEtBQUssR0FBRyxJQUFJLE1BQU0sQ0FBQyxLQUFLLENBQzdCLFVBQVUsRUFDVjs7O2FBR1csS0FBSyxDQUFDLENBQUM7O2dCQUVKLEdBQUc7SUFDZixDQUNGLENBQUM7SUFFRixPQUFPLEtBQUssQ0FBQyxLQUFLLENBQUMsS0FBSyxDQUFDLE9BQU8sQ0FBQyxJQUFJLENBQUMsQ0FBQyxDQUFDO0FBQ3pDLENBQUM7QUFFRCxTQUFTLGNBQWMsQ0FBQyxJQUF1QixFQUFFLEdBQVc7SUFDM0QsT0FBTyxXQUFXLENBQUMsSUFBSSxFQUFFLElBQUksRUFBRSxHQUFHLENBQUMsQ0FBQztBQUNyQyxDQUFDO0FBRUQsU0FBUyxpQkFBaUIsQ0FBQyxJQUF1QixFQUFFLEdBQVc7SUFDOUQsT0FBTyxXQUFXLENBQUMsT0FBTyxFQUFFLElBQUksRUFBRSxHQUFHLENBQUMsQ0FBQztBQUN4QyxDQUFDO0FBRUQsU0FBUyxzQkFBc0IsQ0FBQyxJQUF1QixFQUFFLEdBQVc7SUFDbkUsT0FBTyxXQUFXLENBQUMsWUFBWSxFQUFFLElBQUksRUFBRSxHQUFHLENBQUMsQ0FBQztBQUM3QyxDQUFDO0FBRUQsOEJBQThCO0FBQzlCLE1BQU0sV0FBVyxHQUFHO0lBQ25CLGFBQWE7SUFDYixTQUFTO0lBQ1QsZ0JBQWdCO0lBQ2hCLFlBQVk7Q0FDWixDQUFDO0FBRUYsU0FBUyxTQUFTLENBQ2pCLFVBQWtCLEVBQ2xCLGlCQUFvQyxFQUNwQyxXQUE4QixFQUM5QixVQUE2QixFQUM3QixVQUFpQztJQUVqQyxNQUFNLElBQUksR0FBRyxpQkFBaUIsQ0FBQyxVQUFVLEVBQUUsTUFBTSxDQUFDLENBQUM7SUFFbkQsSUFBSSxDQUFDLElBQUksRUFBRSxDQUFDO1FBQ1gsTUFBTSxJQUFJLEtBQUssQ0FBQyxtQ0FBbUMsQ0FBQyxDQUFDO0lBQ3RELENBQUM7U0FBTSxJQUFJLFdBQVcsQ0FBQyxJQUFJLENBQUMsRUFBRSxDQUFDO1FBQzlCLE1BQU0sSUFBSSxLQUFLLENBQUMsNkNBQTZDLENBQUMsQ0FBQztJQUNoRSxDQUFDO0lBRUQsTUFBTSxZQUFZLEdBQUcsaUJBQWlCLENBQUMsaUJBQWlCLEVBQUUsT0FBTyxDQUFDLENBQUM7SUFFbkUsSUFBSSxDQUFDLFlBQVksRUFBRSxDQUFDO1FBQ25CLE1BQU0sSUFBSSxLQUFLLENBQUMsb0NBQW9DLENBQUMsQ0FBQztJQUN2RCxDQUFDO1NBQU0sSUFBSSxDQUFDLFdBQVcsQ0FBQyxZQUFZLENBQUMsRUFBRSxDQUFDO1FBQ3ZDLE1BQU0sSUFBSSxLQUFLLENBQUMsdUNBQXVDLENBQUMsQ0FBQztJQUMxRCxDQUFDO0lBRUQsTUFBTSxXQUFXLEdBQUcsR0FBRyxZQUFZLENBQUMsTUFBTSxJQUFJLFlBQVksQ0FBQyxLQUFLLEVBQUUsQ0FBQztJQUNuRSxJQUFJLFFBQVEsR0FBRyxVQUFVLENBQUMsR0FBRyxDQUFDLFdBQVcsQ0FBQyxDQUFDO0lBRTNDLElBQUksQ0FBQyxRQUFRLEVBQUUsQ0FBQztRQUNmLFFBQVEsR0FBRyxFQUFFLFVBQVUsRUFBRSxJQUFJLEVBQUUsWUFBWSxFQUFFLENBQUM7UUFDOUMsVUFBVSxDQUFDLEdBQUcsQ0FBQyxXQUFXLEVBQUUsUUFBUSxDQUFDLENBQUM7SUFDdkMsQ0FBQztJQUVELE1BQU0sY0FBYyxHQUFHLGlCQUFpQixDQUFDLFVBQVUsRUFBRSxnQkFBZ0IsQ0FBQyxDQUFDO0lBRXZFLElBQUksQ0FBQyxjQUFjLEVBQUUsQ0FBQztRQUNyQixNQUFNLElBQUksS0FBSyxDQUFDLDZDQUE2QyxDQUFDLENBQUM7SUFDaEUsQ0FBQztTQUFNLElBQUksV0FBVyxDQUFDLGNBQWMsQ0FBQyxFQUFFLENBQUM7UUFDeEMsTUFBTSxJQUFJLEtBQUssQ0FBQyx1REFBdUQsQ0FBQyxDQUFDO0lBQzFFLENBQUM7SUFFRCxNQUFNLFdBQVcsR0FBRyxpQkFBaUIsQ0FBQyxXQUFXLEVBQUUsYUFBYSxDQUFDLENBQUM7SUFFbEUsSUFBSSxDQUFDLFdBQVcsRUFBRSxDQUFDO1FBQ2xCLE1BQU0sSUFBSSxLQUFLLENBQUMsMENBQTBDLENBQUMsQ0FBQztJQUM3RCxDQUFDO0lBQUMsSUFBSSxDQUFDLFdBQVcsQ0FBQyxXQUFXLENBQUMsRUFBRSxDQUFDO1FBQ2pDLE1BQU0sSUFBSSxLQUFLLENBQUMsNkNBQTZDLENBQUMsQ0FBQztJQUNoRSxDQUFDO0lBRUQsSUFBSSxNQUEwQixDQUFDO0lBRS9CLEtBQUssTUFBTSxVQUFVLElBQUksV0FBVyxFQUFFLENBQUM7UUFDdEMsSUFBSSxNQUFNLEdBQUcsVUFBVSxDQUFDLElBQUksQ0FBQyxJQUFJLEVBQUUsUUFBUSxFQUFFLGNBQWMsRUFBRSxXQUFXLEVBQUUsVUFBVSxFQUFFLFdBQVcsQ0FBQyxFQUFFLENBQUM7WUFDcEcsTUFBTTtRQUNQLENBQUM7SUFDRixDQUFDO0lBRUQsSUFBSSxDQUFDLE1BQU0sRUFBRSxDQUFDO1FBQ2IsTUFBTSxJQUFJLEtBQUssQ0FBQywyQkFBMkIsSUFBSSxJQUFJLENBQUMsQ0FBQztJQUN0RCxDQUFDO0lBRUQsT0FBTyxNQUFNLENBQUM7QUFDZixDQUFDO0FBRUQsU0FBUyxXQUFXLENBQUMsVUFBa0IsRUFBRSxJQUF1QjtJQUMvRCxNQUFNLEtBQUssR0FBRyxJQUFJLE1BQU0sQ0FBQyxLQUFLLENBQUMsVUFBVSxFQUFFOzs7Ozs7Ozs7Ozs7Ozs7O0VBZ0IxQyxDQUFDLENBQUM7SUFFSCxNQUFNLFVBQVUsR0FBRyxJQUFJLEdBQUcsRUFBb0IsQ0FBQztJQUUvQyxPQUFPLEtBQUssQ0FBQyxPQUFPLENBQUMsSUFBSSxDQUFDLENBQUMsR0FBRyxDQUFDLENBQUMsQ0FBQyxFQUFFO1FBQ2xDLE1BQU0saUJBQWlCLEdBQUcsQ0FBQyxDQUFDLFFBQVEsQ0FBQyxNQUFNLENBQUMsQ0FBQyxDQUFDLEVBQUUsQ0FBQyxDQUFDLENBQUMsSUFBSSxLQUFLLGVBQWUsQ0FBQyxDQUFDLENBQUMsQ0FBQyxDQUFDLElBQUksQ0FBQztRQUNyRixNQUFNLFdBQVcsR0FBRyxDQUFDLENBQUMsUUFBUSxDQUFDLE1BQU0sQ0FBQyxDQUFDLENBQUMsRUFBRSxDQUFDLENBQUMsQ0FBQyxJQUFJLEtBQUssU0FBUyxDQUFDLENBQUMsQ0FBQyxDQUFDLENBQUMsSUFBSSxDQUFDO1FBQ3pFLE1BQU0sVUFBVSxHQUFHLENBQUMsQ0FBQyxRQUFRLENBQUMsTUFBTSxDQUFDLENBQUMsQ0FBQyxFQUFFLENBQUMsQ0FBQyxDQUFDLElBQUksS0FBSyxRQUFRLENBQUMsQ0FBQyxDQUFDLENBQUMsQ0FBQyxJQUFJLENBQUM7UUFDdkUsT0FBTyxTQUFTLENBQUMsVUFBVSxFQUFFLGlCQUFpQixFQUFFLFdBQVcsRUFBRSxVQUFVLEVBQUUsVUFBVSxDQUFDLENBQUM7SUFDdEYsQ0FBQyxDQUFDLENBQUM7QUFDSixDQUFDO0FBRUQsS0FBSyxVQUFVLFFBQVEsQ0FBQyxJQUFZO0lBQ25DLE9BQU8sSUFBSSxPQUFPLENBQUMsQ0FBQyxDQUFDLEVBQUUsQ0FBQyxFQUFFLEVBQUU7UUFDM0IsTUFBTSxNQUFNLEdBQWEsRUFBRSxDQUFDO1FBQzVCLE1BQU0sRUFBRSxHQUFHLElBQUEscUJBQUssRUFBQyxnQkFBTSxFQUFFLENBQUMsSUFBSSxFQUFFLDBCQUEwQixFQUFFLElBQUksRUFBRSxhQUFhLEVBQUUsSUFBSSxFQUFFLGlCQUFpQixFQUFFLElBQUksQ0FBQyxDQUFDLENBQUM7UUFDakgsTUFBTSxNQUFNLEdBQUcsTUFBTSxDQUFDLEVBQUUsQ0FBQyxNQUFNLENBQUMsV0FBVyxDQUFDLE1BQU0sQ0FBQyxDQUFDLENBQUM7UUFDckQsTUFBTSxDQUFDLEVBQUUsQ0FBQyxNQUFNLEVBQUUsSUFBSSxDQUFDLEVBQUUsQ0FBQyxNQUFNLENBQUMsSUFBSSxDQUFDLElBQUksQ0FBQyxDQUFDLENBQUM7UUFDN0MsTUFBTSxDQUFDLEVBQUUsQ0FBQyxPQUFPLEVBQUUsR0FBRyxDQUFDLEVBQUUsQ0FBQyxDQUFDLENBQUMsR0FBRyxDQUFDLENBQUMsQ0FBQztRQUNsQyxNQUFNLENBQUMsRUFBRSxDQUFDLEtBQUssRUFBRSxHQUFHLEVBQUUsQ0FBQyxDQUFDLENBQUMsTUFBTSxDQUFDLENBQUMsQ0FBQztJQUNuQyxDQUFDLENBQUMsQ0FBQztBQUNKLENBQUM7QUFFRCxTQUFTLFVBQVUsQ0FBQyxNQUFjLEVBQUUsUUFBa0IsRUFBRSxVQUFzQixFQUFFLFFBQWtCO0lBQ2pHLFFBQVEsR0FBRyxRQUFRLENBQUMsR0FBRyxDQUFDLENBQUMsQ0FBQyxFQUFFLENBQUMsQ0FBQyxDQUFDLE9BQU8sQ0FBQyxLQUFLLEVBQUUsR0FBRyxDQUFDLENBQUMsQ0FBQztJQUVwRCxPQUFPOzs7b0JBR1ksTUFBTSxtQ0FBbUMsTUFBTTs7Ozs7S0FLOUQsUUFBUSxDQUFDLEdBQUcsQ0FBQyxDQUFDLENBQUMsRUFBRSxDQUFDLCtCQUErQixDQUFDLHFDQUFxQyxDQUFDLE9BQU8sQ0FBQyxDQUFDLElBQUksQ0FBQyxPQUFPLENBQUM7Ozs7O0lBSy9HLFVBQVUsQ0FBQyxHQUFHLENBQUMsQ0FBQyxDQUFDLEVBQUUsQ0FBQyw0Q0FBNEMsQ0FBQyxDQUFDLElBQUksQ0FBQyxNQUFNLFlBQVksQ0FBQyxDQUFDLElBQUksQ0FBQyxNQUFNLG1EQUFtRCxDQUFDLENBQUMsSUFBSSxDQUFDLE1BQU0sQ0FBQzs7O0lBR3ZLLFFBQVEsQ0FBQyxHQUFHLENBQUMsQ0FBQyxDQUFDLEVBQUUsQ0FBQyxDQUFDLENBQUMsVUFBVSxDQUFDLE1BQU0sQ0FBQyxDQUFDLENBQUMsSUFBSSxFQUFFLENBQUMsSUFBSSxDQUFDLE1BQU0sQ0FBQzs7O0NBRzlELENBQUM7QUFDRixDQUFDO0FBRUQsU0FBUyxVQUFVLENBQUMsT0FBZSxFQUFFLFFBQWtCLEVBQUUsVUFBc0IsRUFBRSxRQUFrQixFQUFFLFlBQW1DO0lBQ3ZJLE9BQU87Ozs7Ozs4QkFNc0IsT0FBTztLQUNoQyxRQUFRLENBQUMsR0FBRyxDQUFDLENBQUMsQ0FBQyxFQUFFLENBQUMseUJBQXlCLENBQUMsQ0FBQyxPQUFPLENBQUMsS0FBSyxFQUFFLEdBQUcsQ0FBQyxLQUFLLE9BQU8sVUFBVSxDQUFDLFdBQVcsQ0FBQztLQUNuRyxVQUFVLENBQUMsR0FBRyxDQUFDLENBQUMsQ0FBQyxFQUFFLENBQUMsZ0JBQWdCLENBQUMsVUFBVSxFQUFFLENBQUMsQ0FBQyxVQUFVLEVBQUUsQ0FBQyxDQUFDLElBQUksRUFBRSxZQUFZLENBQUMsQ0FBQztLQUNyRixRQUFRLENBQUMsR0FBRyxDQUFDLENBQUMsQ0FBQyxFQUFFLENBQUMsQ0FBQyxDQUFDLGlCQUFpQixDQUFDLFlBQVksQ0FBQyxDQUFDLENBQUMsSUFBSSxFQUFFLENBQUMsSUFBSSxDQUFDLE9BQU8sQ0FBQzs7O0tBR3pFLFFBQVEsQ0FBQyxHQUFHLENBQUMsQ0FBQyxDQUFDLEVBQUUsQ0FBQyxDQUFDLENBQUMsc0JBQXNCLEVBQUUsQ0FBQyxDQUFDLElBQUksQ0FBQyxPQUFPLENBQUM7Ozs7Q0FJL0QsQ0FBQztBQUNGLENBQUM7QUFFRCxTQUFTLFFBQVEsQ0FBQyxRQUFrQixFQUFFLFlBQTBCO0lBQy9ELE1BQU0sT0FBTyxHQUFHLE9BQU8sQ0FBQyxRQUFRLENBQUM7SUFDakMsTUFBTSxNQUFNLEdBQUcsT0FBTyxDQUFDLGlCQUFpQixDQUFDO0lBRXpDLE1BQU0sUUFBUSxHQUFHLENBQUMsR0FBRyxJQUFJLEdBQUcsQ0FBQyxRQUFRLENBQUMsR0FBRyxDQUFDLENBQUMsQ0FBQyxFQUFFLENBQUMsQ0FBQyxDQUFDLGNBQWMsQ0FBQyxDQUFDLENBQUMsTUFBTSxFQUFFLENBQUMsQ0FBQyxJQUFJLEVBQUUsQ0FBQztJQUNuRixNQUFNLFVBQVUsR0FBRyxDQUFDLEdBQUcsSUFBSSxHQUFHLENBQUMsUUFBUSxDQUFDLEdBQUcsQ0FBQyxDQUFDLENBQUMsRUFBRSxDQUFDLENBQUMsQ0FBQyxRQUFRLENBQUMsQ0FBQyxDQUFDLENBQUM7SUFFL0QsT0FBTztRQUNOLElBQUksRUFBRSxVQUFVLENBQUMsTUFBTSxFQUFFLFFBQVEsRUFBRSxVQUFVLEVBQUUsUUFBUSxDQUFDO1FBQ3hELElBQUksRUFBRTtZQUNMLEVBQUUsVUFBVSxFQUFFLE9BQU8sRUFBRSxRQUFRLEVBQUUsVUFBVSxDQUFDLE9BQU8sRUFBRSxRQUFRLEVBQUUsVUFBVSxFQUFFLFFBQVEsQ0FBQyxFQUFFO1lBQ3RGLEdBQUcsWUFBWSxDQUFDLEdBQUcsQ0FBQyxDQUFDLEVBQUUsVUFBVSxFQUFFLG9CQUFvQixFQUFFLEVBQUUsRUFBRSxDQUM1RCxDQUFDLEVBQUUsVUFBVSxFQUFFLFFBQVEsRUFBRSxVQUFVLENBQUMsT0FBTyxFQUFFLFFBQVEsRUFBRSxVQUFVLEVBQUUsUUFBUSxFQUFFLG9CQUFvQixDQUFDLEVBQUUsQ0FBQyxDQUFDO1NBQ3ZHO0tBQ0QsQ0FBQztBQUNILENBQUM7QUFFRCxNQUFNLFNBQVMsR0FBRztJQUNqQixJQUFJLEVBQUUsT0FBTztJQUNiLElBQUksRUFBRSxPQUFPO0lBQ2IsSUFBSSxFQUFFLE9BQU87SUFDYixJQUFJLEVBQUUsT0FBTztJQUNiLElBQUksRUFBRSxPQUFPO0lBQ2IsU0FBUyxFQUFFLE9BQU87SUFDbEIsU0FBUyxFQUFFLE9BQU87SUFDbEIsSUFBSSxFQUFFLE9BQU87SUFDYixJQUFJLEVBQUUsT0FBTztJQUNiLElBQUksRUFBRSxPQUFPO0lBQ2IsT0FBTyxFQUFFLE9BQU87SUFDaEIsSUFBSSxFQUFFLE9BQU87SUFDYixJQUFJLEVBQUUsT0FBTztDQUNiLENBQUM7QUFPRixLQUFLLFVBQVUsY0FBYyxDQUFDLG1CQUEyQixFQUFFLFVBQWtCLEVBQUUsT0FBZ0I7SUFDOUYsTUFBTSxRQUFRLEdBQUc7UUFDaEIsU0FBUyxFQUFFLFdBQVc7UUFDdEIsSUFBSSxFQUFFLHdCQUF3QixVQUFVLEVBQUU7UUFDMUMsT0FBTyxFQUFFLEdBQUcsT0FBTyxDQUFDLENBQUMsQ0FBQyxJQUFJLE9BQU8sQ0FBQyxDQUFDLENBQUMsSUFBSSxPQUFPLENBQUMsQ0FBQyxDQUFDLEVBQUU7UUFDcEQsSUFBSSxFQUFFLHVDQUF1QztLQUM3QyxDQUFDO0lBRUYsTUFBTSxHQUFHLEdBQUcsbUJBQW1CLENBQUMsT0FBTyxDQUFDLGNBQWMsRUFBRSxDQUFDLENBQUMsRUFBRSxHQUFHLEVBQUUsRUFBRSxDQUFDLFFBQVEsQ0FBQyxHQUE0QixDQUFDLENBQUMsQ0FBQztJQUM1RyxNQUFNLEdBQUcsR0FBRyxNQUFNLElBQUEsb0JBQUssRUFBQyxHQUFHLENBQUMsQ0FBQztJQUU3QixJQUFJLEdBQUcsQ0FBQyxNQUFNLEtBQUssR0FBRyxFQUFFLENBQUM7UUFDeEIsTUFBTSxJQUFJLEtBQUssQ0FBQyxJQUFJLEdBQUcsQ0FBQyxNQUFNLHFDQUFxQyxVQUFVLElBQUksT0FBTyxFQUFFLENBQUMsQ0FBQztJQUM3RixDQUFDO0lBRUQsTUFBTSxFQUFFLFFBQVEsRUFBRSxNQUFNLEVBQUUsR0FBRyxNQUFNLEdBQUcsQ0FBQyxJQUFJLEVBQXdDLENBQUM7SUFDcEYsT0FBTyxNQUFNLENBQUM7QUFDZixDQUFDO0FBRUQsU0FBUyxZQUFZLENBQUMsT0FBZTtJQUNwQyxNQUFNLENBQUMsRUFBRSxLQUFLLEVBQUUsS0FBSyxFQUFFLEtBQUssQ0FBQyxHQUFHLHNCQUFzQixDQUFDLElBQUksQ0FBQyxPQUFPLENBQUUsQ0FBQztJQUN0RSxPQUFPLENBQUMsUUFBUSxDQUFDLEtBQUssQ0FBQyxFQUFFLFFBQVEsQ0FBQyxLQUFLLENBQUMsRUFBRSxRQUFRLENBQUMsS0FBSyxDQUFDLENBQUMsQ0FBQztBQUM1RCxDQUFDO0FBRUQsU0FBUyxlQUFlLENBQUMsQ0FBVSxFQUFFLENBQVU7SUFDOUMsSUFBSSxDQUFDLENBQUMsQ0FBQyxDQUFDLEtBQUssQ0FBQyxDQUFDLENBQUMsQ0FBQyxFQUFFLENBQUM7UUFBQyxPQUFPLENBQUMsQ0FBQyxDQUFDLENBQUMsR0FBRyxDQUFDLENBQUMsQ0FBQyxDQUFDLENBQUM7SUFBQyxDQUFDO0lBQzFDLElBQUksQ0FBQyxDQUFDLENBQUMsQ0FBQyxLQUFLLENBQUMsQ0FBQyxDQUFDLENBQUMsRUFBRSxDQUFDO1FBQUMsT0FBTyxDQUFDLENBQUMsQ0FBQyxDQUFDLEdBQUcsQ0FBQyxDQUFDLENBQUMsQ0FBQyxDQUFDO0lBQUMsQ0FBQztJQUMxQyxPQUFPLENBQUMsQ0FBQyxDQUFDLENBQUMsR0FBRyxDQUFDLENBQUMsQ0FBQyxDQUFDLENBQUM7QUFDcEIsQ0FBQztBQUVELEtBQUssVUFBVSxhQUFhLENBQUMsVUFBa0IsRUFBRSxVQUFrQjtJQUNsRSxNQUFNLEdBQUcsR0FBRyxNQUFNLElBQUEsb0JBQUssRUFBQyxHQUFHLFVBQVUsaUJBQWlCLEVBQUU7UUFDdkQsTUFBTSxFQUFFLE1BQU07UUFDZCxPQUFPLEVBQUU7WUFDUixRQUFRLEVBQUUsNENBQTRDO1lBQ3RELGNBQWMsRUFBRSxrQkFBa0I7WUFDbEMsWUFBWSxFQUFFLGVBQWU7U0FDN0I7UUFDRCxJQUFJLEVBQUUsSUFBSSxDQUFDLFNBQVMsQ0FBQztZQUNwQixPQUFPLEVBQUUsQ0FBQyxFQUFFLFFBQVEsRUFBRSxDQUFDLEVBQUUsVUFBVSxFQUFFLENBQUMsRUFBRSxLQUFLLEVBQUUsa0NBQWtDLFVBQVUsRUFBRSxFQUFFLENBQUMsRUFBRSxDQUFDO1lBQ25HLEtBQUssRUFBRSxHQUFHO1NBQ1YsQ0FBQztLQUNGLENBQUMsQ0FBQztJQUVILElBQUksR0FBRyxDQUFDLE1BQU0sS0FBSyxHQUFHLEVBQUUsQ0FBQztRQUN4QixNQUFNLElBQUksS0FBSyxDQUFDLElBQUksR0FBRyxDQUFDLE1BQU0sbUNBQW1DLFVBQVUsRUFBRSxDQUFDLENBQUM7SUFDaEYsQ0FBQztJQUVELE1BQU0sTUFBTSxHQUFHLE1BQU0sR0FBRyxDQUFDLElBQUksRUFBMEUsQ0FBQztJQUN4RyxPQUFPLE1BQU0sQ0FBQyxPQUFPLENBQUMsQ0FBQyxDQUFDLENBQUMsVUFBVSxDQUFDLENBQUMsQ0FBQyxDQUFDLFFBQVEsQ0FBQyxHQUFHLENBQUMsQ0FBQyxDQUFDLEVBQUUsQ0FBQyxZQUFZLENBQUMsQ0FBQyxDQUFDLE9BQU8sQ0FBQyxDQUFDLENBQUMsSUFBSSxDQUFDLGVBQWUsQ0FBQyxDQUFDO0FBQ3pHLENBQUM7QUFFRCxLQUFLLFVBQVUsTUFBTSxDQUFDLDBCQUFrQyxFQUFFLG1CQUEyQixFQUFFLFVBQWtCLEVBQUUsT0FBZ0I7SUFDMUgsTUFBTSxRQUFRLEdBQUcsTUFBTSxhQUFhLENBQUMsMEJBQTBCLEVBQUUsVUFBVSxDQUFDLENBQUM7SUFDN0UsTUFBTSxTQUFTLEdBQVksQ0FBQyxPQUFPLENBQUMsQ0FBQyxDQUFDLEVBQUUsT0FBTyxDQUFDLENBQUMsQ0FBQyxHQUFHLENBQUMsRUFBRSxDQUFDLENBQUMsQ0FBQztJQUMzRCxNQUFNLGtCQUFrQixHQUFHLFFBQVEsQ0FBQyxNQUFNLENBQUMsQ0FBQyxDQUFDLEVBQUUsQ0FBQyxlQUFlLENBQUMsQ0FBQyxFQUFFLFNBQVMsQ0FBQyxHQUFHLENBQUMsQ0FBQyxDQUFDO0lBQ25GLE1BQU0sdUJBQXVCLEdBQUcsa0JBQWtCLENBQUMsRUFBRSxDQUFDLENBQUMsQ0FBQyxDQUFFLENBQUMsQ0FBQyw0QkFBNEI7SUFFeEYsSUFBSSxDQUFDLHVCQUF1QixFQUFFLENBQUM7UUFDOUIsTUFBTSxJQUFJLEtBQUssQ0FBQyx5Q0FBeUMsVUFBVSxnQkFBZ0IsT0FBTyxFQUFFLENBQUMsQ0FBQztJQUMvRixDQUFDO0lBRUQsT0FBTyxNQUFNLGNBQWMsQ0FBQyxtQkFBbUIsRUFBRSxVQUFVLEVBQUUsdUJBQXVCLENBQUMsQ0FBQztBQUN2RixDQUFDO0FBRUQsS0FBSyxVQUFVLGFBQWE7SUFDM0IsTUFBTSxNQUFNLEdBQUcsSUFBSSxNQUFNLEVBQUUsQ0FBQztJQUM1QixNQUFNLENBQUMsV0FBVyxDQUFDLFVBQVUsQ0FBQyxDQUFDO0lBRS9CLE1BQU0sS0FBSyxHQUFHLE1BQU0sUUFBUSxDQUFDLE9BQU8sQ0FBQyxHQUFHLEVBQUUsQ0FBQyxDQUFDO0lBQzVDLE1BQU0sSUFBSSxHQUFHLElBQUksQ0FBQyxJQUFJLENBQUMsT0FBTyxDQUFDLEdBQUcsRUFBRSxFQUFFLEtBQUssQ0FBQyxDQUFDO0lBQzdDLE1BQU0sUUFBUSxHQUFHLEVBQUUsQ0FBQztJQUVwQixLQUFLLE1BQU0sSUFBSSxJQUFJLEtBQUssRUFBRSxDQUFDO1FBQzFCLE1BQU0sVUFBVSxHQUFHLElBQUksQ0FBQyxRQUFRLENBQUMsSUFBSSxFQUFFLElBQUksQ0FBQyxDQUFDLE9BQU8sQ0FBQyxRQUFRLEVBQUUsRUFBRSxDQUFDLENBQUMsT0FBTyxDQUFDLEtBQUssRUFBRSxHQUFHLENBQUMsQ0FBQztRQUN2RixNQUFNLFFBQVEsR0FBRyxNQUFNLGFBQUUsQ0FBQyxRQUFRLENBQUMsSUFBSSxFQUFFLEVBQUUsUUFBUSxFQUFFLE1BQU0sRUFBRSxDQUFDLENBQUM7UUFDL0QsTUFBTSxJQUFJLEdBQUcsTUFBTSxDQUFDLEtBQUssQ0FBQyxRQUFRLENBQUMsQ0FBQztRQUNwQyxRQUFRLENBQUMsSUFBSSxDQUFDLEdBQUcsV0FBVyxDQUFDLFVBQVUsRUFBRSxJQUFJLENBQUMsUUFBUSxDQUFDLENBQUMsQ0FBQztJQUMxRCxDQUFDO0lBRUQsT0FBTyxRQUFRLENBQUM7QUFDakIsQ0FBQztBQUVELEtBQUssVUFBVSxlQUFlO0lBQzdCLE1BQU0sMEJBQTBCLEdBQUcsT0FBTyxDQUFDLGlCQUFpQixFQUFFLFVBQVUsQ0FBQztJQUV6RSxJQUFJLENBQUMsMEJBQTBCLEVBQUUsQ0FBQztRQUNqQyxPQUFPLENBQUMsSUFBSSxDQUFDLHlGQUF5RixDQUFDLENBQUM7UUFDeEcsT0FBTyxFQUFFLENBQUM7SUFDWCxDQUFDO0lBRUQsTUFBTSxtQkFBbUIsR0FBRyxPQUFPLENBQUMsaUJBQWlCLEVBQUUsbUJBQW1CLENBQUM7SUFFM0UsSUFBSSxDQUFDLG1CQUFtQixFQUFFLENBQUM7UUFDMUIsT0FBTyxDQUFDLElBQUksQ0FBQyxpRkFBaUYsQ0FBQyxDQUFDO1FBQ2hHLE9BQU8sRUFBRSxDQUFDO0lBQ1gsQ0FBQztJQUVELE1BQU0sT0FBTyxHQUFHLFlBQVksQ0FBQyxXQUFXLENBQUMsT0FBTyxDQUFDLENBQUM7SUFDbEQsTUFBTSxXQUFXLEdBQUcsTUFBTSxDQUFDLElBQUksQ0FBQyxTQUFTLENBQUMsQ0FBQztJQUUzQyxPQUFPLE1BQU0sT0FBTyxDQUFDLEdBQUcsQ0FBQyxXQUFXLENBQUMsR0FBRyxDQUN2QyxVQUFVLENBQUMsRUFBRSxDQUFDLE1BQU0sQ0FBQywwQkFBMEIsRUFBRSxtQkFBbUIsRUFBRSxVQUFVLEVBQUUsT0FBTyxDQUFDO1NBQ3hGLElBQUksQ0FBQyxvQkFBb0IsQ0FBQyxFQUFFLENBQUMsQ0FBQyxFQUFFLFVBQVUsRUFBRSxvQkFBb0IsRUFBRSxDQUFDLENBQUMsQ0FDdEUsQ0FBQyxDQUFDO0FBQ0osQ0FBQztBQUVELEtBQUssVUFBVSxJQUFJO0lBQ2xCLE1BQU0sQ0FBQyxRQUFRLEVBQUUsWUFBWSxDQUFDLEdBQUcsTUFBTSxPQUFPLENBQUMsR0FBRyxDQUFDLENBQUMsYUFBYSxFQUFFLEVBQUUsZUFBZSxFQUFFLENBQUMsQ0FBQyxDQUFDO0lBQ3pGLE1BQU0sRUFBRSxJQUFJLEVBQUUsSUFBSSxFQUFFLEdBQUcsTUFBTSxRQUFRLENBQUMsUUFBUSxFQUFFLFlBQVksQ0FBQyxDQUFDO0lBRTlELE1BQU0sSUFBSSxHQUFHLHVCQUF1QixDQUFDO0lBQ3JDLE1BQU0sYUFBRSxDQUFDLEVBQUUsQ0FBQyxJQUFJLEVBQUUsRUFBRSxTQUFTLEVBQUUsSUFBSSxFQUFFLEtBQUssRUFBRSxJQUFJLEVBQUUsQ0FBQyxDQUFDO0lBQ3BELE1BQU0sYUFBRSxDQUFDLEtBQUssQ0FBQyxJQUFJLEVBQUUsRUFBRSxTQUFTLEVBQUUsSUFBSSxFQUFFLENBQUMsQ0FBQztJQUUxQyxNQUFNLGFBQUUsQ0FBQyxTQUFTLENBQUMsSUFBSSxDQUFDLElBQUksQ0FBQyxJQUFJLEVBQUUsR0FBRyxPQUFPLENBQUMsaUJBQWlCLE9BQU8sQ0FBQyxFQUFFLElBQUksQ0FBQyxPQUFPLENBQUMsUUFBUSxFQUFFLElBQUksQ0FBQyxDQUFDLENBQUM7SUFFdkcsS0FBSyxNQUFNLEVBQUUsVUFBVSxFQUFFLFFBQVEsRUFBRSxJQUFJLElBQUksRUFBRSxDQUFDO1FBQzdDLE1BQU0sWUFBWSxHQUFHLElBQUksQ0FBQyxJQUFJLENBQUMsSUFBSSxFQUFFLFVBQVUsS0FBSyxPQUFPLENBQUMsQ0FBQyxDQUFDLE9BQU8sQ0FBQyxDQUFDLENBQUMsU0FBUyxDQUFDLFVBQW9DLENBQUMsQ0FBQyxDQUFDO1FBQ3pILE1BQU0sYUFBRSxDQUFDLEtBQUssQ0FBQyxZQUFZLEVBQUUsRUFBRSxTQUFTLEVBQUUsSUFBSSxFQUFFLENBQUMsQ0FBQztRQUNsRCxNQUFNLGFBQUUsQ0FBQyxTQUFTLENBQUMsSUFBSSxDQUFDLElBQUksQ0FBQyxZQUFZLEVBQUUsR0FBRyxPQUFPLENBQUMsaUJBQWlCLE9BQU8sQ0FBQyxFQUFFLFFBQVEsQ0FBQyxPQUFPLENBQUMsUUFBUSxFQUFFLElBQUksQ0FBQyxDQUFDLENBQUM7SUFDcEgsQ0FBQztBQUNGLENBQUM7QUFFRCxJQUFJLE9BQU8sQ0FBQyxJQUFJLEtBQUssTUFBTSxFQUFFLENBQUM7SUFDN0IsSUFBSSxFQUFFLENBQUMsS0FBSyxDQUFDLEdBQUcsQ0FBQyxFQUFFO1FBQ2xCLE9BQU8sQ0FBQyxLQUFLLENBQUMsR0FBRyxDQUFDLENBQUM7UUFDbkIsT0FBTyxDQUFDLElBQUksQ0FBQyxDQUFDLENBQUMsQ0FBQztJQUNqQixDQUFDLENBQUMsQ0FBQztBQUNKLENBQUMifQ==
+//# sourceMappingURL=policies.js.map

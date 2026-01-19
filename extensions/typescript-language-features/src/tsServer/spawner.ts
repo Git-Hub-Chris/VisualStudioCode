@@ -116,12 +116,9 @@ export class TypeScriptServerSpawner {
 				return CompositeServerType.Single;
 
 			case SyntaxServerConfiguration.Auto:
-				if (version.apiVersion?.gte(API.v340)) {
-					return version.apiVersion?.gte(API.v400)
-						? CompositeServerType.DynamicSeparateSyntax
-						: CompositeServerType.SeparateSyntax;
-				}
-				return CompositeServerType.Single;
+				return version.apiVersion?.gte(API.v400)
+					? CompositeServerType.DynamicSeparateSyntax
+					: CompositeServerType.SeparateSyntax;
 		}
 	}
 
@@ -242,7 +239,7 @@ export class TypeScriptServerSpawner {
 		if (configuration.enableTsServerTracing && !isWeb()) {
 			tsServerTraceDirectory = this._logDirectoryProvider.getNewLogDirectory();
 			if (tsServerTraceDirectory) {
-				args.push('--traceDirectory', tsServerTraceDirectory.fsPath);
+				args.push('--traceDirectory', `"${tsServerTraceDirectory.fsPath}"`);
 			}
 		}
 
@@ -270,6 +267,10 @@ export class TypeScriptServerSpawner {
 		args.push('--locale', TypeScriptServerSpawner.getTsLocale(configuration));
 
 		args.push('--noGetErrOnBackgroundUpdate');
+
+		if (apiVersion.gte(API.v544) && configuration.useVsCodeWatcher) {
+			args.push('--canUseWatchEvents');
+		}
 
 		args.push('--validateDefaultNpmLocation');
 

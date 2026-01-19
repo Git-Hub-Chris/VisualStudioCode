@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { isTypedArray, isObject, isUndefinedOrNull, OptionalBooleanKey, OptionalNumberKey, OptionalStringKey } from 'vs/base/common/types';
+import { isTypedArray, isObject, isUndefinedOrNull } from './types.js';
 
 export function deepClone<T>(obj: T): T {
 	if (!obj || typeof obj !== 'object') {
@@ -93,6 +93,10 @@ export function mixin(destination: any, source: any, overwrite: boolean = true):
 
 	if (isObject(source)) {
 		Object.keys(source).forEach(key => {
+			if (key === '__proto__' || key === 'constructor') {
+				// Prevent prototype pollution
+				return;
+			}
 			if (key in destination) {
 				if (overwrite) {
 					if (isObject(destination[key]) && isObject(source[key])) {
@@ -177,6 +181,9 @@ export function safeStringify(obj: any): string {
 				seen.add(value);
 			}
 		}
+		if (typeof value === 'bigint') {
+			return `[BigInt ${value.toString()}]`;
+		}
 		return value;
 	});
 }
@@ -212,7 +219,7 @@ export function distinct(base: obj, target: obj): obj {
 	return result;
 }
 
-export function getCaseInsensitive(target: obj, key: string): any {
+export function getCaseInsensitive(target: obj, key: string): unknown {
 	const lowercaseKey = key.toLowerCase();
 	const equivalentKey = Object.keys(target).find(k => k.toLowerCase() === lowercaseKey);
 	return equivalentKey ? target[equivalentKey] : target[key];
@@ -255,6 +262,7 @@ export function createProxyObject<T extends object>(methodNames: string[], invok
 		};
 	};
 
+	// eslint-disable-next-line local/code-no-dangerous-type-assertions
 	const result = {} as T;
 	for (const methodName of methodNames) {
 		(<any>result)[methodName] = createProxyMethod(methodName);
@@ -262,33 +270,10 @@ export function createProxyObject<T extends object>(methodNames: string[], invok
 	return result;
 }
 
-export function ensureOptionalBooleanValue<T extends object>(obj: T, key: OptionalBooleanKey<T>, defaultValue: boolean | undefined): void {
-	if (typeof key !== 'string') {
-		return;
+export function mapValues<T extends {}, R>(obj: T, fn: (value: T[keyof T], key: string) => R): { [K in keyof T]: R } {
+	const result: { [key: string]: R } = {};
+	for (const [key, value] of Object.entries(obj)) {
+		result[key] = fn(<T[keyof T]>value, key);
 	}
-
-	if (obj[key] !== undefined && typeof obj[key] !== 'boolean') {
-		obj[key] = defaultValue as any;
-	}
-}
-
-export function ensureOptionalNumberValue<T extends object>(obj: T, key: OptionalNumberKey<T>, defaultValue: number | undefined): void {
-	if (typeof key !== 'string') {
-		return;
-	}
-
-	if (obj[key] !== undefined && typeof obj[key] !== 'number') {
-		obj[key] = defaultValue as any;
-	}
-}
-
-export function ensureOptionalStringValue<T extends object>(obj: T, key: OptionalStringKey<T>, allowed: string[], defaultValue: string | undefined): void {
-	if (typeof key !== 'string') {
-		return;
-	}
-
-	const value = obj[key];
-	if (value !== undefined && (typeof value !== 'string' || !allowed.includes(value))) {
-		obj[key] = defaultValue as any;
-	}
+	return result as { [K in keyof T]: R };
 }

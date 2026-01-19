@@ -45,17 +45,32 @@ export function isSCMResource(element: any): element is ISCMResource {
 	return !!(element as ISCMResource).sourceUri && isSCMResourceGroup((element as ISCMResource).resourceGroup);
 }
 
-const compareActions = (a: IAction, b: IAction) => a.id === b.id && a.enabled === b.enabled;
+export function isSCMResourceNode(element: any): element is IResourceNode<ISCMResource, ISCMResourceGroup> {
+	return ResourceTree.isResourceNode(element) && isSCMResourceGroup(element.context);
+}
+
+export function isSCMHistoryItemViewModelTreeElement(element: any): element is SCMHistoryItemViewModelTreeElement {
+	return (element as SCMHistoryItemViewModelTreeElement).type === 'historyItemViewModel';
+}
+
+export function isSCMHistoryItemLoadMoreTreeElement(element: any): element is SCMHistoryItemLoadMoreTreeElement {
+	return (element as SCMHistoryItemLoadMoreTreeElement).type === 'historyItemLoadMore';
+}
+
+const compareActions = (a: IAction, b: IAction) => {
+	if (a instanceof MenuItemAction && b instanceof MenuItemAction) {
+		return a.id === b.id && a.enabled === b.enabled && a.hideActions?.isHidden === b.hideActions?.isHidden;
+	}
+
+	return a.id === b.id && a.enabled === b.enabled;
+};
 
 export function connectPrimaryMenu(menu: IMenu, callback: (primary: IAction[], secondary: IAction[]) => void, primaryGroup?: string): IDisposable {
 	let cachedPrimary: IAction[] = [];
 	let cachedSecondary: IAction[] = [];
 
 	const updateActions = () => {
-		const primary: IAction[] = [];
-		const secondary: IAction[] = [];
-
-		createAndFillInActionBarActions(menu, { shouldForwardArgs: true }, { primary, secondary }, primaryGroup);
+		const { primary, secondary } = getActionBarActions(menu.getActions({ shouldForwardArgs: true }), primaryGroup);
 
 		if (equals(cachedPrimary, primary, compareActions) && equals(cachedSecondary, secondary, compareActions)) {
 			return;
@@ -72,18 +87,8 @@ export function connectPrimaryMenu(menu: IMenu, callback: (primary: IAction[], s
 	return menu.onDidChange(updateActions);
 }
 
-export function connectPrimaryMenuToInlineActionBar(menu: IMenu, actionBar: ActionBar): IDisposable {
-	return connectPrimaryMenu(menu, (primary) => {
-		actionBar.clear();
-		actionBar.push(primary, { icon: true, label: false });
-	}, 'inline');
-}
-
 export function collectContextMenuActions(menu: IMenu): IAction[] {
-	const primary: IAction[] = [];
-	const actions: IAction[] = [];
-	createAndFillInContextMenuActions(menu, { shouldForwardArgs: true }, { primary, secondary: actions }, 'inline');
-	return actions;
+	return getContextMenuActions(menu.getActions({ shouldForwardArgs: true }), 'inline').secondary;
 }
 
 export class StatusBarAction extends Action {
@@ -103,8 +108,8 @@ export class StatusBarAction extends Action {
 
 class StatusBarActionViewItem extends ActionViewItem {
 
-	constructor(action: StatusBarAction) {
-		super(null, action, {});
+	constructor(action: StatusBarAction, options: IBaseActionViewItemOptions) {
+		super(null, action, { ...options, icon: false, label: true });
 	}
 
 	protected override updateLabel(): void {
@@ -115,11 +120,54 @@ class StatusBarActionViewItem extends ActionViewItem {
 }
 
 export function getActionViewItemProvider(instaService: IInstantiationService): IActionViewItemProvider {
-	return action => {
+	return (action, options) => {
 		if (action instanceof StatusBarAction) {
-			return new StatusBarActionViewItem(action);
+			return new StatusBarActionViewItem(action, options);
 		}
 
-		return createActionViewItem(instaService, action);
+		return createActionViewItem(instaService, action, options);
 	};
+}
+
+export function getProviderKey(provider: ISCMProvider): string {
+	return `${provider.contextValue}:${provider.label}${provider.rootUri ? `:${provider.rootUri.toString()}` : ''}`;
+}
+
+export function getRepositoryResourceCount(provider: ISCMProvider): number {
+	return provider.groups.reduce<number>((r, g) => r + g.resources.length, 0);
+}
+
+export function getHistoryItemEditorTitle(historyItem: ISCMHistoryItem, maxLength = 20): string {
+	const title = historyItem.subject.length <= maxLength ?
+		historyItem.subject : `${historyItem.subject.substring(0, maxLength)}\u2026`;
+
+	return `${historyItem.displayId ?? historyItem.id} - ${title}`;
+}
+
+export function compareHistoryItemRefs(
+	ref1: ISCMHistoryItemRef,
+	ref2: ISCMHistoryItemRef,
+	currentHistoryItemRef?: ISCMHistoryItemRef,
+	currentHistoryItemRemoteRef?: ISCMHistoryItemRef,
+	currentHistoryItemBaseRef?: ISCMHistoryItemRef
+): number {
+	const getHistoryItemRefOrder = (ref: ISCMHistoryItemRef) => {
+		if (ref.id === currentHistoryItemRef?.id) {
+			return 1;
+		} else if (ref.id === currentHistoryItemRemoteRef?.id) {
+			return 2;
+		} else if (ref.id === currentHistoryItemBaseRef?.id) {
+			return 3;
+		} else if (ref.color !== undefined) {
+			return 4;
+		}
+
+		return 99;
+	};
+
+	// Assign order (current > remote > base > color)
+	const ref1Order = getHistoryItemRefOrder(ref1);
+	const ref2Order = getHistoryItemRefOrder(ref2);
+
+	return ref1Order - ref2Order;
 }
