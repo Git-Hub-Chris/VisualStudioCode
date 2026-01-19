@@ -24,6 +24,9 @@ $env:VSCODE_NONCE = $null
 $isStable = $env:VSCODE_STABLE
 $env:VSCODE_STABLE = $null
 
+$__vscode_shell_env_reporting = $env:VSCODE_SHELL_ENV_REPORTING
+$env:VSCODE_SHELL_ENV_REPORTING = $null
+
 $osVersion = [System.Environment]::OSVersion.Version
 $isWindows10 = $IsWindows -and $osVersion.Major -eq 10 -and $osVersion.Minor -eq 0 -and $osVersion.Build -lt 22000
 
@@ -90,8 +93,8 @@ function Global:Prompt() {
 	$Result += if ($pwd.Provider.Name -eq 'FileSystem') { "$([char]0x1b)]633;P;Cwd=$(__VSCode-Escape-Value $pwd.ProviderPath)`a" }
 
 	# Send current environment variables as JSON
-	# OSC 633 ; Env ; <Environment> ; <Nonce>
-	if ($isStable -eq "0") {
+	# OSC 633 ; EnvJson ; <Environment> ; <Nonce>
+	if ($__vscode_shell_env_reporting -eq "1") {
 		$envMap = @{}
 		Get-ChildItem Env: | ForEach-Object { $envMap[$_.Name] = $_.Value }
 		$envJson = $envMap | ConvertTo-Json -Compress
@@ -121,12 +124,13 @@ function Global:Prompt() {
 # Only send the command executed sequence when PSReadLine is loaded, if not shell integration should
 # still work thanks to the command line sequence
 if (Get-Module -Name PSReadLine) {
+	[Console]::Write("$([char]0x1b)]633;P;HasRichCommandDetection=True`a")
 	$__VSCodeOriginalPSConsoleHostReadLine = $function:PSConsoleHostReadLine
 	function Global:PSConsoleHostReadLine {
 		$CommandLine = $__VSCodeOriginalPSConsoleHostReadLine.Invoke()
 
 		# Command line
-		# OSC 633 ; E ; <CommandLine?> ; <Nonce?> ST
+		# OSC 633 ; E [; <CommandLine> [; <Nonce>]] ST
 		$Result = "$([char]0x1b)]633;E;"
 		$Result += $(__VSCode-Escape-Value $CommandLine)
 		# Only send the nonce if the OS is not Windows 10 as it seems to echo to the terminal
@@ -145,6 +149,12 @@ if (Get-Module -Name PSReadLine) {
 
 		$CommandLine
 	}
+
+	# Set ContinuationPrompt property
+	$ContinuationPrompt = (Get-PSReadLineOption).ContinuationPrompt
+	if ($ContinuationPrompt) {
+		[Console]::Write("$([char]0x1b)]633;P;ContinuationPrompt=$(__VSCode-Escape-Value $ContinuationPrompt)`a")
+	}
 }
 
 # Set IsWindows property
@@ -154,14 +164,6 @@ if ($PSVersionTable.PSVersion -lt "6.0") {
 }
 else {
 	[Console]::Write("$([char]0x1b)]633;P;IsWindows=$IsWindows`a")
-}
-
-# Set ContinuationPrompt property
-if ($isStable -eq "0") {
-	$ContinuationPrompt = (Get-PSReadLineOption).ContinuationPrompt
-	if ($ContinuationPrompt) {
-		[Console]::Write("$([char]0x1b)]633;P;ContinuationPrompt=$(__VSCode-Escape-Value $ContinuationPrompt)`a")
-	}
 }
 
 # Set always on key handlers which map to default VS Code keybindings

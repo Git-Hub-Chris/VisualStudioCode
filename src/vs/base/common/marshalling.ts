@@ -33,6 +33,10 @@ function replacer(key: string, value: any): any {
 	return value;
 }
 
+// Utility function to escape RegExp special characters
+function escapeRegExp(string: string): string {
+	return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
+}
 
 type Deserialize<T> = T extends UriComponents ? URI
 	: T extends VSBuffer ? VSBuffer
@@ -51,7 +55,7 @@ export function revive<T = any>(obj: any, depth = 0): Revived<T> {
 
 		switch ((<MarshalledObject>obj).$mid) {
 			case MarshalledId.Uri: return <any>URI.revive(obj);
-			case MarshalledId.Regexp: return <any>new RegExp(obj.source, obj.flags);
+			case MarshalledId.Regexp: return <any>new RegExp(escapeRegExp(obj.source), obj.flags);
 			case MarshalledId.Date: return <any>new Date(obj.source);
 		}
 

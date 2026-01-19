@@ -30,8 +30,10 @@ import { TypeScriptServerSpawner } from './tsServer/spawner';
 import { TypeScriptVersionManager } from './tsServer/versionManager';
 import { ITypeScriptVersionProvider, TypeScriptVersion } from './tsServer/versionProvider';
 import { ClientCapabilities, ClientCapability, ExecConfig, ITypeScriptServiceClient, ServerResponse, TypeScriptRequests } from './typescriptService';
+import { ServiceConfigurationProvider, SyntaxServerConfiguration, TsServerLogLevel, TypeScriptServiceConfiguration, areServiceConfigurationsEqual } from './configuration/configuration';
 import { Disposable, DisposableStore, disposeAll } from './utils/dispose';
-import { hash } from './utils/hash';
+import * as fileSchemes from './configuration/fileSchemes';
+import { Logger } from './logging/logger';
 import { isWeb, isWebAndHasSharedArrayBuffers } from './utils/platform';
 
 
@@ -138,8 +140,6 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 	private readonly processFactory: TsServerProcessFactory;
 
 	private readonly watches = new Map<number, Disposable>();
-	private readonly watchEvents = new Map<number, WatchEvent>();
-	private watchChangeTimeout: NodeJS.Timeout | undefined;
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
@@ -522,8 +522,8 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 	}
 
 	private resetWatchers() {
-		clearTimeout(this.watchChangeTimeout);
-		disposeAll(Array.from(this.watches.values()));
+		disposeAll(this.watches.values());
+		this.watches.clear();
 	}
 
 	public async showVersionPicker(): Promise<void> {
@@ -626,7 +626,7 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 		};
 	}
 
-	private serviceExited(restart: boolean, tsVersion: API): void {
+	private serviceExited(restart: boolean): void {
 		this.resetWatchers();
 		this.loadingIndicator.reset();
 
@@ -836,9 +836,10 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 			}
 		}
 
-		for (const root of roots.sort((a, b) => a.uri.fsPath.length - b.uri.fsPath.length)) {
+		// Find the highest level workspace folder that contains the file
+		for (const root of roots.sort((a, b) => a.uri.path.length - b.uri.path.length)) {
 			if (root.uri.scheme === resource.scheme && root.uri.authority === resource.authority) {
-				if (resource.fsPath.startsWith(root.uri.fsPath + path.sep)) {
+				if (resource.path.startsWith(root.uri.path + '/')) {
 					return root.uri;
 				}
 			}
@@ -1127,15 +1128,32 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 				removeEvent('updated');
 				aggregateEvent();
 				break;
-			case 'updated':
-				if (event?.created?.has(path)) {
-					return;
-				}
-				removeEvent('deleted');
-				aggregateEvent();
+
+			case EventName.createDirectoryWatcher:
+				this.createFileSystemWatcher(
+					(event.body as Proto.CreateDirectoryWatcherEventBody).id,
+					new vscode.RelativePattern(
+						vscode.Uri.file((event.body as Proto.CreateDirectoryWatcherEventBody).path),
+						(event.body as Proto.CreateDirectoryWatcherEventBody).recursive ? '**' : '*'
+					),
+					event.body.ignoreUpdate // TODO when typescript.d.ts gets updated update the type info
+				);
+				break;
+
+			case EventName.createFileWatcher:
+				this.createFileSystemWatcher(
+					(event.body as Proto.CreateFileWatcherEventBody).id,
+					new vscode.RelativePattern(
+						vscode.Uri.file((event.body as Proto.CreateFileWatcherEventBody).path),
+						'*'
+					)
+				);
+				break;
+
+			case EventName.closeFileWatcher:
+				this.closeFileSystemWatcher(event.body.id);
 				break;
 		}
-		this.scheduleExecuteWatchChangeRequest();
 	}
 
 	private createFileSystemWatcher(
@@ -1144,25 +1162,63 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 		ignoreChangeEvents?: boolean,
 	) {
 		const disposable = new DisposableStore();
-		const watcher = disposable.add(vscode.workspace.createFileSystemWatcher(pattern, undefined, ignoreChangeEvents));
-		disposable.add(watcher.onDidChange(changeFile =>
-			this.addWatchEvent(id, 'updated', changeFile.fsPath)
-		));
-		disposable.add(watcher.onDidCreate(createFile =>
-			this.addWatchEvent(id, 'created', createFile.fsPath)
-		));
-		disposable.add(watcher.onDidDelete(deletedFile =>
-			this.addWatchEvent(id, 'deleted', deletedFile.fsPath)
-		));
-		disposable.add({
-			dispose: () => {
-				this.watchEvents.delete(id);
-				this.watches.delete(id);
+
+		const events = { updated: new Set<string>(), created: new Set<string>(), deleted: new Set<string>() };
+
+		let timeout: NodeJS.Timeout | undefined;
+		disposable.add({ dispose: () => clearTimeout(timeout) });
+
+		const executeWatchChangeRequest = () => {
+			try {
+				// TODO:: not sure whwere we check typescript version but this has to be 5.4+ or 5.5 depeneding on which version of typescript the protocol changes go into
+				this.executeWithoutWaitingForResponse('watchChange', {
+					id,
+					updated: events.updated.size > 0 ? Array.from(events.updated) : undefined,
+					created: events.created.size > 0 ? Array.from(events.created) : undefined,
+					deleted: events.deleted.size > 0 ? Array.from(events.deleted) : undefined
+				});
+			} finally {
+				events.updated.clear();
+				events.created.clear();
+				events.deleted.clear();
+
+				timeout = undefined;
 			}
-		});
+		};
+
+		const scheduleExecuteWatchChangeRequest = () => {
+			if (!timeout) {
+				timeout = setTimeout(() => executeWatchChangeRequest(), 100 /* aggregate events over 100ms to reduce client<->server IPC overhead */);
+			}
+		};
+
+		const watcher = disposable.add(vscode.workspace.createFileSystemWatcher(pattern, { excludes: [] /* TODO:: need to fill in excludes list */, ignoreChangeEvents }));
+		disposable.add(watcher.onDidChange(changeFile => {
+			events.updated.add(changeFile.fsPath);
+			scheduleExecuteWatchChangeRequest();
+		}));
+		disposable.add(watcher.onDidCreate(createFile => {
+			events.created.add(createFile.fsPath);
+			scheduleExecuteWatchChangeRequest();
+		}));
+		disposable.add(watcher.onDidDelete(deletedFile => {
+			events.deleted.add(deletedFile.fsPath);
+			scheduleExecuteWatchChangeRequest();
+		}));
 
 		if (this.watches.has(id)) {
 			this.closeFileSystemWatcher(id);
+		}
+		this.watches.set(id, disposable);
+	}
+
+	private closeFileSystemWatcher(
+		id: number,
+	) {
+		const existing = this.watches.get(id);
+		if (existing) {
+			existing.dispose();
+			this.watches.delete(id);
 		}
 		this.watches.set(id, disposable);
 	}

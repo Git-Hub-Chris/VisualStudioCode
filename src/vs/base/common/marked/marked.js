@@ -1008,7 +1008,7 @@ const html = edit('^ {0,3}(?:' // optional indentation
     .replace('tag', _tag)
     .replace('attribute', / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/)
     .getRegex();
-const paragraph = edit(_paragraph)
+const paragraph = edit(_paragraph, 'i') // <-- add 'i' flag for case-insensitivity
     .replace('hr', hr)
     .replace('heading', ' {0,3}#{1,6}(?:\\s|$)')
     .replace('|lheading', '') // setext headings don't interrupt commonmark paragraphs
@@ -1045,7 +1045,7 @@ const blockNormal = {
  */
 const gfmTable = edit('^ *([^\\n ].*)\\n' // Header
     + ' {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)' // Align
-    + '(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)') // Cells
+    + '(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)', 'i') // Cells: add case-insensitive flag
     .replace('hr', hr)
     .replace('heading', ' {0,3}#{1,6}(?:\\s|$)')
     .replace('blockquote', ' {0,3}>')
@@ -1058,7 +1058,7 @@ const gfmTable = edit('^ *([^\\n ].*)\\n' // Header
 const blockGfm = {
     ...blockNormal,
     table: gfmTable,
-    paragraph: edit(_paragraph)
+    paragraph: edit(_paragraph, 'i') // add case-insensitive flag
         .replace('hr', hr)
         .replace('heading', ' {0,3}#{1,6}(?:\\s|$)')
         .replace('|lheading', '') // setext headings don't interrupt commonmark paragraphs
@@ -1143,7 +1143,7 @@ const autolink = edit(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/)
     .replace('scheme', /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/)
     .replace('email', /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/)
     .getRegex();
-const _inlineComment = edit(_comment).replace('(?:-->|$)', '-->').getRegex();
+const _inlineComment = edit(_comment).replace('(?:-->|$)', '(?:-->|--!>|$)').getRegex();
 const tag = edit('^comment'
     + '|^</[a-zA-Z][\\w:-]*\\s*>' // self-closing tag
     + '|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>' // open tag
