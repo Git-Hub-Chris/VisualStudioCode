@@ -364,6 +364,12 @@ const _allApiProposals = {
 	terminalShellEnv: {
 		proposal: 'https://raw.githubusercontent.com/microsoft/vscode/main/src/vscode-dts/vscode.proposed.terminalShellEnv.d.ts',
 	},
+	terminalShellKind: {
+		proposal: 'https://raw.githubusercontent.com/microsoft/vscode/main/src/vscode-dts/vscode.proposed.terminalShellKind.d.ts',
+	},
+	terminalShellType: {
+		proposal: 'https://raw.githubusercontent.com/microsoft/vscode/main/src/vscode-dts/vscode.proposed.terminalShellType.d.ts',
+	},
 	testObserver: {
 		proposal: 'https://raw.githubusercontent.com/microsoft/vscode/main/src/vscode-dts/vscode.proposed.testObserver.d.ts',
 	},
