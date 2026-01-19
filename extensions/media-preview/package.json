@@ -27,6 +27,22 @@
     }
   },
   "contributes": {
+    "configuration": {
+      "type": "object",
+      "title": "Media Previewer",
+      "properties": {
+        "mediaPreview.video.autoPlay": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "%videoPreviewerAutoPlay%"
+        },
+        "mediaPreview.video.loop": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "%videoPreviewerLoop%"
+        }
+      }
+    },
     "customEditors": [
       {
         "viewType": "imagePreview.previewEditor",
@@ -34,7 +50,7 @@
         "priority": "builtin",
         "selector": [
           {
-            "filenamePattern": "*.{jpg,jpe,jpeg,png,bmp,gif,ico,webp,avif}"
+            "filenamePattern": "*.{jpg,jpe,jpeg,png,bmp,gif,ico,webp,avif,svg}"
           }
         ]
       },
@@ -110,8 +126,8 @@
     "watch-web": "npx webpack-cli --config extension-browser.webpack.config --mode none --watch --info-verbosity verbose"
   },
   "dependencies": {
-    "@vscode/extension-telemetry": "0.7.5",
-    "vscode-uri": "^3.0.6"
+    "@vscode/extension-telemetry": "^0.9.8",
+    "vscode-uri": "^3.1.0"
   },
   "repository": {
     "type": "git",

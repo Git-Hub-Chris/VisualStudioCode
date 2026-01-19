@@ -3,15 +3,16 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { localize } from 'vs/nls';
-import { fromNow } from 'vs/base/common/date';
-import { isLinuxSnap } from 'vs/base/common/platform';
-import { IClipboardService } from 'vs/platform/clipboard/common/clipboardService';
-import { AbstractDialogHandler, IConfirmation, IConfirmationResult, IPrompt, IPromptResult } from 'vs/platform/dialogs/common/dialogs';
-import { ILogService } from 'vs/platform/log/common/log';
-import { INativeHostService } from 'vs/platform/native/common/native';
-import { IProductService } from 'vs/platform/product/common/productService';
-import { process } from 'vs/base/parts/sandbox/electron-sandbox/globals';
+import { localize } from '../../../../nls.js';
+import { fromNow } from '../../../../base/common/date.js';
+import { isLinuxSnap } from '../../../../base/common/platform.js';
+import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
+import { AbstractDialogHandler, IConfirmation, IConfirmationResult, IPrompt, IAsyncPromptResult } from '../../../../platform/dialogs/common/dialogs.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
+import { INativeHostService } from '../../../../platform/native/common/native.js';
+import { IProductService } from '../../../../platform/product/common/productService.js';
+import { process } from '../../../../base/parts/sandbox/electron-sandbox/globals.js';
+import { getActiveWindow } from '../../../../base/browser/dom.js';
 
 export class NativeDialogHandler extends AbstractDialogHandler {
 
@@ -24,7 +25,7 @@ export class NativeDialogHandler extends AbstractDialogHandler {
 		super();
 	}
 
-	async prompt<T>(prompt: IPrompt<T>): Promise<IPromptResult<T>> {
+	async prompt<T>(prompt: IPrompt<T>): Promise<IAsyncPromptResult<T>> {
 		this.logService.trace('DialogService#prompt', prompt.message);
 
 		const buttons = this.getPromptButtons(prompt);
@@ -37,7 +38,8 @@ export class NativeDialogHandler extends AbstractDialogHandler {
 			buttons,
 			cancelId: prompt.cancelButton ? buttons.length - 1 : -1 /* Disabled */,
 			checkboxLabel: prompt.checkbox?.label,
-			checkboxChecked: prompt.checkbox?.checked
+			checkboxChecked: prompt.checkbox?.checked,
+			targetWindowId: getActiveWindow().vscodeWindowId
 		});
 
 		return this.getPromptResult(prompt, response, checkboxChecked);
@@ -56,7 +58,8 @@ export class NativeDialogHandler extends AbstractDialogHandler {
 			buttons,
 			cancelId: buttons.length - 1,
 			checkboxLabel: confirmation.checkbox?.label,
-			checkboxChecked: confirmation.checkbox?.checked
+			checkboxChecked: confirmation.checkbox?.checked,
+			targetWindowId: getActiveWindow().vscodeWindowId
 		});
 
 		return { confirmed: response === 0, checkboxChecked };
@@ -78,16 +81,16 @@ export class NativeDialogHandler extends AbstractDialogHandler {
 
 		const detailString = (useAgo: boolean): string => {
 			return localize({ key: 'aboutDetail', comment: ['Electron, Chromium, Node.js and V8 are product names that need no translation'] },
-				"Version: {0}\nCommit: {1}\nDate: {2}\nElectron: {3}\nChromium: {4}\nNode.js: {5}\nV8: {6}\nOS: {7}\nSandboxed: {8}",
+				"Version: {0}\nCommit: {1}\nDate: {2}\nElectron: {3}\nElectronBuildId: {4}\nChromium: {5}\nNode.js: {6}\nV8: {7}\nOS: {8}",
 				version,
 				this.productService.commit || 'Unknown',
 				this.productService.date ? `${this.productService.date}${useAgo ? ' (' + fromNow(new Date(this.productService.date), true) + ')' : ''}` : 'Unknown',
 				process.versions['electron'],
+				process.versions['microsoft-build'],
 				process.versions['chrome'],
 				process.versions['node'],
 				process.versions['v8'],
-				`${osProps.type} ${osProps.arch} ${osProps.release}${isLinuxSnap ? ' snap' : ''}`,
-				process.sandboxed ? 'Yes' : 'No' // TODO@bpasero remove me once sandbox is final
+				`${osProps.type} ${osProps.arch} ${osProps.release}${isLinuxSnap ? ' snap' : ''}`
 			);
 		};
 
@@ -101,7 +104,8 @@ export class NativeDialogHandler extends AbstractDialogHandler {
 			buttons: [
 				localize({ key: 'copy', comment: ['&& denotes a mnemonic'] }, "&&Copy"),
 				localize('okButton', "OK")
-			]
+			],
+			targetWindowId: getActiveWindow().vscodeWindowId
 		});
 
 		if (response === 0) {

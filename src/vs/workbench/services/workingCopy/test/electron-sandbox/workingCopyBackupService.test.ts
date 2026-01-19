@@ -3,33 +3,37 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as assert from 'assert';
-import { isWindows } from 'vs/base/common/platform';
-import { insert } from 'vs/base/common/arrays';
-import { hash } from 'vs/base/common/hash';
-import { isEqual, joinPath, dirname } from 'vs/base/common/resources';
-import { join } from 'vs/base/common/path';
-import { URI } from 'vs/base/common/uri';
-import { WorkingCopyBackupsModel, hashIdentifier } from 'vs/workbench/services/workingCopy/common/workingCopyBackupService';
-import { createTextModel } from 'vs/editor/test/common/testTextModel';
-import { Schemas } from 'vs/base/common/network';
-import { FileService } from 'vs/platform/files/common/fileService';
-import { LogLevel, NullLogService } from 'vs/platform/log/common/log';
-import { NativeWorkbenchEnvironmentService } from 'vs/workbench/services/environment/electron-sandbox/environmentService';
-import { toBufferOrReadable } from 'vs/workbench/services/textfile/common/textfiles';
-import { IFileService } from 'vs/platform/files/common/files';
-import { NativeWorkingCopyBackupService } from 'vs/workbench/services/workingCopy/electron-sandbox/workingCopyBackupService';
-import { FileUserDataProvider } from 'vs/platform/userData/common/fileUserDataProvider';
-import { bufferToReadable, bufferToStream, streamToBuffer, VSBuffer, VSBufferReadable, VSBufferReadableStream } from 'vs/base/common/buffer';
-import { TestLifecycleService, toTypedWorkingCopyId, toUntypedWorkingCopyId } from 'vs/workbench/test/browser/workbenchTestServices';
-import { CancellationToken, CancellationTokenSource } from 'vs/base/common/cancellation';
-import { IWorkingCopyBackupMeta, IWorkingCopyIdentifier } from 'vs/workbench/services/workingCopy/common/workingCopy';
-import { consumeStream } from 'vs/base/common/stream';
-import { TestProductService } from 'vs/workbench/test/common/workbenchTestServices';
-import { InMemoryFileSystemProvider } from 'vs/platform/files/common/inMemoryFilesystemProvider';
-import { generateUuid } from 'vs/base/common/uuid';
-import { INativeWindowConfiguration } from 'vs/platform/window/common/window';
-import product from 'vs/platform/product/common/product';
+import assert from 'assert';
+import { isWindows } from '../../../../../base/common/platform.js';
+import { insert } from '../../../../../base/common/arrays.js';
+import { hash } from '../../../../../base/common/hash.js';
+import { isEqual, joinPath, dirname } from '../../../../../base/common/resources.js';
+import { join } from '../../../../../base/common/path.js';
+import { URI } from '../../../../../base/common/uri.js';
+import { WorkingCopyBackupsModel, hashIdentifier } from '../../common/workingCopyBackupService.js';
+import { createTextModel } from '../../../../../editor/test/common/testTextModel.js';
+import { Schemas } from '../../../../../base/common/network.js';
+import { FileService } from '../../../../../platform/files/common/fileService.js';
+import { LogLevel, NullLogService } from '../../../../../platform/log/common/log.js';
+import { NativeWorkbenchEnvironmentService } from '../../../environment/electron-sandbox/environmentService.js';
+import { toBufferOrReadable } from '../../../textfile/common/textfiles.js';
+import { IFileService } from '../../../../../platform/files/common/files.js';
+import { NativeWorkingCopyBackupService } from '../../electron-sandbox/workingCopyBackupService.js';
+import { FileUserDataProvider } from '../../../../../platform/userData/common/fileUserDataProvider.js';
+import { bufferToReadable, bufferToStream, streamToBuffer, VSBuffer, VSBufferReadable, VSBufferReadableStream } from '../../../../../base/common/buffer.js';
+import { TestLifecycleService, toTypedWorkingCopyId, toUntypedWorkingCopyId } from '../../../../test/browser/workbenchTestServices.js';
+import { CancellationToken, CancellationTokenSource } from '../../../../../base/common/cancellation.js';
+import { IWorkingCopyBackupMeta, IWorkingCopyIdentifier } from '../../common/workingCopy.js';
+import { consumeStream } from '../../../../../base/common/stream.js';
+import { TestProductService } from '../../../../test/common/workbenchTestServices.js';
+import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
+import { generateUuid } from '../../../../../base/common/uuid.js';
+import { INativeWindowConfiguration } from '../../../../../platform/window/common/window.js';
+import product from '../../../../../platform/product/common/product.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { DisposableStore } from '../../../../../base/common/lifecycle.js';
+import { UserDataProfilesService } from '../../../../../platform/userDataProfile/common/userDataProfile.js';
+import { UriIdentityService } from '../../../../../platform/uriIdentity/common/uriIdentityService.js';
 
 const homeDir = URI.file('home').with({ scheme: Schemas.inMemory });
 const tmpDir = URI.file('tmp').with({ scheme: Schemas.inMemory });
@@ -44,6 +48,7 @@ const NULL_PROFILE = {
 	keybindingsResource: joinPath(homeDir, 'keybindings.json'),
 	tasksResource: joinPath(homeDir, 'tasks.json'),
 	snippetsHome: joinPath(homeDir, 'snippets'),
+	promptsHome: joinPath(homeDir, 'prompts'),
 	extensionsResource: joinPath(homeDir, 'extensions.json'),
 	cacheHome: joinPath(homeDir, 'cache')
 };
@@ -51,20 +56,26 @@ const NULL_PROFILE = {
 const TestNativeWindowConfiguration: INativeWindowConfiguration = {
 	windowId: 0,
 	machineId: 'testMachineId',
+	sqmId: 'testSqmId',
+	devDeviceId: 'testdevDeviceId',
 	logLevel: LogLevel.Error,
-	loggers: { global: [], window: [] },
+	loggers: [],
 	mainPid: 0,
 	appRoot: '',
 	userEnv: {},
 	execPath: process.execPath,
 	perfMarks: [],
 	colorScheme: { dark: true, highContrast: false },
-	os: { release: 'unknown', hostname: 'unknown' },
+	os: { release: 'unknown', hostname: 'unknown', arch: 'unknown' },
 	product,
 	homeDir: homeDir.fsPath,
 	tmpDir: tmpDir.fsPath,
 	userDataDir: joinPath(homeDir, product.nameShort).fsPath,
 	profiles: { profile: NULL_PROFILE, all: [NULL_PROFILE], home: homeDir },
+	nls: {
+		messages: [],
+		language: 'en'
+	},
 	_: []
 };
 
@@ -94,7 +105,9 @@ export class NodeTestWorkingCopyBackupService extends NativeWorkingCopyBackupSer
 
 		const fsp = new InMemoryFileSystemProvider();
 		fileService.registerProvider(Schemas.inMemory, fsp);
-		fileService.registerProvider(Schemas.vscodeUserData, new FileUserDataProvider(Schemas.file, fsp, Schemas.vscodeUserData, logService));
+		const uriIdentityService = new UriIdentityService(fileService);
+		const userDataProfilesService = new UserDataProfilesService(environmentService, fileService, uriIdentityService, logService);
+		fileService.registerProvider(Schemas.vscodeUserData, new FileUserDataProvider(Schemas.file, fsp, Schemas.vscodeUserData, userDataProfilesService, uriIdentityService, logService));
 
 		this._fileService = fileService;
 
@@ -170,6 +183,8 @@ suite('WorkingCopyBackupService', () => {
 	let service: NodeTestWorkingCopyBackupService;
 	let fileService: IFileService;
 
+	const disposables = new DisposableStore();
+
 	const workspaceResource = URI.file(isWindows ? 'c:\\workspace' : '/workspace');
 	const fooFile = URI.file(isWindows ? 'c:\\Foo' : '/Foo');
 	const customFile = URI.parse('customScheme://some/path');
@@ -184,12 +199,16 @@ suite('WorkingCopyBackupService', () => {
 		workspacesJsonPath = joinPath(backupHome, 'workspaces.json');
 		workspaceBackupPath = joinPath(backupHome, hash(workspaceResource.fsPath).toString(16));
 
-		service = new NodeTestWorkingCopyBackupService(testDir, workspaceBackupPath);
+		service = disposables.add(new NodeTestWorkingCopyBackupService(testDir, workspaceBackupPath));
 		fileService = service._fileService;
 
 		await fileService.createFolder(backupHome);
 
 		return fileService.writeFile(workspacesJsonPath, VSBuffer.fromString(''));
+	});
+
+	teardown(() => {
+		disposables.clear();
 	});
 
 	suite('hashIdentifier', () => {
@@ -1212,11 +1231,6 @@ suite('WorkingCopyBackupService', () => {
 			model.update(resource4);
 			assert.strictEqual(model.has(resource4), true);
 			assert.strictEqual(model.has(resource4, undefined, { foo: 'nothing' }), false);
-
-			const resource5 = URI.file('test4.html');
-			model.move(resource4, resource5);
-			assert.strictEqual(model.has(resource4), false);
-			assert.strictEqual(model.has(resource5), true);
 		});
 
 		test('create', async () => {
@@ -1242,50 +1256,6 @@ suite('WorkingCopyBackupService', () => {
 			model.add(untitled);
 
 			assert.deepStrictEqual(model.get().map(f => f.fsPath), [file1.fsPath, file2.fsPath, untitled.fsPath]);
-		});
-	});
-
-	suite('Hash migration', () => {
-
-		test('works', async () => {
-			const fooBackupId = toUntypedWorkingCopyId(fooFile);
-			const untitledBackupId = toUntypedWorkingCopyId(untitledFile);
-			const customBackupId = toUntypedWorkingCopyId(customFile);
-
-			const fooBackupPath = joinPath(workspaceBackupPath, fooFile.scheme, hashIdentifier(fooBackupId));
-			const untitledBackupPath = joinPath(workspaceBackupPath, untitledFile.scheme, hashIdentifier(untitledBackupId));
-			const customFileBackupPath = joinPath(workspaceBackupPath, customFile.scheme, hashIdentifier(customBackupId));
-
-			// Prepare backups of the old MD5 hash format
-			await fileService.createFolder(joinPath(workspaceBackupPath, fooFile.scheme));
-			await fileService.createFolder(joinPath(workspaceBackupPath, untitledFile.scheme));
-			await fileService.createFolder(joinPath(workspaceBackupPath, customFile.scheme));
-			await fileService.writeFile(joinPath(workspaceBackupPath, fooFile.scheme, '8a8589a2f1c9444b89add38166f50229'), VSBuffer.fromString(`${fooFile.toString()}\ntest file`));
-			await fileService.writeFile(joinPath(workspaceBackupPath, untitledFile.scheme, '13264068d108c6901b3592ea654fcd57'), VSBuffer.fromString(`${untitledFile.toString()}\ntest untitled`));
-			await fileService.writeFile(joinPath(workspaceBackupPath, customFile.scheme, 'bf018572af7b38746b502893bd0adf6c'), VSBuffer.fromString(`${customFile.toString()}\ntest custom`));
-
-			service.reinitialize(workspaceBackupPath);
-
-			const backups = await service.getBackups();
-			assert.strictEqual(backups.length, 3);
-			assert.ok(backups.some(backup => isEqual(backup.resource, fooFile)));
-			assert.ok(backups.some(backup => isEqual(backup.resource, untitledFile)));
-			assert.ok(backups.some(backup => isEqual(backup.resource, customFile)));
-
-			assert.strictEqual((await fileService.resolve(joinPath(workspaceBackupPath, fooFile.scheme))).children?.length, 1);
-			assert.strictEqual((await fileService.exists(fooBackupPath)), true);
-			assert.strictEqual((await fileService.readFile(fooBackupPath)).value.toString(), `${fooFile.toString()}\ntest file`);
-			assert.ok(service.hasBackupSync(fooBackupId));
-
-			assert.strictEqual((await fileService.resolve(joinPath(workspaceBackupPath, untitledFile.scheme))).children?.length, 1);
-			assert.strictEqual((await fileService.exists(untitledBackupPath)), true);
-			assert.strictEqual((await fileService.readFile(untitledBackupPath)).value.toString(), `${untitledFile.toString()}\ntest untitled`);
-			assert.ok(service.hasBackupSync(untitledBackupId));
-
-			assert.strictEqual((await fileService.resolve(joinPath(workspaceBackupPath, customFile.scheme))).children?.length, 1);
-			assert.strictEqual((await fileService.exists(customFileBackupPath)), true);
-			assert.strictEqual((await fileService.readFile(customFileBackupPath)).value.toString(), `${customFile.toString()}\ntest custom`);
-			assert.ok(service.hasBackupSync(customBackupId));
 		});
 	});
 
@@ -1345,4 +1315,6 @@ suite('WorkingCopyBackupService', () => {
 			assert.ok(backups.every(backup => backup.typeId === ''));
 		});
 	});
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 });
