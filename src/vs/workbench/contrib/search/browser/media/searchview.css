@@ -67,6 +67,10 @@
 	height: 26px;
 }
 
+.search-view .search-widget .monaco-findInput .monaco-scrollable-element {
+	overflow: unset !important;
+}
+
 .search-view .search-widget .monaco-findInput .monaco-scrollable-element .scrollbar {
 	opacity: 0;
 }
@@ -193,6 +197,27 @@
 	line-height: 22px;
 	padding: 0;
 	height: 100%;
+}
+
+.search-view .textsearchresult {
+	display: flex;
+	position: relative;
+	line-height: 22px;
+	padding: 0;
+	height: 100%;
+	font-weight: 500;
+}
+
+.search-view .textsearchresult .actionBarContainer {
+	flex: 1 0 auto;
+	text-align: right;
+}
+
+.search-view .textsearchresult .monaco-icon-label .codicon {
+	position: relative;
+	font-size: 12px;
+	top: 1px;
+	padding-right: 3px;
 }
 
 .pane-body:not(.wide) .search-view .foldermatch .monaco-icon-label,

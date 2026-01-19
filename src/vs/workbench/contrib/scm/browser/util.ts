@@ -3,10 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as path from 'vs/base/common/path';
-import { SCMHistoryItemChangeTreeElement, SCMHistoryItemGroupTreeElement, SCMHistoryItemTreeElement, SCMViewSeparatorElement } from 'vs/workbench/contrib/scm/common/history';
 import { ISCMResource, ISCMRepository, ISCMResourceGroup, ISCMInput, ISCMActionButton, ISCMViewService } from 'vs/workbench/contrib/scm/common/scm';
-import { IMenu, MenuItemAction } from 'vs/platform/actions/common/actions';
+import { IMenu } from 'vs/platform/actions/common/actions';
 import { ActionBar, IActionViewItemProvider } from 'vs/base/browser/ui/actionbar/actionbar';
 import { IDisposable } from 'vs/base/common/lifecycle';
 import { Action, IAction } from 'vs/base/common/actions';
@@ -18,8 +16,6 @@ import { ICommandService } from 'vs/platform/commands/common/commands';
 import { Command } from 'vs/editor/common/languages';
 import { reset } from 'vs/base/browser/dom';
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
-import { URI } from 'vs/base/common/uri';
-import { IResourceNode, ResourceTree } from 'vs/base/common/resourceTree';
 
 export function isSCMRepositoryArray(element: any): element is ISCMRepository[] {
 	return Array.isArray(element) && element.every(r => isSCMRepository(r));
@@ -53,36 +49,12 @@ export function isSCMResourceNode(element: any): element is IResourceNode<ISCMRe
 	return ResourceTree.isResourceNode(element) && isSCMResourceGroup(element.context);
 }
 
-export function isSCMHistoryItemGroupTreeElement(element: any): element is SCMHistoryItemGroupTreeElement {
-	return (element as SCMHistoryItemGroupTreeElement).type === 'historyItemGroup';
+export function isSCMHistoryItemViewModelTreeElement(element: any): element is SCMHistoryItemViewModelTreeElement {
+	return (element as SCMHistoryItemViewModelTreeElement).type === 'historyItemViewModel';
 }
 
-export function isSCMHistoryItemTreeElement(element: any): element is SCMHistoryItemTreeElement {
-	return (element as SCMHistoryItemTreeElement).type === 'allChanges' ||
-		(element as SCMHistoryItemTreeElement).type === 'historyItem';
-}
-
-export function isSCMHistoryItemChangeTreeElement(element: any): element is SCMHistoryItemChangeTreeElement {
-	return (element as SCMHistoryItemChangeTreeElement).type === 'historyItemChange';
-}
-
-export function isSCMHistoryItemChangeNode(element: any): element is IResourceNode<SCMHistoryItemChangeTreeElement, SCMHistoryItemTreeElement> {
-	return ResourceTree.isResourceNode(element) && isSCMHistoryItemTreeElement(element.context);
-}
-
-export function isSCMViewSeparator(element: any): element is SCMViewSeparatorElement {
-	return (element as SCMViewSeparatorElement).type === 'separator';
-}
-
-export function toDiffEditorArguments(uri: URI, originalUri: URI, modifiedUri: URI): unknown[] {
-	const basename = path.basename(uri.fsPath);
-	const originalQuery = JSON.parse(originalUri.query) as { path: string; ref: string };
-	const modifiedQuery = JSON.parse(modifiedUri.query) as { path: string; ref: string };
-
-	const originalShortRef = originalQuery.ref.substring(0, 8).concat(originalQuery.ref.endsWith('^') ? '^' : '');
-	const modifiedShortRef = modifiedQuery.ref.substring(0, 8).concat(modifiedQuery.ref.endsWith('^') ? '^' : '');
-
-	return [originalUri, modifiedUri, `${basename} (${originalShortRef}) ↔ ${basename} (${modifiedShortRef})`, null];
+export function isSCMHistoryItemLoadMoreTreeElement(element: any): element is SCMHistoryItemLoadMoreTreeElement {
+	return (element as SCMHistoryItemLoadMoreTreeElement).type === 'historyItemLoadMore';
 }
 
 const compareActions = (a: IAction, b: IAction) => {
@@ -98,10 +70,7 @@ export function connectPrimaryMenu(menu: IMenu, callback: (primary: IAction[], s
 	let cachedSecondary: IAction[] = [];
 
 	const updateActions = () => {
-		const primary: IAction[] = [];
-		const secondary: IAction[] = [];
-
-		createAndFillInActionBarActions(menu, { shouldForwardArgs: true }, { primary, secondary }, primaryGroup);
+		const { primary, secondary } = getActionBarActions(menu.getActions({ shouldForwardArgs: true }), primaryGroup);
 
 		if (equals(cachedPrimary, primary, compareActions) && equals(cachedSecondary, secondary, compareActions)) {
 			return;
@@ -118,18 +87,8 @@ export function connectPrimaryMenu(menu: IMenu, callback: (primary: IAction[], s
 	return menu.onDidChange(updateActions);
 }
 
-export function connectPrimaryMenuToInlineActionBar(menu: IMenu, actionBar: ActionBar): IDisposable {
-	return connectPrimaryMenu(menu, (primary) => {
-		actionBar.clear();
-		actionBar.push(primary, { icon: true, label: false });
-	}, 'inline');
-}
-
 export function collectContextMenuActions(menu: IMenu): IAction[] {
-	const primary: IAction[] = [];
-	const actions: IAction[] = [];
-	createAndFillInContextMenuActions(menu, { shouldForwardArgs: true }, { primary, secondary: actions }, 'inline');
-	return actions;
+	return getContextMenuActions(menu.getActions({ shouldForwardArgs: true }), 'inline').secondary;
 }
 
 export class StatusBarAction extends Action {
@@ -149,8 +108,8 @@ export class StatusBarAction extends Action {
 
 class StatusBarActionViewItem extends ActionViewItem {
 
-	constructor(action: StatusBarAction) {
-		super(null, action, {});
+	constructor(action: StatusBarAction, options: IBaseActionViewItemOptions) {
+		super(null, action, { ...options, icon: false, label: true });
 	}
 
 	protected override updateLabel(): void {
@@ -161,11 +120,54 @@ class StatusBarActionViewItem extends ActionViewItem {
 }
 
 export function getActionViewItemProvider(instaService: IInstantiationService): IActionViewItemProvider {
-	return action => {
+	return (action, options) => {
 		if (action instanceof StatusBarAction) {
-			return new StatusBarActionViewItem(action);
+			return new StatusBarActionViewItem(action, options);
 		}
 
-		return createActionViewItem(instaService, action);
+		return createActionViewItem(instaService, action, options);
 	};
+}
+
+export function getProviderKey(provider: ISCMProvider): string {
+	return `${provider.contextValue}:${provider.label}${provider.rootUri ? `:${provider.rootUri.toString()}` : ''}`;
+}
+
+export function getRepositoryResourceCount(provider: ISCMProvider): number {
+	return provider.groups.reduce<number>((r, g) => r + g.resources.length, 0);
+}
+
+export function getHistoryItemEditorTitle(historyItem: ISCMHistoryItem, maxLength = 20): string {
+	const title = historyItem.subject.length <= maxLength ?
+		historyItem.subject : `${historyItem.subject.substring(0, maxLength)}\u2026`;
+
+	return `${historyItem.displayId ?? historyItem.id} - ${title}`;
+}
+
+export function compareHistoryItemRefs(
+	ref1: ISCMHistoryItemRef,
+	ref2: ISCMHistoryItemRef,
+	currentHistoryItemRef?: ISCMHistoryItemRef,
+	currentHistoryItemRemoteRef?: ISCMHistoryItemRef,
+	currentHistoryItemBaseRef?: ISCMHistoryItemRef
+): number {
+	const getHistoryItemRefOrder = (ref: ISCMHistoryItemRef) => {
+		if (ref.id === currentHistoryItemRef?.id) {
+			return 1;
+		} else if (ref.id === currentHistoryItemRemoteRef?.id) {
+			return 2;
+		} else if (ref.id === currentHistoryItemBaseRef?.id) {
+			return 3;
+		} else if (ref.color !== undefined) {
+			return 4;
+		}
+
+		return 99;
+	};
+
+	// Assign order (current > remote > base > color)
+	const ref1Order = getHistoryItemRefOrder(ref1);
+	const ref2Order = getHistoryItemRefOrder(ref2);
+
+	return ref1Order - ref2Order;
 }
