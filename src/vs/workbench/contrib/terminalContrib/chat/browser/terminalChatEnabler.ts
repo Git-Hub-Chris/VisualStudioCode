@@ -5,8 +5,9 @@
 
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { IContextKey, IContextKeyService } from '../../../../../platform/contextkey/common/contextkey.js';
-import { IChatAgentService, ChatAgentLocation } from '../../../chat/common/chatAgents.js';
-import { TerminalChatContextKeys } from '../../../terminal/terminalContribExports.js';
+import { IChatAgentService } from '../../../chat/common/chatAgents.js';
+import { ChatAgentLocation } from '../../../chat/common/constants.js';
+import { TerminalChatContextKeys } from './terminalChat.js';
 
 
 export class TerminalChatEnabler {
@@ -18,8 +19,8 @@ export class TerminalChatEnabler {
 	private readonly _store = new DisposableStore();
 
 	constructor(
+		@IChatAgentService chatAgentService: IChatAgentService,
 		@IContextKeyService contextKeyService: IContextKeyService,
-		@IChatAgentService chatAgentService: IChatAgentService
 	) {
 		this._ctxHasProvider = TerminalChatContextKeys.hasChatAgent.bindTo(contextKeyService);
 		this._store.add(chatAgentService.onDidChangeAgents(() => {
