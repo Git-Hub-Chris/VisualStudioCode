@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { app, BrowserWindow, protocol, session, Session, systemPreferences, WebFrameMain } from 'electron';
+import { app, BrowserWindow, protocol, session, Session, systemPreferences, WebFrameMain, Notification } from 'electron';
 import { addUNCHostToAllowlist, disableUNCAccessRestrictions } from '../../base/node/unc.js';
 import { validatedIpcMain } from '../../base/parts/ipc/electron-main/ipcMain.js';
 import { hostname, release } from 'os';
@@ -71,7 +71,7 @@ import { ITelemetryService, TelemetryLevel } from '../../platform/telemetry/comm
 import { TelemetryAppenderClient } from '../../platform/telemetry/common/telemetryIpc.js';
 import { ITelemetryServiceConfig, TelemetryService } from '../../platform/telemetry/common/telemetryService.js';
 import { getPiiPathsFromEnvironment, getTelemetryLevel, isInternalTelemetry, NullTelemetryService, supportsTelemetry } from '../../platform/telemetry/common/telemetryUtils.js';
-import { IUpdateService } from '../../platform/update/common/update.js';
+import { IUpdateService, StateType } from '../../platform/update/common/update.js';
 import { UpdateChannel } from '../../platform/update/common/updateIpc.js';
 import { DarwinUpdateService } from '../../platform/update/electron-main/updateService.darwin.js';
 import { LinuxUpdateService } from '../../platform/update/electron-main/updateService.linux.js';
@@ -603,6 +603,94 @@ export class CodeApplication extends Disposable {
 		// Services
 		const appInstantiationService = await this.initServices(machineId, sqmId, devDeviceId, sharedProcessReady);
 
+		// Update mode: block
+		if (this.configurationService.getValue('update.mode') === 'block') {
+			await appInstantiationService.invokeFunction(async accessor => {
+				const updateService = accessor.get(IUpdateService);
+
+				const logUpdate = () => {
+					switch (updateService.state.type) {
+						case StateType.Uninitialized:
+							this.logService.info('Update State: Uninitialized');
+							break;
+						case StateType.Idle:
+							this.logService.info('Update State: Idle');
+							break;
+						case StateType.Disabled:
+							this.logService.info('Update State: Disabled');
+							break;
+						case StateType.CheckingForUpdates:
+							this.logService.info('Update State: CheckingForUpdates');
+							break;
+						case StateType.AvailableForDownload:
+							this.logService.info('Update State: AvailableForDownload');
+							break;
+						case StateType.Downloading:
+							this.logService.info('Update State: Downloading');
+							break;
+						case StateType.Downloaded:
+							this.logService.info('Update State: Downloaded');
+							break;
+						case StateType.Updating:
+							this.logService.info('Update State: Updating');
+							break;
+						case StateType.Ready:
+							this.logService.info('Update State: Ready');
+							break;
+					}
+				};
+
+				logUpdate();
+				await updateService.initialize();
+				logUpdate();
+
+				setInterval(() => logUpdate(), 100);
+
+				let notification = new Notification({
+					title: 'Checking for updates...',
+					timeoutType: 'never'
+				});
+				notification.show();
+
+				app.setBadgeCount();
+
+				await updateService.checkForUpdates(true);
+				await this.awaitUpdateState(updateService, StateType.Ready, StateType.Idle);
+				notification.close();
+
+				if (updateService.state.type === StateType.Ready) {
+					// this.logService.info('Before downloadUpdate()');
+					// notification = new Notification({
+					// 	title: 'Downloading update...',
+					// 	timeoutType: 'never'
+					// });
+					// notification.show();
+					// await updateService.downloadUpdate();
+					// this.logService.info('After downloadUpdate()');
+
+					// notification.close();
+					// notification = new Notification({
+					// 	title: 'Applying update...',
+					// 	timeoutType: 'never'
+					// });
+					// notification.show();
+					// this.logService.info('Before applyUpdate()');
+					// await updateService.applyUpdate();
+					// this.logService.info('After applyUpdate()');
+
+					// notification.close();
+					notification = new Notification({
+						title: 'Restarting...',
+						timeoutType: 'never'
+					});
+					notification.show();
+					await updateService.quitAndInstall(true);
+
+					return;
+				}
+			});
+		}
+
 		// Auth Handler
 		appInstantiationService.invokeFunction(accessor => accessor.get(IProxyAuthService));
 
@@ -642,6 +730,17 @@ export class CodeApplication extends Disposable {
 			}, 2500));
 		}, 2500));
 		eventuallyPhaseScheduler.schedule();
+	}
+
+	private awaitUpdateState(updateService: IUpdateService, ...types: StateType[]): Promise<void> {
+		return new Promise<void>(resolve => {
+			const disposable = this._register(updateService.onStateChange(e => {
+				if (types.includes(e.type)) {
+					disposable.dispose();
+					resolve();
+				}
+			}));
+		});
 	}
 
 	private async setupProtocolUrlHandlers(accessor: ServicesAccessor, mainProcessElectronServer: ElectronIPCServer): Promise<IInitialProtocolUrls | undefined> {
