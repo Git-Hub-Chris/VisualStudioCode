@@ -6,14 +6,17 @@
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
 import { Event } from '../../../../../base/common/event.js';
 import { URI } from '../../../../../base/common/uri.js';
-import { ChatAgentLocation } from '../../common/chatAgents.js';
 import { ChatModel, IChatModel, IChatRequestModel, IChatRequestVariableData, ISerializableChatData } from '../../common/chatModel.js';
 import { IParsedChatRequest } from '../../common/chatParserTypes.js';
 import { IChatCompleteResponse, IChatDetail, IChatProviderInfo, IChatSendRequestData, IChatSendRequestOptions, IChatService, IChatTransferredSessionData, IChatUserActionEvent } from '../../common/chatService.js';
+import { ChatAgentLocation } from '../../common/constants.js';
 
 export class MockChatService implements IChatService {
 	_serviceBrand: undefined;
 	transferredSessionData: IChatTransferredSessionData | undefined;
+	onDidSubmitRequest: Event<{ chatSessionId: string }> = Event.None;
+
+	private sessions = new Map<string, IChatModel>();
 
 	isEnabled(location: ChatAgentLocation): boolean {
 		throw new Error('Method not implemented.');
@@ -24,12 +27,15 @@ export class MockChatService implements IChatService {
 	getProviderInfos(): IChatProviderInfo[] {
 		throw new Error('Method not implemented.');
 	}
-	startSession(location: ChatAgentLocation, token: CancellationToken): ChatModel | undefined {
+	startSession(location: ChatAgentLocation, token: CancellationToken): ChatModel {
 		throw new Error('Method not implemented.');
+	}
+	addSession(session: IChatModel): void {
+		this.sessions.set(session.sessionId, session);
 	}
 	getSession(sessionId: string): IChatModel | undefined {
 		// eslint-disable-next-line local/code-no-dangerous-type-assertions
-		return {} as IChatModel;
+		return this.sessions.get(sessionId) ?? {} as IChatModel;
 	}
 	getOrRestoreSession(sessionId: string): IChatModel | undefined {
 		throw new Error('Method not implemented.');
@@ -82,6 +88,11 @@ export class MockChatService implements IChatService {
 	}
 
 	setChatSessionTitle(sessionId: string, title: string): void {
+		throw new Error('Method not implemented.');
+	}
+
+	unifiedViewEnabled = false;
+	isEditingLocation(location: ChatAgentLocation): boolean {
 		throw new Error('Method not implemented.');
 	}
 }

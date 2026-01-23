@@ -7,13 +7,13 @@
 
 import { Model } from '../model';
 import { Repository as BaseRepository, Resource } from '../repository';
-import { InputBox, Git, API, Repository, Remote, RepositoryState, Branch, ForcePushMode, Ref, Submodule, Commit, Change, RepositoryUIState, Status, LogOptions, APIState, CommitOptions, RefType, CredentialsProvider, BranchQuery, PushErrorHandler, PublishEvent, FetchOptions, RemoteSourceProvider, RemoteSourcePublisher, PostCommitCommandsProvider, RefQuery, BranchProtectionProvider, InitOptions } from './git';
+import { InputBox, Git, API, Repository, Remote, RepositoryState, Branch, ForcePushMode, Ref, Submodule, Commit, Change, RepositoryUIState, Status, LogOptions, APIState, CommitOptions, RefType, CredentialsProvider, BranchQuery, PushErrorHandler, PublishEvent, FetchOptions, RemoteSourceProvider, RemoteSourcePublisher, PostCommitCommandsProvider, RefQuery, BranchProtectionProvider, InitOptions, SourceControlHistoryItemDetailsProvider } from './git';
 import { Event, SourceControlInputBox, Uri, SourceControl, Disposable, commands, CancellationToken } from 'vscode';
 import { combinedDisposable, filterEvent, mapEvent } from '../util';
 import { toGitUri } from '../uri';
 import { GitExtensionImpl } from './extension';
 import { GitBaseApi } from '../git-base';
-import { PickRemoteSourceOptions } from './git-base';
+import { PickRemoteSourceOptions } from '../typings/git-base';
 import { OperationKind, OperationResult } from '../operation';
 
 class ApiInputBox implements InputBox {
@@ -72,7 +72,6 @@ export class ApiRepositoryUIState implements RepositoryUIState {
 }
 
 export class ApiRepository implements Repository {
-
 	#repository: BaseRepository;
 
 	readonly rootUri: Uri;
@@ -111,6 +110,10 @@ export class ApiRepository implements Repository {
 
 	setConfig(key: string, value: string): Promise<string> {
 		return this.#repository.setConfig(key, value);
+	}
+
+	unsetConfig(key: string): Promise<string> {
+		return this.#repository.unsetConfig(key);
 	}
 
 	getGlobalConfig(key: string): Promise<string> {
@@ -311,9 +314,19 @@ export class ApiRepository implements Repository {
 export class ApiGit implements Git {
 	#model: Model;
 
+	private _env: { [key: string]: string } | undefined;
+
 	constructor(model: Model) { this.#model = model; }
 
 	get path(): string { return this.#model.git.path; }
+
+	get env(): { [key: string]: string } {
+		if (this._env === undefined) {
+			this._env = Object.freeze(this.#model.git.env);
+		}
+
+		return this._env;
+	}
 }
 
 export class ApiImpl implements API {
@@ -399,6 +412,10 @@ export class ApiImpl implements API {
 
 	registerPushErrorHandler(handler: PushErrorHandler): Disposable {
 		return this.#model.registerPushErrorHandler(handler);
+	}
+
+	registerSourceControlHistoryItemDetailsProvider(provider: SourceControlHistoryItemDetailsProvider): Disposable {
+		return this.#model.registerSourceControlHistoryItemDetailsProvider(provider);
 	}
 
 	registerBranchProtectionProvider(root: Uri, provider: BranchProtectionProvider): Disposable {

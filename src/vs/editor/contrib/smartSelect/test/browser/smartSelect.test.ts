@@ -214,7 +214,7 @@ suite('SmartSelect', () => {
 
 	async function assertRanges(provider: SelectionRangeProvider, value: string, ...expected: IRange[]): Promise<void> {
 		const index = value.indexOf('|');
-		value = value.replace('|', ''); // CodeQL [SM02383] js/incomplete-sanitization this is purpose only the first | character
+		value = value.replace(/\|/g, ''); // Remove all '|' characters, not just the first
 
 		const model = modelService.createModel(value, new StaticLanguageSelector(languageId), URI.parse('fake:lang'));
 		const pos = model.getPositionAt(index);

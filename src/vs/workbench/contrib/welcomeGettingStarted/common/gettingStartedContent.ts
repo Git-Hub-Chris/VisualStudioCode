@@ -67,7 +67,8 @@ export type BuiltinGettingStartedStep = {
 	media:
 	| { type: 'image'; path: string | { hc: string; hcLight?: string; light: string; dark: string }; altText: string }
 	| { type: 'svg'; path: string; altText: string }
-	| { type: 'markdown'; path: string };
+	| { type: 'markdown'; path: string }
+	| { type: 'video'; path: string | { hc: string; hcLight?: string; light: string; dark: string }; poster?: string | { hc: string; hcLight?: string; light: string; dark: string }; altText: string };
 };
 
 export type BuiltinGettingStartedCategory = {
@@ -232,7 +233,6 @@ function createCopilotSetupStep(id: string, button: string, when: string, includ
 	};
 }
 
-
 export const walkthroughs: GettingStartedWalkthroughContent = [
 	{
 		id: 'Setup',
@@ -282,7 +282,6 @@ export const walkthroughs: GettingStartedWalkthroughContent = [
 				// 	id: 'settings',
 				// 	title: localize('gettingStarted.settings.title', "Tune your settings"),
 				// 	description: localize('gettingStarted.settings.description.interpolated', "Customize every aspect of VS Code and your extensions to your liking. Commonly used settings are listed first to get you started.\n{0}", Button(localize('tweakSettings', "Open Settings"), 'command:toSide:workbench.action.openSettings')),
-				// 	when: '!config.chat.experimental.offerSetup',
 				// 	media: {
 				// 		type: 'svg', altText: 'VS Code Settings', path: 'settings.svg'
 				// 	},
@@ -291,7 +290,7 @@ export const walkthroughs: GettingStartedWalkthroughContent = [
 				// 	id: 'settingsSync',
 				// 	title: localize('gettingStarted.settingsSync.title', "Sync settings across devices"),
 				// 	description: localize('gettingStarted.settingsSync.description.interpolated', "Keep your essential customizations backed up and updated across all your devices.\n{0}", Button(localize('enableSync', "Backup and Sync Settings"), 'command:workbench.userDataSync.actions.turnOn')),
-				// 	when: '!config.chat.experimental.offerSetup && syncStatus != uninitialized',
+				// 	when: 'syncStatus != uninitialized',
 				// 	completionEvents: ['onEvent:sync-enabled'],
 				// 	media: {
 				// 		type: 'svg', altText: 'The "Turn on Sync" entry in the settings gear menu.', path: 'settingsSync.svg'
@@ -318,7 +317,7 @@ export const walkthroughs: GettingStartedWalkthroughContent = [
 				// 	id: 'pickAFolderTask-Mac',
 				// 	title: localize('gettingStarted.setup.OpenFolder.title', "Open up your code"),
 				// 	description: localize('gettingStarted.setup.OpenFolder.description.interpolated', "You're all set to start coding. Open a project folder to get your files into VS Code.\n{0}", Button(localize('pickFolder', "Pick a Folder"), 'command:workbench.action.files.openFileFolder')),
-				// 	when: '!config.chat.experimental.offerSetup && isMac && workspaceFolderCount == 0',
+				// 	when: 'isMac && workspaceFolderCount == 0',
 				// 	media: {
 				// 		type: 'svg', altText: 'Explorer view showing buttons for opening folder and cloning repository.', path: 'openFolder.svg'
 				// 	}
@@ -327,7 +326,7 @@ export const walkthroughs: GettingStartedWalkthroughContent = [
 				// 	id: 'pickAFolderTask-Other',
 				// 	title: localize('gettingStarted.setup.OpenFolder.title', "Open up your code"),
 				// 	description: localize('gettingStarted.setup.OpenFolder.description.interpolated', "You're all set to start coding. Open a project folder to get your files into VS Code.\n{0}", Button(localize('pickFolder', "Pick a Folder"), 'command:workbench.action.files.openFolder')),
-				// 	when: '!config.chat.experimental.offerSetup && !isMac && workspaceFolderCount == 0',
+				// 	when: '!isMac && workspaceFolderCount == 0',
 				// 	media: {
 				// 		type: 'svg', altText: 'Explorer view showing buttons for opening folder and cloning repository.', path: 'openFolder.svg'
 				// 	}
@@ -633,7 +632,7 @@ export const walkthroughs: GettingStartedWalkthroughContent = [
 				{
 					id: 'workspaceTrust',
 					title: localize('gettingStarted.workspaceTrust.title', "Safely browse and edit code"),
-					description: localize('gettingStarted.workspaceTrust.description.interpolated', "{0} lets you decide whether your project folders should **allow or restrict** automatic code execution __(required for extensions, debugging, etc)__.\nOpening a file/folder will prompt to grant trust. You can always {1} later.", Button(localize('workspaceTrust', "Workspace Trust"), 'https://code.visualstudio.com/docs/editor/workspace-trust'), Button(localize('enableTrust', "enable trust"), 'command:toSide:workbench.action.manageTrustedDomain')),
+					description: localize('gettingStarted.workspaceTrust.description.interpolated', "{0} lets you decide whether your project folders should **allow or restrict** automatic code execution __(required for extensions, debugging, etc)__.\nOpening a file/folder will prompt to grant trust. You can always {1} later.", Button(localize('workspaceTrust', "Workspace Trust"), 'https://code.visualstudio.com/docs/editor/workspace-trust'), Button(localize('enableTrust', "enable trust"), 'command:toSide:workbench.trust.manage')),
 					when: 'workspacePlatform != \'webworker\' && !isWorkspaceTrusted && workspaceFolderCount == 0',
 					media: {
 						type: 'svg', altText: 'Workspace Trust editor in Restricted mode and a primary button for switching to Trusted mode.', path: 'workspaceTrust.svg'
