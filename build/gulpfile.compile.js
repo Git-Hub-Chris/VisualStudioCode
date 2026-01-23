@@ -13,14 +13,15 @@ const task = require('./lib/task');
 const compilation = require('./lib/compilation');
 
 /**
- * @param {boolean} disableMangle
+ * @param {boolean} _disableMangle
  */
-function makeCompileBuildTask(disableMangle) {
+function makeCompileBuildTask(_disableMangle) {
 	return task.series(
 		util.rimraf('out-build'),
 		date.writeISODate('out-build'),
 		compilation.compileApiProposalNamesTask,
-		compilation.compileTask('src', 'out-build', true, { disableMangle })
+		compilation.compileTask(isAMDBuild ? 'src2' : 'src', 'out-build', true, { disableMangle: true }),
+		optimize.optimizeLoaderTask('out-build', 'out-build', true)
 	);
 }
 
