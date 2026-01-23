@@ -8,7 +8,7 @@ import type * as nbformat from '@jupyterlab/nbformat';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { jupyterCellOutputToCellOutput, jupyterNotebookModelToNotebookData } from '../deserializers';
-import { createMarkdownCellFromNotebookCell, getCellMetadata } from '../serializers';
+import { createMarkdownCellFromNotebookCell, getCellMetadata, serializeNotebookToBytes, serializeNotebookToString } from '../serializers';
 
 function deepStripProperties(obj: any, props: string[]) {
 	for (const prop in obj) {
@@ -42,6 +42,12 @@ suite(`ipynb serializer`, () => {
 				metadata: {}
 			},
 			{
+				cell_type: 'code',
+				outputs: [],
+				source: 'print(2)',
+				metadata: {}
+			},
+			{
 				cell_type: 'markdown',
 				source: '# HEAD',
 				metadata: {}
@@ -55,13 +61,18 @@ suite(`ipynb serializer`, () => {
 		expectedCodeCell.metadata = { execution_count: 10, metadata: {} };
 		expectedCodeCell.executionSummary = { executionOrder: 10 };
 
+		const expectedCodeCell2 = new vscode.NotebookCellData(vscode.NotebookCellKind.Code, 'print(2)', 'python');
+		expectedCodeCell2.outputs = [];
+		expectedCodeCell2.metadata = { execution_count: null, metadata: {} };
+		expectedCodeCell2.executionSummary = {};
+
 		const expectedMarkdownCell = new vscode.NotebookCellData(vscode.NotebookCellKind.Markup, '# HEAD', 'markdown');
 		expectedMarkdownCell.outputs = [];
 		expectedMarkdownCell.metadata = {
 			metadata: {}
 		};
 
-		assert.deepStrictEqual(notebook.cells, [expectedCodeCell, expectedMarkdownCell]);
+		assert.deepStrictEqual(notebook.cells, [expectedCodeCell, expectedCodeCell2, expectedMarkdownCell]);
 	});
 
 
@@ -122,6 +133,77 @@ suite(`ipynb serializer`, () => {
 			},
 			id: '123'
 		});
+	});
+
+
+	test.only('JSON serialization (empty notebook)', () => {
+		const cells: nbformat.ICell[] = [
+		];
+		const notebook = jupyterNotebookModelToNotebookData({ cells }, 'python');
+		assert.ok(notebook);
+
+		const jsonStr = serializeNotebookToString(notebook);
+		const bytes = serializeNotebookToBytes(notebook);
+
+		assert.strictEqual(jsonStr, new TextDecoder().decode(bytes));
+	});
+
+	test.only('JSON serialization (empty metadata with cells)', () => {
+		const cells: nbformat.ICell[] = [
+			{
+				cell_type: 'code',
+				execution_count: 10,
+				outputs: [],
+				source: 'print(1)',
+				metadata: {}
+			},
+			{
+				cell_type: 'markdown',
+				source: '# HEAD',
+				metadata: {}
+			}
+		];
+		const notebook = jupyterNotebookModelToNotebookData({ cells }, 'python');
+		assert.ok(notebook);
+
+		const jsonStr = serializeNotebookToString(notebook);
+		const bytes = serializeNotebookToBytes(notebook);
+
+		assert.strictEqual(jsonStr, new TextDecoder().decode(bytes));
+	});
+
+	test.only('JSON serialization (with metadata containing functions & cells)', () => {
+		const cells: nbformat.ICell[] = [
+			{
+				cell_type: 'code',
+				execution_count: 10,
+				outputs: [],
+				source: 'print(1)',
+				metadata: {
+					jupyter: {
+						outputs_hidden: true,
+						scrolled: false
+					},
+					custom: {
+						test: function () {
+							return 'Hello';
+						}
+					} as any
+				}
+			},
+			{
+				cell_type: 'markdown',
+				source: '# HEAD',
+				metadata: {}
+			}
+		];
+		const notebook = jupyterNotebookModelToNotebookData({ cells, metadata: { kernelspec: { display_name: 'foo', name: 'bar' }, language_info: { name: 'python', mimetype: 'xyz', file_extension: '.py' }, orig_nbformat: 4 } }, 'python');
+		assert.ok(notebook);
+
+		const jsonStr = serializeNotebookToString(notebook);
+		const bytes = serializeNotebookToBytes(notebook);
+
+		assert.strictEqual(jsonStr, new TextDecoder().decode(bytes));
 	});
 
 	suite('Outputs', () => {
@@ -706,4 +788,5 @@ suite(`ipynb serializer`, () => {
 			});
 		});
 	});
+
 });

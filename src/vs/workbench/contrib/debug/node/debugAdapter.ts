@@ -114,6 +114,11 @@ export abstract class NetworkDebugAdapter extends StreamDebugAdapter {
 			});
 
 			this.socket.on('error', error => {
+				// On ipv6 posix this can be an AggregateError which lacks a message. Use the first.
+				if (error instanceof AggregateError) {
+					error = error.errors[0];
+				}
+
 				if (connected) {
 					this._onError.fire(error);
 				} else {
@@ -235,7 +240,10 @@ export class ExecutableDebugAdapter extends StreamDebugAdapter {
 					spawnOptions.shell = true;
 					spawnCommand = `"${command}"`;
 					spawnArgs = args.map(a => {
-						a = a.replace(/"/g, '\\"'); // Escape existing double quotes with \
+						// Escape backslashes first
+						a = a.replace(/\\/g, '\\\\');
+						// Then escape double quotes
+						a = a.replace(/"/g, '\\"');
 						// Wrap in double quotes
 						return `"${a}"`;
 					});
