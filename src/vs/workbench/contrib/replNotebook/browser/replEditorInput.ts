@@ -69,7 +69,7 @@ export class ReplEditorInput extends NotebookEditorInput implements ICompositeNo
 		}
 
 		if (resource.scheme === 'untitled') {
-			const match = new RegExp('Untitled-(\\d+)\.').exec(resource.path);
+			const match = new RegExp('Untitled-(\\d+)\\.').exec(resource.path);
 			if (match?.length === 2) {
 				return `REPL - ${match[1]}`;
 			}
@@ -107,13 +107,13 @@ export class ReplEditorInput extends NotebookEditorInput implements ICompositeNo
 	override async resolve() {
 		const model = await super.resolve();
 		if (model) {
-			await this.ensureInputBoxCell(model.notebook);
+			this.ensureInputBoxCell(model.notebook);
 		}
 
 		return model;
 	}
 
-	private async ensureInputBoxCell(notebook: NotebookTextModel) {
+	private ensureInputBoxCell(notebook: NotebookTextModel) {
 		const lastCell = notebook.cells[notebook.cells.length - 1];
 
 		if (!lastCell || lastCell.cellKind === CellKind.Markup || lastCell.outputs.length > 0 || lastCell.internalMetadata.executionOrder !== undefined) {

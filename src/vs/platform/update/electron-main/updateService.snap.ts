@@ -11,9 +11,7 @@ import * as path from '../../../base/common/path.js';
 import { IEnvironmentMainService } from '../../environment/electron-main/environmentMainService.js';
 import { ILifecycleMainService } from '../../lifecycle/electron-main/lifecycleMainService.js';
 import { ILogService } from '../../log/common/log.js';
-import { ITelemetryService } from '../../telemetry/common/telemetry.js';
 import { AvailableForDownload, IUpdateService, State, StateType, UpdateType } from '../common/update.js';
-import { UpdateNotAvailableClassification } from './abstractUpdateService.js';
 
 abstract class AbstractUpdateService implements IUpdateService {
 
@@ -49,6 +47,8 @@ abstract class AbstractUpdateService implements IUpdateService {
 		// Start checking for updates after 30 seconds
 		this.scheduleCheckForUpdates(30 * 1000).then(undefined, err => this.logService.error(err));
 	}
+
+	async initialize(): Promise<void> { }
 
 	private scheduleCheckForUpdates(delay = 60 * 60 * 1000): Promise<void> {
 		return timeout(delay)
@@ -145,7 +145,6 @@ export class SnapUpdateService extends AbstractUpdateService {
 		@ILifecycleMainService lifecycleMainService: ILifecycleMainService,
 		@IEnvironmentMainService environmentMainService: IEnvironmentMainService,
 		@ILogService logService: ILogService,
-		@ITelemetryService private readonly telemetryService: ITelemetryService
 	) {
 		super(lifecycleMainService, environmentMainService, logService);
 
@@ -167,13 +166,10 @@ export class SnapUpdateService extends AbstractUpdateService {
 			if (result) {
 				this.setState(State.Ready({ version: 'something' }));
 			} else {
-				this.telemetryService.publicLog2<{ explicit: boolean }, UpdateNotAvailableClassification>('update:notAvailable', { explicit: false });
-
 				this.setState(State.Idle(UpdateType.Snap));
 			}
 		}, err => {
 			this.logService.error(err);
-			this.telemetryService.publicLog2<{ explicit: boolean }, UpdateNotAvailableClassification>('update:notAvailable', { explicit: false });
 			this.setState(State.Idle(UpdateType.Snap, err.message || err));
 		});
 	}

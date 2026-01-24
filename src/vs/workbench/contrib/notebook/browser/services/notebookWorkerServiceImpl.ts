@@ -65,6 +65,7 @@ class WorkerManager extends Disposable {
 		// this._lastWorkerUsedTime = (new Date()).getTime();
 		if (!this._editorWorkerClient) {
 			this._editorWorkerClient = new NotebookWorkerClient(this._notebookService, this._modelService);
+			this._register(this._editorWorkerClient);
 		}
 		return Promise.resolve(this._editorWorkerClient);
 	}
@@ -106,6 +107,7 @@ class NotebookEditorModelManager extends Disposable {
 		this._proxy.$acceptNewModel(
 			model.uri.toString(),
 			model.metadata,
+			model.transientOptions.transientDocumentMetadata,
 			model.cells.map(cell => ({
 				handle: cell.handle,
 				url: cell.uri.toString(),

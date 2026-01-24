@@ -34,6 +34,18 @@ export class MarkdownString implements IMarkdownString {
 	public supportThemeIcons?: boolean;
 	public supportHtml?: boolean;
 	public baseUri?: URI;
+	public uris?: { [href: string]: UriComponents } | undefined;
+
+	public static lift(dto: IMarkdownString): MarkdownString {
+		if (dto instanceof MarkdownString) {
+			return dto;
+		}
+
+		const markdownString = new MarkdownString(dto.value, dto);
+		markdownString.uris = dto.uris;
+		markdownString.baseUri = dto.baseUri ? URI.revive(dto.baseUri) : undefined;
+		return markdownString;
+	}
 
 	constructor(
 		value: string = '',
@@ -58,6 +70,7 @@ export class MarkdownString implements IMarkdownString {
 
 	appendText(value: string, newlineStyle: MarkdownStringTextNewlineStyle = MarkdownStringTextNewlineStyle.Paragraph): MarkdownString {
 		this.value += escapeMarkdownSyntaxTokens(this.supportThemeIcons ? escapeIcons(value) : value) // CodeQL [SM02383] The Markdown is fully sanitized after being rendered.
+			.replace(/\\/g, '\\\\') // Escape backslash characters
 			.replace(/([ \t]+)/g, (_match, g1) => '&nbsp;'.repeat(g1.length)) // CodeQL [SM02383] The Markdown is fully sanitized after being rendered.
 			.replace(/\>/gm, '\\>') // CodeQL [SM02383] The Markdown is fully sanitized after being rendered.
 			.replace(/\n/g, newlineStyle === MarkdownStringTextNewlineStyle.Break ? '\\\n' : '\n\n'); // CodeQL [SM02383] The Markdown is fully sanitized after being rendered.
