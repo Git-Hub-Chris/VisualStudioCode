@@ -27,13 +27,66 @@ interface ISecretStorageCrypto {
 	unseal(data: string): Promise<string>;
 }
 
-class TransparentCrypto implements ISecretStorageCrypto {
+// Secure crypto provider using Web Crypto API (AES-GCM)
+class WebCryptoProvider implements ISecretStorageCrypto {
+	private readonly keyPromise: Promise<CryptoKey>;
+
+	constructor(secret: string) {
+		// Derive key from secret using PBKDF2 and SHA-256
+		this.keyPromise = (async () => {
+			const enc = new TextEncoder();
+			const keyMaterial = await window.crypto.subtle.importKey(
+				"raw",
+				enc.encode(secret),
+				"PBKDF2",
+				false,
+				["deriveKey"]
+			);
+			const salt = enc.encode('vscode-secret-storage-salt');
+			const key = await window.crypto.subtle.deriveKey(
+				{
+					name: "PBKDF2",
+					salt,
+					iterations: 100000,
+					hash: "SHA-256"
+				},
+				keyMaterial,
+				{ name: "AES-GCM", length: 256 },
+				false,
+				["encrypt", "decrypt"]
+			);
+			return key;
+		})();
+	}
+
 	async seal(data: string): Promise<string> {
-		return data;
+		const key = await this.keyPromise;
+		const enc = new TextEncoder();
+		const iv = window.crypto.getRandomValues(new Uint8Array(12));
+		const encrypted = await window.crypto.subtle.encrypt(
+			{ name: "AES-GCM", iv },
+			key,
+			enc.encode(data)
+		);
+		// Store iv + encrypted data as base64
+		const buffer = new Uint8Array(iv.length + encrypted.byteLength);
+		buffer.set(iv, 0);
+		buffer.set(new Uint8Array(encrypted), iv.length);
+		return encodeBase64(VSBuffer.wrap(buffer));
 	}
 
 	async unseal(data: string): Promise<string> {
-		return data;
+		const key = await this.keyPromise;
+		const buf = VSBuffer.wrap(decodeBase64(data)).buffer;
+		const iv = new Uint8Array(buf.slice(0, 12));
+		const encryptedBytes = buf.slice(12);
+		const decrypted = await window.crypto.subtle.decrypt(
+			{ name: "AES-GCM", iv },
+			key,
+			encryptedBytes
+		);
+		const dec = new TextDecoder();
+		return dec.decode(decrypted);
 	}
 }
 
@@ -44,6 +97,7 @@ const enum AESConstants {
 }
 
 class NetworkError extends Error {
+
 	constructor(inner: Error) {
 		super(inner.message);
 		this.name = inner.name;
@@ -52,10 +106,13 @@ class NetworkError extends Error {
 }
 
 class ServerKeyedAESCrypto implements ISecretStorageCrypto {
-	private _serverKey: Uint8Array | undefined;
 
-	/** Gets whether the algorithm is supported; requires a secure context */
-	public static supported() {
+	private serverKey: Uint8Array | undefined;
+
+	/**
+	 * Gets whether the algorithm is supported; requires a secure context
+	 */
+	static supported() {
 		return !!crypto.subtle;
 	}
 
@@ -141,8 +198,8 @@ class ServerKeyedAESCrypto implements ISecretStorageCrypto {
 	}
 
 	private async getServerKeyPart(): Promise<Uint8Array> {
-		if (this._serverKey) {
-			return this._serverKey;
+		if (this.serverKey) {
+			return this.serverKey;
 		}
 
 		let attempt = 0;
@@ -154,12 +211,15 @@ class ServerKeyedAESCrypto implements ISecretStorageCrypto {
 				if (!res.ok) {
 					throw new Error(res.statusText);
 				}
+
 				const serverKey = new Uint8Array(await res.arrayBuffer());
 				if (serverKey.byteLength !== AESConstants.KEY_LENGTH / 8) {
 					throw Error(`The key retrieved by the server is not ${AESConstants.KEY_LENGTH} bit long.`);
 				}
-				this._serverKey = serverKey;
-				return this._serverKey;
+
+				this.serverKey = serverKey;
+
+				return this.serverKey;
 			} catch (e) {
 				lastError = e instanceof Error ? e : new Error(String(e));
 				attempt++;
@@ -172,34 +232,39 @@ class ServerKeyedAESCrypto implements ISecretStorageCrypto {
 		if (lastError) {
 			throw new NetworkError(lastError);
 		}
+
 		throw new Error('Unknown error');
 	}
 }
 
 export class LocalStorageSecretStorageProvider implements ISecretStorageProvider {
-	private readonly _storageKey = 'secrets.provider';
 
-	private _secretsPromise: Promise<Record<string, string>> = this.load();
+	private readonly storageKey = 'secrets.provider';
+
+	private secretsPromise: Promise<Record<string, string>>;
 
 	type: 'in-memory' | 'persisted' | 'unknown' = 'persisted';
 
 	constructor(
-		private readonly crypto: ISecretStorageCrypto,
-	) { }
+		private readonly crypto: ISecretStorageCrypto = new WebCryptoProvider('vscode_default_secret'),
+	) {
+		this.secretsPromise = this.load();
+	}
 
 	private async load(): Promise<Record<string, string>> {
 		const record = this.loadAuthSessionFromElement();
-		// Get the secrets from localStorage
-		const encrypted = localStorage.getItem(this._storageKey);
+
+		const encrypted = localStorage.getItem(this.storageKey);
 		if (encrypted) {
 			try {
 				const decrypted = JSON.parse(await this.crypto.unseal(encrypted));
+
 				return { ...record, ...decrypted };
 			} catch (err) {
 				// TODO: send telemetry
 				console.error('Failed to decrypt secrets from localStorage', err);
 				if (!(err instanceof NetworkError)) {
-					localStorage.removeItem(this._storageKey);
+					localStorage.removeItem(this.storageKey);
 				}
 			}
 		}
@@ -243,32 +308,34 @@ export class LocalStorageSecretStorageProvider implements ISecretStorageProvider
 	}
 
 	async get(key: string): Promise<string | undefined> {
-		const secrets = await this._secretsPromise;
+		const secrets = await this.secretsPromise;
+
 		return secrets[key];
 	}
+
 	async set(key: string, value: string): Promise<void> {
-		const secrets = await this._secretsPromise;
+		const secrets = await this.secretsPromise;
 		secrets[key] = value;
-		this._secretsPromise = Promise.resolve(secrets);
+		this.secretsPromise = Promise.resolve(secrets);
 		this.save();
 	}
+
 	async delete(key: string): Promise<void> {
-		const secrets = await this._secretsPromise;
+		const secrets = await this.secretsPromise;
 		delete secrets[key];
-		this._secretsPromise = Promise.resolve(secrets);
+		this.secretsPromise = Promise.resolve(secrets);
 		this.save();
 	}
 
 	private async save(): Promise<void> {
 		try {
-			const encrypted = await this.crypto.seal(JSON.stringify(await this._secretsPromise));
-			localStorage.setItem(this._storageKey, encrypted);
+			const encrypted = await this.crypto.seal(JSON.stringify(await this.secretsPromise));
+			localStorage.setItem(this.storageKey, encrypted);
 		} catch (err) {
 			console.error(err);
 		}
 	}
 }
-
 
 class LocalStorageURLCallbackProvider extends Disposable implements IURLCallbackProvider {
 
@@ -485,6 +552,7 @@ class WorkspaceProvider implements IWorkspaceProvider {
 				return !!result;
 			}
 		}
+
 		return false;
 	}
 

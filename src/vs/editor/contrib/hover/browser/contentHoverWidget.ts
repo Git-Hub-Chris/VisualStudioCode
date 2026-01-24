@@ -17,7 +17,7 @@ import { getHoverAccessibleViewHint, HoverWidget } from '../../../../base/browse
 import { PositionAffinity } from '../../../common/model.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { RenderedContentHover } from './contentHoverRendered.js';
-import { IContentsChangeOptions } from './hoverTypes.js';
+import { ScrollEvent } from '../../../../base/common/scrollable.js';
 
 const HORIZONTAL_SCROLLING_BY = 30;
 
@@ -37,6 +37,9 @@ export class ContentHoverWidget extends ResizableContentWidget {
 
 	private readonly _onDidResize = this._register(new Emitter<void>());
 	public readonly onDidResize = this._onDidResize.event;
+
+	private readonly _onDidScroll = this._register(new Emitter<ScrollEvent>());
+	public readonly onDidScroll = this._onDidScroll.event;
 
 	public get isVisibleFromKeyboard(): boolean {
 		return (this._renderedHover?.source === HoverStartSource.Keyboard);
@@ -86,6 +89,9 @@ export class ContentHoverWidget extends ResizableContentWidget {
 		}));
 		this._register(focusTracker.onDidBlur(() => {
 			this._hoverFocusedKey.set(false);
+		}));
+		this._register(this._hover.scrollbar.onScroll((e) => {
+			this._onDidScroll.fire(e);
 		}));
 		this._setRenderedHover(undefined);
 		this._editor.addContentWidget(this);
@@ -297,6 +303,7 @@ export class ContentHoverWidget extends ResizableContentWidget {
 	private _updateMaxDimensions() {
 		const height = Math.max(this._editor.getLayoutInfo().height / 4, 250, ContentHoverWidget._lastDimensions.height);
 		const width = Math.max(this._editor.getLayoutInfo().width * 0.66, 750, ContentHoverWidget._lastDimensions.width);
+		this._resizableNode.maxSize = new dom.Dimension(width, height);
 		this._setHoverWidgetMaxDimensions(width, height);
 	}
 
@@ -433,7 +440,7 @@ export class ContentHoverWidget extends ResizableContentWidget {
 		this._updateMinimumWidth();
 		this._updateResizableNodeMaxDimensions();
 
-		if (opts.allowPositionPreferenceRecomputation && this._renderedHover?.showAtPosition) {
+		if (this._renderedHover?.showAtPosition) {
 			const widgetHeight = dom.getTotalHeight(this._hover.containerDomNode);
 			this._positionPreference = this._findPositionPreference(widgetHeight, this._renderedHover.showAtPosition);
 		}

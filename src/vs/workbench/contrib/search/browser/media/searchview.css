@@ -67,6 +67,10 @@
 	height: 26px;
 }
 
+.search-view .search-widget .monaco-findInput .monaco-scrollable-element {
+	overflow: unset !important;
+}
+
 .search-view .search-widget .monaco-findInput .monaco-scrollable-element .scrollbar {
 	opacity: 0;
 }
@@ -202,6 +206,11 @@
 	padding: 0;
 	height: 100%;
 	font-weight: 500;
+}
+
+.search-view .textsearchresult .actionBarContainer {
+	flex: 1 0 auto;
+	text-align: right;
 }
 
 .search-view .textsearchresult .monaco-icon-label .codicon {

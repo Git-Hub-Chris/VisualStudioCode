@@ -273,6 +273,7 @@ class RenderedContentHoverParts extends Disposable {
 			...hoverContext
 		};
 		const disposables = new DisposableStore();
+		disposables.add(statusBar);
 		for (const participant of participants) {
 			const renderedHoverParts = this._renderHoverPartsForParticipant(hoverParts, participant, hoverRenderingContext);
 			disposables.add(renderedHoverParts);
@@ -294,7 +295,7 @@ class RenderedContentHoverParts extends Disposable {
 				actions: renderedStatusBar.actions,
 			});
 		}
-		return toDisposable(() => { disposables.dispose(); });
+		return disposables;
 	}
 
 	private _renderHoverPartsForParticipant(hoverParts: IHoverPart[], participant: IEditorHoverParticipant<IHoverPart>, hoverRenderingContext: IEditorHoverRenderContext): IRenderedHoverParts<IHoverPart> {
@@ -408,7 +409,7 @@ class RenderedContentHoverParts extends Disposable {
 				this._context.focus();
 			}
 		}
-		this._context.onContentsChanged({ allowPositionPreferenceRecomputation: false });
+		this._context.onContentsChanged();
 	}
 
 	public doesHoverAtIndexSupportVerbosityAction(index: number, action: HoverVerbosityAction): boolean {

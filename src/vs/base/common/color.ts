@@ -535,17 +535,17 @@ export class Color {
 		return this._toString;
 	}
 
-	private _toNumber24Bit?: number;
-	toNumber24Bit(): number {
-		if (!this._toNumber24Bit) {
-			this._toNumber24Bit = (
+	private _toNumber32Bit?: number;
+	toNumber32Bit(): number {
+		if (!this._toNumber32Bit) {
+			this._toNumber32Bit = (
 				this.rgba.r /*  */ << 24 |
 				this.rgba.g /*  */ << 16 |
 				this.rgba.b /*  */ << 8 |
 				this.rgba.a * 0xFF << 0
 			) >>> 0;
 		}
-		return this._toNumber24Bit;
+		return this._toNumber32Bit;
 	}
 
 	static getLighterColor(of: Color, relative: Color, factor?: number): Color {
@@ -585,15 +585,11 @@ export namespace Color {
 		export namespace CSS {
 
 			export function formatRGB(color: Color): string {
-				if (color.rgba.a === 1) {
-					return `rgb(${color.rgba.r}, ${color.rgba.g}, ${color.rgba.b})`;
+				const alpha = color.rgba.a;
+				if (alpha === 1) {
+					return `rgb(${color.rgba.r} ${color.rgba.g} ${color.rgba.b})`;
 				}
-
-				return Color.Format.CSS.formatRGBA(color);
-			}
-
-			export function formatRGBA(color: Color): string {
-				return `rgba(${color.rgba.r}, ${color.rgba.g}, ${color.rgba.b}, ${+(color.rgba.a).toFixed(2)})`;
+				return `rgb(${color.rgba.r} ${color.rgba.g} ${color.rgba.b} / ${+(alpha).toFixed(2)})`;
 			}
 
 			export function formatHSL(color: Color): string {
@@ -640,7 +636,7 @@ export namespace Color {
 					return Color.Format.CSS.formatHex(color);
 				}
 
-				return Color.Format.CSS.formatRGBA(color);
+				return Color.Format.CSS.formatRGB(color);
 			}
 
 			/**
