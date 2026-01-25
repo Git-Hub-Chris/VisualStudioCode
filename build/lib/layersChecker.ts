@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as ts from 'typescript';
+import ts from 'typescript';
 import { readFileSync, existsSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { match } from 'minimatch';
@@ -80,7 +80,9 @@ const CORE_TYPES = [
 
 	// webcrypto has been available since Node.js 19, but still live in dom.d.ts
 	'Crypto',
-	'SubtleCrypto'
+	'SubtleCrypto',
+	'JsonWebKey',
+	'MessageEvent',
 ];
 
 // Types that are defined in a common layer but are known to be only

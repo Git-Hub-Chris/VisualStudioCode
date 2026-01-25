@@ -2,7 +2,7 @@
 #   Copyright (c) Microsoft Corporation. All rights reserved.
 #   Licensed under the MIT License. See License.txt in the project root for license information.
 # ---------------------------------------------------------------------------------------------
-builtin autoload -Uz add-zsh-hook
+builtin autoload -Uz add-zsh-hook is-at-least
 
 # Prevent the script recursing when setting up
 if [ -n "$VSCODE_SHELL_INTEGRATION" ]; then
@@ -30,6 +30,16 @@ if [[ "$VSCODE_INJECTION" == "1" ]]; then
 		# A user's custom HISTFILE location might be set when their .zshrc file is sourced below
 		. $USER_ZDOTDIR/.zshrc
 	fi
+fi
+
+__vsc_use_aa=0
+__vsc_env_keys=()
+__vsc_env_values=()
+
+# Associative array are only available in zsh 4.3 or later
+if is-at-least 4.3; then
+	__vsc_use_aa=1
+	typeset -A vsc_aa_env
 fi
 
 # Apply EnvironmentVariableCollections if needed
@@ -89,7 +99,7 @@ __vsc_escape_value() {
 		out+="$token"
 	done
 
-	builtin print -r "$out"
+	builtin print -r -- "$out"
 }
 
 __vsc_in_command_execution="1"
@@ -98,6 +108,10 @@ __vsc_current_command=""
 # It's fine this is in the global scope as it getting at it requires access to the shell environment
 __vsc_nonce="$VSCODE_NONCE"
 unset VSCODE_NONCE
+
+# Some features should only work in Insiders
+__vsc_stable="$VSCODE_STABLE"
+unset VSCODE_STABLE
 
 __vsc_prompt_start() {
 	builtin printf '\e]633;A\a'
@@ -109,6 +123,17 @@ __vsc_prompt_end() {
 
 __vsc_update_cwd() {
 	builtin printf '\e]633;P;Cwd=%s\a' "$(__vsc_escape_value "${PWD}")"
+}
+
+__vsc_update_env() {
+	builtin printf '\e]633;EnvSingleStart;%s;\a' $__vsc_nonce
+	for var in ${(k)parameters}; do
+		if printenv "$var" >/dev/null 2>&1; then
+			value=$(builtin printf '%s' "${(P)var}")
+			builtin printf '\e]633;EnvSingleEntry;%s;%s;%s\a' "$var" "$(__vsc_escape_value "$value")" $__vsc_nonce
+		fi
+	done
+	builtin printf '\e]633;EnvSingleEnd;%s;\a' $__vsc_nonce
 }
 
 __vsc_command_output_start() {
@@ -139,6 +164,10 @@ __vsc_command_complete() {
 		builtin printf '\e]633;D;%s\a' "$__vsc_status"
 	fi
 	__vsc_update_cwd
+
+	if [[ "$__vsc_stable" == "0" ]]; then
+		__vsc_update_env
+	fi
 }
 
 if [[ -o NOUNSET ]]; then
@@ -172,6 +201,10 @@ __vsc_precmd() {
 	if [ -n "$__vsc_in_command_execution" ]; then
 		# non null
 		__vsc_update_prompt
+	fi
+
+	if [[ "$__vsc_stable" == "0" ]]; then
+		__vsc_update_env
 	fi
 }
 

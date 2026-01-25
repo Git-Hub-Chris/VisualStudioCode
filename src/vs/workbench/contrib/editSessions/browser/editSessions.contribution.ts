@@ -3,79 +3,64 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable, DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
-import { IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions, IWorkbenchContribution } from '../../../common/contributions.js';
-import { Registry } from '../../../../platform/registry/common/platform.js';
-import { ILifecycleService, LifecyclePhase, ShutdownReason } from '../../../services/lifecycle/common/lifecycle.js';
-import { Action2, IAction2Options, MenuId, MenuRegistry, registerAction2 } from '../../../../platform/actions/common/actions.js';
-import { ServicesAccessor } from '../../../../editor/browser/editorExtensions.js';
-import { localize, localize2 } from '../../../../nls.js';
-import { IEditSessionsStorageService, Change, ChangeType, Folder, EditSession, FileType, EDIT_SESSION_SYNC_CATEGORY, EDIT_SESSIONS_CONTAINER_ID, EditSessionSchemaVersion, IEditSessionsLogService, EDIT_SESSIONS_VIEW_ICON, EDIT_SESSIONS_TITLE, EDIT_SESSIONS_SHOW_VIEW, EDIT_SESSIONS_DATA_VIEW_ID, decodeEditSessionFileContent, hashedEditSessionId, editSessionsLogId, EDIT_SESSIONS_PENDING } from '../common/editSessions.js';
-import { ISCMRepository, ISCMService } from '../../scm/common/scm.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
-import { IWorkspaceContextService, IWorkspaceFolder, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
-import { URI } from '../../../../base/common/uri.js';
-import { basename, joinPath, relativePath } from '../../../../base/common/resources.js';
-import { encodeBase64 } from '../../../../base/common/buffer.js';
-import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { IProgress, IProgressService, IProgressStep, ProgressLocation } from '../../../../platform/progress/common/progress.js';
-import { EditSessionsWorkbenchService } from './editSessionsStorageService.js';
-import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
-import { UserDataSyncErrorCode, UserDataSyncStoreError } from '../../../../platform/userDataSync/common/userDataSync.js';
-import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
-import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
-import { getFileNamesMessage, IDialogService, IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
-import { IProductService } from '../../../../platform/product/common/productService.js';
-import { IOpenerService } from '../../../../platform/opener/common/opener.js';
-import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
-import { workbenchConfigurationNodeBase } from '../../../common/configuration.js';
-import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { IQuickInputButton, IQuickInputService, IQuickPickItem, IQuickPickSeparator } from '../../../../platform/quickinput/common/quickInput.js';
-import { ExtensionsRegistry } from '../../../services/extensions/common/extensionsRegistry.js';
-import { ContextKeyExpr, ContextKeyExpression, IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
-import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { getVirtualWorkspaceLocation } from '../../../../platform/workspace/common/virtualWorkspace.js';
-import { Schemas } from '../../../../base/common/network.js';
-import { IsWebContext } from '../../../../platform/contextkey/common/contextkeys.js';
-import { IExtensionService, isProposedApiEnabled } from '../../../services/extensions/common/extensions.js';
-import { EditSessionsLogService } from '../common/editSessionsLogService.js';
-import { IViewContainersRegistry, Extensions as ViewExtensions, ViewContainerLocation } from '../../../common/views.js';
-import { IViewsService } from '../../../services/views/common/viewsService.js';
-import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
-import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
-import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
-import { EditSessionsDataViews } from './editSessionsViews.js';
-import { EditSessionsFileSystemProvider } from './editSessionsFileSystemProvider.js';
-import { isNative, isWeb } from '../../../../base/common/platform.js';
-import { VirtualWorkspaceContext, WorkspaceFolderCountContext } from '../../../common/contextkeys.js';
-import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
-import { equals } from '../../../../base/common/objects.js';
-import { EditSessionIdentityMatch, IEditSessionIdentityService } from '../../../../platform/workspace/common/editSessions.js';
-import { ThemeIcon } from '../../../../base/common/themables.js';
-import { IOutputService } from '../../../services/output/common/output.js';
-import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
-import { IActivityService, NumberBadge } from '../../../services/activity/common/activity.js';
-import { IEditorService } from '../../../services/editor/common/editorService.js';
-import { ILocalizedString } from '../../../../platform/action/common/action.js';
-import { Codicon } from '../../../../base/common/codicons.js';
-import { CancellationError } from '../../../../base/common/errors.js';
-import { IRemoteAgentService } from '../../../services/remote/common/remoteAgentService.js';
-import { IExtensionsWorkbenchService } from '../../extensions/common/extensions.js';
-import { WorkspaceStateSynchroniser } from '../common/workspaceStateSync.js';
-import { IUserDataProfilesService } from '../../../../platform/userDataProfile/common/userDataProfile.js';
-import { IRequestService } from '../../../../platform/request/common/request.js';
-import { EditSessionsStoreClient } from '../common/editSessionsStorageClient.js';
-import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
-import { IWorkspaceIdentityService } from '../../../services/workspaces/common/workspaceIdentityService.js';
-import { hashAsync } from '../../../../base/common/hash.js';
+import { Disposable } from 'vs/base/common/lifecycle';
+import { IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions, IWorkbenchContribution } from 'vs/workbench/common/contributions';
+import { Registry } from 'vs/platform/registry/common/platform';
+import { ILifecycleService, LifecyclePhase } from 'vs/workbench/services/lifecycle/common/lifecycle';
+import { Action2, IAction2Options, MenuRegistry, registerAction2 } from 'vs/platform/actions/common/actions';
+import { ServicesAccessor } from 'vs/editor/browser/editorExtensions';
+import { localize } from 'vs/nls';
+import { IEditSessionsStorageService, Change, ChangeType, Folder, EditSession, FileType, EDIT_SESSION_SYNC_CATEGORY, EDIT_SESSIONS_CONTAINER_ID, EditSessionSchemaVersion, IEditSessionsLogService, EDIT_SESSIONS_VIEW_ICON, EDIT_SESSIONS_TITLE, EDIT_SESSIONS_SHOW_VIEW, EDIT_SESSIONS_SIGNED_IN, EDIT_SESSIONS_DATA_VIEW_ID, decodeEditSessionFileContent } from 'vs/workbench/contrib/editSessions/common/editSessions';
+import { ISCMRepository, ISCMService } from 'vs/workbench/contrib/scm/common/scm';
+import { IFileService } from 'vs/platform/files/common/files';
+import { IWorkspaceContextService, IWorkspaceFolder, WorkbenchState } from 'vs/platform/workspace/common/workspace';
+import { URI } from 'vs/base/common/uri';
+import { joinPath, relativePath } from 'vs/base/common/resources';
+import { encodeBase64 } from 'vs/base/common/buffer';
+import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
+import { IProgressService, ProgressLocation } from 'vs/platform/progress/common/progress';
+import { EditSessionsWorkbenchService } from 'vs/workbench/contrib/editSessions/browser/editSessionsStorageService';
+import { registerSingleton } from 'vs/platform/instantiation/common/extensions';
+import { UserDataSyncErrorCode, UserDataSyncStoreError } from 'vs/platform/userDataSync/common/userDataSync';
+import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
+import { INotificationService, Severity } from 'vs/platform/notification/common/notification';
+import { IDialogService, IFileDialogService } from 'vs/platform/dialogs/common/dialogs';
+import { IProductService } from 'vs/platform/product/common/productService';
+import { IOpenerService } from 'vs/platform/opener/common/opener';
+import { IEnvironmentService } from 'vs/platform/environment/common/environment';
+import { workbenchConfigurationNodeBase } from 'vs/workbench/common/configuration';
+import { Extensions, IConfigurationRegistry } from 'vs/platform/configuration/common/configurationRegistry';
+import { IQuickInputService, IQuickPickItem } from 'vs/platform/quickinput/common/quickInput';
+import { ExtensionsRegistry } from 'vs/workbench/services/extensions/common/extensionsRegistry';
+import { ContextKeyExpr, ContextKeyExpression, IContextKey, IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
+import { ICommandService } from 'vs/platform/commands/common/commands';
+import { getVirtualWorkspaceLocation } from 'vs/platform/workspace/common/virtualWorkspace';
+import { Schemas } from 'vs/base/common/network';
+import { IsWebContext } from 'vs/platform/contextkey/common/contextkeys';
+import { isProposedApiEnabled } from 'vs/workbench/services/extensions/common/extensions';
+import { EditSessionsLogService } from 'vs/workbench/contrib/editSessions/common/editSessionsLogService';
+import { IViewContainersRegistry, Extensions as ViewExtensions, ViewContainerLocation, IViewsService } from 'vs/workbench/common/views';
+import { SyncDescriptor } from 'vs/platform/instantiation/common/descriptors';
+import { ViewPaneContainer } from 'vs/workbench/browser/parts/views/viewPaneContainer';
+import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
+import { EditSessionsDataViews } from 'vs/workbench/contrib/editSessions/browser/editSessionsViews';
+import { EditSessionsFileSystemProvider } from 'vs/workbench/contrib/editSessions/browser/editSessionsFileSystemProvider';
+import { isNative } from 'vs/base/common/platform';
+import { WorkspaceFolderCountContext } from 'vs/workbench/common/contextkeys';
+import { CancellationTokenSource } from 'vs/base/common/cancellation';
+import { equals } from 'vs/base/common/objects';
+import { IEditSessionIdentityService } from 'vs/platform/workspace/common/editSessions';
+import { ThemeIcon } from 'vs/platform/theme/common/themeService';
+import { IOutputService } from 'vs/workbench/services/output/common/output';
+import * as Constants from 'vs/workbench/contrib/logs/common/logConstants';
 
-registerSingleton(IEditSessionsLogService, EditSessionsLogService, InstantiationType.Delayed);
-registerSingleton(IEditSessionsStorageService, EditSessionsWorkbenchService, InstantiationType.Delayed);
+registerSingleton(IEditSessionsLogService, EditSessionsLogService, false);
+registerSingleton(IEditSessionsStorageService, EditSessionsWorkbenchService, false);
 
-
-const continueWorkingOnCommand: IAction2Options = {
-	id: '_workbench.editSessions.actions.continueEditSession',
-	title: localize2('continue working on', 'Continue Working On...'),
+const continueEditSessionCommand: IAction2Options = {
+	id: '_workbench.experimental.editSessions.actions.continueEditSession',
+	title: { value: localize('continue edit session', "Continue Edit Session..."), original: 'Continue Edit Session...' },
+	category: EDIT_SESSION_SYNC_CATEGORY,
 	precondition: WorkspaceFolderCountContext.notEqualsTo('0'),
 	f1: true
 };
@@ -540,19 +525,20 @@ export class EditSessionsContribution extends Disposable implements IWorkbenchCo
 				return;
 			}
 
-			// TODO@joyceerhl Provide the option to diff files which would be overwritten by edit session contents
-			if (conflictingChanges.length > 0) {
-				// Allow to show edit sessions
+			if (hasLocalUncommittedChanges) {
+				// TODO@joyceerhl Provide the option to diff files which would be overwritten by edit session contents
+				const yes = localize('resume edit session yes', 'Yes');
+				const cancel = localize('resume edit session cancel', 'Cancel');
 
-				const { confirmed } = await this.dialogService.confirm({
-					type: Severity.Warning,
-					message: conflictingChanges.length > 1 ?
-						localize('resume edit session warning many', 'Resuming your working changes from the cloud will overwrite the following {0} files. Do you want to proceed?', conflictingChanges.length) :
-						localize('resume edit session warning 1', 'Resuming your working changes from the cloud will overwrite {0}. Do you want to proceed?', basename(conflictingChanges[0].uri)),
-					detail: conflictingChanges.length > 1 ? getFileNamesMessage(conflictingChanges.map((c) => c.uri)) : undefined
-				});
-
-				if (!confirmed) {
+				const result = await this.dialogService.show(
+					Severity.Warning,
+					localize('resume edit session warning', 'Resuming your edit session may overwrite your existing uncommitted changes. Do you want to proceed?'),
+					[cancel, yes],
+					{
+						custom: true,
+						cancelId: 0
+					});
+				if (result.choice === 0) {
 					return;
 				}
 			}
