@@ -405,17 +405,17 @@ const PolicyTypes = [
 function getPolicy(moduleName, configurationNode, settingNode, policyNode, categories) {
     const name = getStringProperty(moduleName, policyNode, 'name');
     if (!name) {
-        throw new ParseError(`Missing required 'name' property`, moduleName, policyNode);
+        throw new Error(`Missing required 'name' property. ${moduleName}.ts:${policyNode.startPosition.row + 1}`);
     }
     else if (isNlsString(name)) {
-        throw new ParseError(`Property 'name' should be a literal string`, moduleName, policyNode);
+        throw new Error(`Property 'name' should be a literal string. ${moduleName}.ts:${policyNode.startPosition.row + 1}`);
     }
     const categoryName = getStringProperty(moduleName, configurationNode, 'title');
     if (!categoryName) {
-        throw new ParseError(`Missing required 'title' property`, moduleName, configurationNode);
+        throw new Error(`Missing required 'title' property. ${moduleName}.ts:${configurationNode.startPosition.row + 1}`);
     }
     else if (!isNlsString(categoryName)) {
-        throw new ParseError(`Property 'title' should be localized`, moduleName, configurationNode);
+        throw new Error(`Property 'title' should be localized. ${moduleName}.ts:${configurationNode.startPosition.row + 1}`);
     }
     const categoryKey = `${categoryName.nlsKey}:${categoryName.value}`;
     let category = categories.get(categoryKey);
@@ -425,17 +425,17 @@ function getPolicy(moduleName, configurationNode, settingNode, policyNode, categ
     }
     const minimumVersion = getStringProperty(moduleName, policyNode, 'minimumVersion');
     if (!minimumVersion) {
-        throw new ParseError(`Missing required 'minimumVersion' property.`, moduleName, policyNode);
+        throw new Error(`Missing required 'minimumVersion' property. ${moduleName}.ts:${policyNode.startPosition.row + 1}`);
     }
     else if (isNlsString(minimumVersion)) {
-        throw new ParseError(`Property 'minimumVersion' should be a literal string.`, moduleName, policyNode);
+        throw new Error(`Property 'minimumVersion' should be a literal string. ${moduleName}.ts:${policyNode.startPosition.row + 1}`);
     }
     const description = getStringProperty(moduleName, policyNode, 'description') ?? getStringProperty(moduleName, settingNode, 'description');
     if (!description) {
-        throw new ParseError(`Missing required 'description' property.`, moduleName, settingNode);
+        throw new Error(`Missing required 'description' property. ${moduleName}.ts:${settingNode.startPosition.row + 1}`);
     }
     if (!isNlsString(description)) {
-        throw new ParseError(`Property 'description' should be localized.`, moduleName, settingNode);
+        throw new Error(`Property 'description' should be localized. ${moduleName}.ts:${settingNode.startPosition.row + 1}`);
     }
     let result;
     for (const policyType of PolicyTypes) {
@@ -444,7 +444,7 @@ function getPolicy(moduleName, configurationNode, settingNode, policyNode, categ
         }
     }
     if (!result) {
-        throw new ParseError(`Failed to parse policy '${name}'.`, moduleName, settingNode);
+        throw new Error(`Failed to parse policy '${name}'. ${moduleName}.ts:${settingNode.startPosition.row + 1}`);
     }
     return result;
 }
