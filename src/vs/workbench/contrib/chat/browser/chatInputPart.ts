@@ -281,6 +281,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 	private inputEditorHasText: IContextKey<boolean>;
 	private chatCursorAtTop: IContextKey<boolean>;
 	private inputEditorHasFocus: IContextKey<boolean>;
+	private agentMode: IContextKey<boolean>;
 	/**
 	 * Context key is set when prompt instructions are attached.
 	 */
@@ -391,7 +392,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		this.chatCursorAtTop = ChatContextKeys.inputCursorAtTop.bindTo(contextKeyService);
 		this.inputEditorHasFocus = ChatContextKeys.inputHasFocus.bindTo(contextKeyService);
 		this.promptInstructionsAttached = ChatContextKeys.instructionsAttached.bindTo(contextKeyService);
-		this.chatMode = ChatContextKeys.chatMode.bindTo(contextKeyService);
+		this.agentMode = ChatContextKeys.Editing.agentMode.bindTo(contextKeyService);
 
 		this.history = this.loadHistory();
 		this._register(this.historyService.onDidClearHistory(() => this.history = new HistoryNavigator2([{ text: '' }], ChatInputHistoryMaxEntries, historyKeyFn)));
@@ -476,6 +477,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		this._currentMode = mode;
 		this.chatMode.set(mode);
 		this._onDidChangeCurrentChatMode.fire();
+		this.agentMode.set(this._currentMode === ChatMode.Agent);
 	}
 
 	private modelSupportedForDefaultAgent(model: ILanguageModelChatMetadataAndIdentifier): boolean {
