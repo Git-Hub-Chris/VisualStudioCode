@@ -438,23 +438,41 @@ export function toWorkspaceFolder(resource: URI): WorkspaceFolder {
 	return new WorkspaceFolder({ uri: resource, index: 0, name: basenameOrAuthority(resource) }, { uri: resource.toString() });
 }
 
-export const WORKSPACE_EXTENSION = 'code-workspace';
-export const WORKSPACE_SUFFIX = `.${WORKSPACE_EXTENSION}`;
-export const WORKSPACE_FILTER = [{ name: localize('codeWorkspace', "Code Workspace"), extensions: [WORKSPACE_EXTENSION] }];
-export const UNTITLED_WORKSPACE_NAME = 'workspace.json';
+export function toWorkspaceFolders(configuredFolders: IStoredWorkspaceFolder[], workspaceConfigFile: URI): WorkspaceFolder[] {
+	let result: WorkspaceFolder[] = [];
+	let seen: Set<string> = new Set();
 
-export function isUntitledWorkspace(path: URI, environmentService: IEnvironmentService): boolean {
-	return extUriBiasedIgnorePathCase.isEqualOrParent(path, environmentService.untitledWorkspacesHome);
-}
+	const extUri = resources.extUriBiasedIgnorePathCase; // To be replaced by the UriIdentityService as parameter: #108793
 
-export function isTemporaryWorkspace(workspace: IWorkspace): boolean;
-export function isTemporaryWorkspace(path: URI): boolean;
-export function isTemporaryWorkspace(arg1: IWorkspace | URI): boolean {
-	let path: URI | null | undefined;
-	if (URI.isUri(arg1)) {
-		path = arg1;
-	} else {
-		path = arg1.configuration;
+	const relativeTo = extUri.dirname(workspaceConfigFile);
+	for (let configuredFolder of configuredFolders) {
+		let uri: URI | null = null;
+		if (isRawFileWorkspaceFolder(configuredFolder)) {
+			if (configuredFolder.path) {
+				uri = extUri.resolvePath(relativeTo, configuredFolder.path);
+			}
+		} else if (isRawUriWorkspaceFolder(configuredFolder)) {
+			try {
+				uri = URI.parse(configuredFolder.uri);
+				// this makes sure all workspace folder are absolute
+				if (uri.path[0] !== '/') {
+					uri = uri.with({ path: '/' + uri.path });
+				}
+			} catch (e) {
+				console.warn(e);
+				// ignore
+			}
+		}
+		if (uri) {
+			// remove duplicates
+			let comparisonKey = extUri.getComparisonKey(uri);
+			if (!seen.has(comparisonKey)) {
+				seen.add(comparisonKey);
+
+				const name = configuredFolder.name || extUri.basenameOrAuthority(uri);
+				result.push(new WorkspaceFolder({ uri, name, index: result.length }, configuredFolder));
+			}
+		}
 	}
 
 	return path?.scheme === Schemas.tmp;

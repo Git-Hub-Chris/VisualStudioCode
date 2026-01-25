@@ -47,7 +47,7 @@
 
 /* This outline-color rule is used to override the outline color for synthetic-focus find input. */
 .monaco-editor .find-widget .monaco-inputbox.synthetic-focus {
-	outline: 1px solid -webkit-focus-ring-color;
+	outline: 2px solid -webkit-focus-ring-color;
 	outline-offset: -1px;
 	outline-color: var(--vscode-focusBorder);
 }

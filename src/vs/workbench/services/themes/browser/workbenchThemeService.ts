@@ -142,6 +142,9 @@ export class WorkbenchThemeService extends Disposable implements IWorkbenchTheme
 		let themeData: ColorThemeData | undefined = ColorThemeData.fromStorageData(this.storageService);
 		const colorThemeSetting = this.settings.colorTheme;
 		if (themeData && colorThemeSetting !== themeData.settingsId) {
+			// reasons for a settings change
+			// the web has different defaults than the desktop
+			// os has changed mode and we have autodect on
 			themeData = undefined;
 		}
 
