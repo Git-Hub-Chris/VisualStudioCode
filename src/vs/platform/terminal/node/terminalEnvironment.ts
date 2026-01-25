@@ -87,7 +87,16 @@ export function getShellIntegrationInjection(
 	if (options.shellIntegration.nonce) {
 		envMixin['VSCODE_NONCE'] = options.shellIntegration.nonce;
 	}
-
+	if (shellLaunchConfig.shellIntegrationEnvironmentReporting) {
+		if (isWindows) {
+			const enableWindowsEnvReporting = options.windowsUseConptyDll || options.windowsEnableConpty && getWindowsBuildNumber() >= 22631;
+			if (enableWindowsEnvReporting) {
+				envMixin['VSCODE_SHELL_ENV_REPORTING'] = '1';
+			}
+		} else {
+			envMixin['VSCODE_SHELL_ENV_REPORTING'] = '1';
+		}
+	}
 	// Windows
 	if (isWindows) {
 		if (shell === 'pwsh.exe' || shell === 'powershell.exe') {
@@ -224,6 +233,7 @@ export function getShellIntegrationInjection(
 				source: path.join(appRoot, 'out/vs/workbench/contrib/terminal/common/scripts/shellIntegration-login.zsh'),
 				dest: path.join(zdotdir, '.zlogin')
 			});
+			envMixin['VSCODE_STABLE'] = productService.quality === 'stable' ? '1' : '0';
 			return { newArgs, envMixin, filesToCopy };
 		}
 	}

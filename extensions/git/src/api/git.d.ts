@@ -30,6 +30,7 @@ export interface Ref {
 	readonly type: RefType;
 	readonly name?: string;
 	readonly commit?: string;
+	readonly commitDetails?: Commit;
 	readonly remote?: string;
 }
 
@@ -185,6 +186,7 @@ export interface RefQuery {
 	readonly contains?: string;
 	readonly count?: number;
 	readonly pattern?: string | string[];
+	readonly includeCommitDetails?: boolean;
 	readonly sort?: 'alphabetically' | 'committerdate';
 }
 
@@ -200,6 +202,7 @@ export interface Repository {
 	readonly ui: RepositoryUIState;
 
 	readonly onDidCommit: Event<void>;
+	readonly onDidCheckout: Event<void>;
 
 	getConfigs(): Promise<{ key: string; value: string; }[]>;
 	getConfig(key: string): Promise<string>;
@@ -326,14 +329,19 @@ export interface BranchProtectionProvider {
 	provideBranchProtection(): BranchProtection[];
 }
 
-export interface AvatarQuery {
-	readonly commit: string;
+export interface AvatarQueryCommit {
+	readonly hash: string;
 	readonly authorName?: string;
 	readonly authorEmail?: string;
 }
 
+export interface AvatarQuery {
+	readonly commits: AvatarQueryCommit[];
+	readonly size: number;
+}
+
 export interface SourceControlHistoryItemDetailsProvider {
-	provideAvatar(repository: Repository, query: AvatarQuery[]): ProviderResult<Map<string, string | undefined>>;
+	provideAvatar(repository: Repository, query: AvatarQuery): ProviderResult<Map<string, string | undefined>>;
 	provideHoverCommands(repository: Repository): ProviderResult<Command[]>;
 	provideMessageLinks(repository: Repository, message: string): ProviderResult<string>;
 }
