@@ -17,6 +17,7 @@ import { FormFeed } from '../../../common/codecs/simpleCodec/tokens/formFeed.js'
 import { VerticalTab } from '../../../common/codecs/simpleCodec/tokens/verticalTab.js';
 import { MarkdownLink } from '../../../common/codecs/markdownCodec/tokens/markdownLink.js';
 import { CarriageReturn } from '../../../common/codecs/linesCodec/tokens/carriageReturn.js';
+import { MarkdownImage } from '../../../common/codecs/markdownCodec/tokens/markdownImage.js';
 import { ExclamationMark } from '../../../common/codecs/simpleCodec/tokens/exclamationMark.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { MarkdownComment } from '../../../common/codecs/markdownCodec/tokens/markdownComment.js';
@@ -363,6 +364,305 @@ suite('MarkdownDecoder', () => {
 		});
 	});
 
+
+	suite('• images', () => {
+		suite('• general', () => {
+			test('• base cases', async () => {
+				const test = testDisposables.add(
+					new TestMarkdownDecoder(),
+				);
+
+				const inputData = [
+					'\t![alt text](./some/path/to/file.jpg) ',
+					'plain text \f![label](./image.png)\v and more text',
+					'![](/var/images/default) following text',
+				];
+
+				await test.run(
+					inputData,
+					[
+						// `1st`
+						new Tab(new Range(1, 1, 1, 2)),
+						new MarkdownImage(1, 2, '![alt text]', '(./some/path/to/file.jpg)'),
+						new Space(new Range(1, 38, 1, 39)),
+						new NewLine(new Range(1, 39, 1, 40)),
+						// `2nd`
+						new Word(new Range(2, 1, 2, 6), 'plain'),
+						new Space(new Range(2, 6, 2, 7)),
+						new Word(new Range(2, 7, 2, 11), 'text'),
+						new Space(new Range(2, 11, 2, 12)),
+						new FormFeed(new Range(2, 12, 2, 13)),
+						new MarkdownImage(2, 13, '![label]', '(./image.png)'),
+						new VerticalTab(new Range(2, 34, 2, 35)),
+						new Space(new Range(2, 35, 2, 36)),
+						new Word(new Range(2, 36, 2, 39), 'and'),
+						new Space(new Range(2, 39, 2, 40)),
+						new Word(new Range(2, 40, 2, 44), 'more'),
+						new Space(new Range(2, 44, 2, 45)),
+						new Word(new Range(2, 45, 2, 49), 'text'),
+						new NewLine(new Range(2, 49, 2, 50)),
+						// `3rd`
+						new MarkdownImage(3, 1, '![]', '(/var/images/default)'),
+						new Space(new Range(3, 25, 3, 26)),
+						new Word(new Range(3, 26, 3, 35), 'following'),
+						new Space(new Range(3, 35, 3, 36)),
+						new Word(new Range(3, 36, 3, 40), 'text'),
+					],
+				);
+			});
+
+			test('• nuanced', async () => {
+				const test = testDisposables.add(
+					new TestMarkdownDecoder(),
+				);
+
+				const inputData = [
+					'\t![<!-- comment -->](./s☻me/path/to/file.jpeg) ',
+					'raw text \f![(/1.png)](./image-🥸.png)\v and more text',
+					// '![](/var/images/default) following text',
+				];
+
+				await test.run(
+					inputData,
+					[
+						// `1st`
+						new Tab(new Range(1, 1, 1, 2)),
+						new MarkdownImage(1, 2, '![<!-- comment -->]', '(./s☻me/path/to/file.jpeg)'),
+						new Space(new Range(1, 47, 1, 48)),
+						new NewLine(new Range(1, 48, 1, 49)),
+						// `2nd`
+						new Word(new Range(2, 1, 2, 4), 'raw'),
+						new Space(new Range(2, 4, 2, 5)),
+						new Word(new Range(2, 5, 2, 9), 'text'),
+						new Space(new Range(2, 9, 2, 10)),
+						new FormFeed(new Range(2, 10, 2, 11)),
+						new MarkdownImage(2, 11, '![(/1.png)]', '(./image-🥸.png)'),
+						new VerticalTab(new Range(2, 38, 2, 39)),
+						new Space(new Range(2, 39, 2, 40)),
+						new Word(new Range(2, 40, 2, 43), 'and'),
+						new Space(new Range(2, 43, 2, 44)),
+						new Word(new Range(2, 44, 2, 48), 'more'),
+						new Space(new Range(2, 48, 2, 49)),
+						new Word(new Range(2, 49, 2, 53), 'text'),
+					],
+				);
+			});
+		});
+
+		suite('• broken', () => {
+			test('• invalid', async () => {
+				const test = testDisposables.add(
+					new TestMarkdownDecoder(),
+				);
+
+				const inputLines = [
+					// incomplete link reference with empty caption
+					'![ ](./real/file path/file★name.webp',
+					// space between caption and reference is disallowed
+					'\f![link text] (./file path/name.jpg)',
+					// new line inside the link reference
+					'\v![ ](./file\npath/name.jpg )',
+				];
+
+				await test.run(
+					inputLines,
+					[
+						// `1st` line
+						new ExclamationMark(new Range(1, 1, 1, 2)),
+						new LeftBracket(new Range(1, 2, 1, 3)),
+						new Space(new Range(1, 3, 1, 4)),
+						new RightBracket(new Range(1, 4, 1, 5)),
+						new LeftParenthesis(new Range(1, 5, 1, 6)),
+						new Word(new Range(1, 6, 1, 6 + 11), './real/file'),
+						new Space(new Range(1, 17, 1, 18)),
+						new Word(new Range(1, 18, 1, 18 + 19), 'path/file★name.webp'),
+						new NewLine(new Range(1, 37, 1, 38)),
+						// `2nd` line
+						new FormFeed(new Range(2, 1, 2, 2)),
+						new ExclamationMark(new Range(2, 2, 2, 3)),
+						new LeftBracket(new Range(2, 3, 2, 4)),
+						new Word(new Range(2, 4, 2, 4 + 4), 'link'),
+						new Space(new Range(2, 8, 2, 9)),
+						new Word(new Range(2, 9, 2, 9 + 4), 'text'),
+						new RightBracket(new Range(2, 13, 2, 14)),
+						new Space(new Range(2, 14, 2, 15)),
+						new LeftParenthesis(new Range(2, 15, 2, 16)),
+						new Word(new Range(2, 16, 2, 16 + 6), './file'),
+						new Space(new Range(2, 22, 2, 23)),
+						new Word(new Range(2, 23, 2, 23 + 13), 'path/name.jpg'),
+						new RightParenthesis(new Range(2, 36, 2, 37)),
+						new NewLine(new Range(2, 37, 2, 38)),
+						// `3rd` line
+						new VerticalTab(new Range(3, 1, 3, 2)),
+						new ExclamationMark(new Range(3, 2, 3, 3)),
+						new LeftBracket(new Range(3, 3, 3, 4)),
+						new Space(new Range(3, 4, 3, 5)),
+						new RightBracket(new Range(3, 5, 3, 6)),
+						new LeftParenthesis(new Range(3, 6, 3, 7)),
+						new Word(new Range(3, 7, 3, 7 + 6), './file'),
+						new NewLine(new Range(3, 13, 3, 14)),
+						new Word(new Range(4, 1, 4, 1 + 13), 'path/name.jpg'),
+						new Space(new Range(4, 14, 4, 15)),
+						new RightParenthesis(new Range(4, 15, 4, 16)),
+					],
+				);
+			});
+
+			suite('• stop characters inside caption/reference (new lines)', () => {
+				for (const stopCharacter of [CarriageReturn, NewLine]) {
+					let characterName = '';
+
+					if (stopCharacter === CarriageReturn) {
+						characterName = '\\r';
+					}
+					if (stopCharacter === NewLine) {
+						characterName = '\\n';
+					}
+
+					assert(
+						characterName !== '',
+						'The "characterName" must be set, got "empty line".',
+					);
+
+					test(`• stop character - "${characterName}"`, async () => {
+						const test = testDisposables.add(
+							new TestMarkdownDecoder(),
+						);
+
+						const inputLines = [
+							// stop character inside link caption
+							`![haa${stopCharacter.symbol}loů](./real/💁/name.png)`,
+							// stop character inside link reference
+							`![ref text](/etc/pat${stopCharacter.symbol}h/to/file.webp)`,
+							// stop character between line caption and link reference is disallowed
+							`![text]${stopCharacter.symbol}(/etc/ path/file.jpeg)`,
+						];
+
+
+						await test.run(
+							inputLines,
+							[
+								// `1st` input line
+								new ExclamationMark(new Range(1, 1, 1, 2)),
+								new LeftBracket(new Range(1, 2, 1, 3)),
+								new Word(new Range(1, 3, 1, 3 + 3), 'haa'),
+								new stopCharacter(new Range(1, 6, 1, 7)), // <- stop character
+								new Word(new Range(2, 1, 2, 1 + 3), 'loů'),
+								new RightBracket(new Range(2, 4, 2, 5)),
+								new LeftParenthesis(new Range(2, 5, 2, 6)),
+								new Word(new Range(2, 6, 2, 6 + 18), './real/💁/name.png'),
+								new RightParenthesis(new Range(2, 24, 2, 25)),
+								new NewLine(new Range(2, 25, 2, 26)),
+								// `2nd` input line
+								new ExclamationMark(new Range(3, 1, 3, 2)),
+								new LeftBracket(new Range(3, 2, 3, 3)),
+								new Word(new Range(3, 3, 3, 3 + 3), 'ref'),
+								new Space(new Range(3, 6, 3, 7)),
+								new Word(new Range(3, 7, 3, 7 + 4), 'text'),
+								new RightBracket(new Range(3, 11, 3, 12)),
+								new LeftParenthesis(new Range(3, 12, 3, 13)),
+								new Word(new Range(3, 13, 3, 13 + 8), '/etc/pat'),
+								new stopCharacter(new Range(3, 21, 3, 22)), // <- stop character
+								new Word(new Range(4, 1, 4, 1 + 14), 'h/to/file.webp'),
+								new RightParenthesis(new Range(4, 15, 4, 16)),
+								new NewLine(new Range(4, 16, 4, 17)),
+								// `3nd` input line
+								new ExclamationMark(new Range(5, 1, 5, 2)),
+								new LeftBracket(new Range(5, 2, 5, 3)),
+								new Word(new Range(5, 3, 5, 3 + 4), 'text'),
+								new RightBracket(new Range(5, 7, 5, 8)),
+								new stopCharacter(new Range(5, 8, 5, 9)), // <- stop character
+								new LeftParenthesis(new Range(6, 1, 6, 2)),
+								new Word(new Range(6, 2, 6, 2 + 5), '/etc/'),
+								new Space(new Range(6, 7, 6, 8)),
+								new Word(new Range(6, 8, 6, 8 + 14), 'path/file.jpeg'),
+								new RightParenthesis(new Range(6, 22, 6, 23)),
+							],
+						);
+					});
+				}
+			});
+
+			/**
+			 * Same as above but these stop characters do not move the caret to the next line.
+			 */
+			suite('• stop characters inside caption/reference (same line)', () => {
+				for (const stopCharacter of [VerticalTab, FormFeed]) {
+					let characterName = '';
+
+					if (stopCharacter === VerticalTab) {
+						characterName = '\\v';
+					}
+					if (stopCharacter === FormFeed) {
+						characterName = '\\f';
+					}
+
+					assert(
+						characterName !== '',
+						'The "characterName" must be set, got "empty line".',
+					);
+
+					test(`• stop character - "${characterName}"`, async () => {
+						const test = testDisposables.add(
+							new TestMarkdownDecoder(),
+						);
+
+						const inputLines = [
+							// stop character inside link caption
+							`![haa${stopCharacter.symbol}loů](./real/💁/name)`,
+							// stop character inside link reference
+							`![ref text](/etc/pat${stopCharacter.symbol}h/to/file.webp)`,
+							// stop character between line caption and link reference is disallowed
+							`![text]${stopCharacter.symbol}(/etc/ path/image.gif)`,
+						];
+
+
+						await test.run(
+							inputLines,
+							[
+								// `1st` input line
+								new ExclamationMark(new Range(1, 1, 1, 2)),
+								new LeftBracket(new Range(1, 2, 1, 3)),
+								new Word(new Range(1, 3, 1, 3 + 3), 'haa'),
+								new stopCharacter(new Range(1, 6, 1, 7)), // <- stop character
+								new Word(new Range(1, 7, 1, 7 + 3), 'loů'),
+								new RightBracket(new Range(1, 10, 1, 11)),
+								new LeftParenthesis(new Range(1, 11, 1, 12)),
+								new Word(new Range(1, 12, 1, 12 + 14), './real/💁/name'),
+								new RightParenthesis(new Range(1, 26, 1, 27)),
+								new NewLine(new Range(1, 27, 1, 28)),
+								// `2nd` input line
+								new ExclamationMark(new Range(2, 1, 2, 2)),
+								new LeftBracket(new Range(2, 2, 2, 3)),
+								new Word(new Range(2, 3, 2, 3 + 3), 'ref'),
+								new Space(new Range(2, 6, 2, 7)),
+								new Word(new Range(2, 7, 2, 7 + 4), 'text'),
+								new RightBracket(new Range(2, 11, 2, 12)),
+								new LeftParenthesis(new Range(2, 12, 2, 13)),
+								new Word(new Range(2, 13, 2, 13 + 8), '/etc/pat'),
+								new stopCharacter(new Range(2, 21, 2, 22)), // <- stop character
+								new Word(new Range(2, 22, 2, 22 + 14), 'h/to/file.webp'),
+								new RightParenthesis(new Range(2, 36, 2, 37)),
+								new NewLine(new Range(2, 37, 2, 38)),
+								// `3nd` input line
+								new ExclamationMark(new Range(3, 1, 3, 2)),
+								new LeftBracket(new Range(3, 2, 3, 3)),
+								new Word(new Range(3, 3, 3, 3 + 4), 'text'),
+								new RightBracket(new Range(3, 7, 3, 8)),
+								new stopCharacter(new Range(3, 8, 3, 9)), // <- stop character
+								new LeftParenthesis(new Range(3, 9, 3, 10)),
+								new Word(new Range(3, 10, 3, 10 + 5), '/etc/'),
+								new Space(new Range(3, 15, 3, 16)),
+								new Word(new Range(3, 16, 3, 16 + 14), 'path/image.gif'),
+								new RightParenthesis(new Range(3, 30, 3, 31)),
+							],
+						);
+					});
+				}
+			});
+		});
+	});
+
 	suite('• comments', () => {
 		suite('• general', () => {
 			test('• base cases', async () => {
@@ -472,7 +772,6 @@ suite('MarkdownDecoder', () => {
 				);
 			});
 		});
-
 
 		test('• invalid', async () => {
 			const test = testDisposables.add(

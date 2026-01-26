@@ -27,14 +27,66 @@ interface ISecretStorageCrypto {
 	unseal(data: string): Promise<string>;
 }
 
-class TransparentCrypto implements ISecretStorageCrypto {
+// Secure crypto provider using Web Crypto API (AES-GCM)
+class WebCryptoProvider implements ISecretStorageCrypto {
+	private readonly keyPromise: Promise<CryptoKey>;
+
+	constructor(secret: string) {
+		// Derive key from secret using PBKDF2 and SHA-256
+		this.keyPromise = (async () => {
+			const enc = new TextEncoder();
+			const keyMaterial = await window.crypto.subtle.importKey(
+				"raw",
+				enc.encode(secret),
+				"PBKDF2",
+				false,
+				["deriveKey"]
+			);
+			const salt = enc.encode('vscode-secret-storage-salt');
+			const key = await window.crypto.subtle.deriveKey(
+				{
+					name: "PBKDF2",
+					salt,
+					iterations: 100000,
+					hash: "SHA-256"
+				},
+				keyMaterial,
+				{ name: "AES-GCM", length: 256 },
+				false,
+				["encrypt", "decrypt"]
+			);
+			return key;
+		})();
+	}
 
 	async seal(data: string): Promise<string> {
-		return data;
+		const key = await this.keyPromise;
+		const enc = new TextEncoder();
+		const iv = window.crypto.getRandomValues(new Uint8Array(12));
+		const encrypted = await window.crypto.subtle.encrypt(
+			{ name: "AES-GCM", iv },
+			key,
+			enc.encode(data)
+		);
+		// Store iv + encrypted data as base64
+		const buffer = new Uint8Array(iv.length + encrypted.byteLength);
+		buffer.set(iv, 0);
+		buffer.set(new Uint8Array(encrypted), iv.length);
+		return encodeBase64(VSBuffer.wrap(buffer));
 	}
 
 	async unseal(data: string): Promise<string> {
-		return data;
+		const key = await this.keyPromise;
+		const buf = VSBuffer.wrap(decodeBase64(data)).buffer;
+		const iv = new Uint8Array(buf.slice(0, 12));
+		const encryptedBytes = buf.slice(12);
+		const decrypted = await window.crypto.subtle.decrypt(
+			{ name: "AES-GCM", iv },
+			key,
+			encryptedBytes
+		);
+		const dec = new TextDecoder();
+		return dec.decode(decrypted);
 	}
 }
 
@@ -194,7 +246,7 @@ export class LocalStorageSecretStorageProvider implements ISecretStorageProvider
 	type: 'in-memory' | 'persisted' | 'unknown' = 'persisted';
 
 	constructor(
-		private readonly crypto: ISecretStorageCrypto,
+		private readonly crypto: ISecretStorageCrypto = new WebCryptoProvider('vscode_default_secret'),
 	) {
 		this.secretsPromise = this.load();
 	}

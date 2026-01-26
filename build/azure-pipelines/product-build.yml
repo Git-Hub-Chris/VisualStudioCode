@@ -170,7 +170,7 @@ extends:
         enabled: true
         configFile: $(Build.SourcesDirectory)/build/azure-pipelines/config/tsaoptions.json
       binskim:
-        analyzeTargetGlob: '+:file|$(Agent.BuildDirectory)/VSCode-*/**/*.exe;+:file|$(Agent.BuildDirectory)/VSCode-*/**/*.node;+:file|$(Agent.BuildDirectory)/VSCode-*/**/*.dll;-:file|**/VSCodeSetup*.exe'
+        analyzeTargetGlob: '+:file|$(Agent.BuildDirectory)/VSCode-*/**/*.exe;+:file|$(Agent.BuildDirectory)/VSCode-*/**/*.node;+:file|$(Agent.BuildDirectory)/VSCode-*/**/*.dll;-:file|$(Build.SourcesDirectory)/.build/**/system-setup/VSCodeSetup*.exe;-:file|$(Build.SourcesDirectory)/.build/**/user-setup/VSCodeUserSetup*.exe'
       codeql:
         runSourceLanguagesInSourceAnalysis: true
         compiled:
@@ -189,6 +189,8 @@ extends:
         image: vscodehub.azurecr.io/vscode-linux-build-agent:snapcraft-x64
       ubuntu-2004-arm64:
         image: onebranch.azurecr.io/linux/ubuntu-2004-arm64:latest
+    featureFlags:
+      EnableDefenderForLinux: true
     stages:
       - stage: Compile
         jobs:
@@ -197,7 +199,10 @@ extends:
             pool:
               name: AcesShared
               os: macOS
+              # name: 1es-ubuntu-22.04-x64
+              # os: linux
             variables:
+              # VSCODE_ARCH: x64
               VSCODE_ARCH: arm64
             steps:
               - template: build/azure-pipelines/product-compile.yml@self
@@ -243,29 +248,25 @@ extends:
                       VSCODE_QUALITY: ${{ variables.VSCODE_QUALITY }}
                       VSCODE_BUILD_ALPINE: ${{ parameters.VSCODE_BUILD_ALPINE }}
 
-            - ${{ if and(eq(variables['VSCODE_CIBUILD'], false), eq(parameters.VSCODE_BUILD_ALPINE_ARM64, true)) }}:
-              - job: CLIAlpineARM64
-                pool:
-                  name: 1es-mariner-2.0-arm64
-                  os: linux
-                  hostArchitecture: arm64
-                container: ubuntu-2004-arm64
-                templateContext:
-                  authenticatedContainerRegistries:
-                    - registry: onebranch.azurecr.io
-                      tenant: AME
-                      identity: 1ESPipelineIdentity
-                steps:
-                  - template: build/azure-pipelines/alpine/cli-build-alpine.yml@self
-                    parameters:
-                      VSCODE_QUALITY: ${{ variables.VSCODE_QUALITY }}
-                      VSCODE_BUILD_ALPINE_ARM64: ${{ parameters.VSCODE_BUILD_ALPINE_ARM64 }}
+            # - ${{ if and(eq(variables['VSCODE_CIBUILD'], false), eq(parameters.VSCODE_BUILD_ALPINE_ARM64, true)) }}:
+            #   - job: CLIAlpineARM64
+            #     pool:
+            #       name: 1es-mariner-2.0-arm64
+            #       os: linux
+            #       hostArchitecture: arm64
+            #     container: ubuntu-2004-arm64
+            #     steps:
+            #       - template: build/azure-pipelines/alpine/cli-build-alpine.yml@self
+            #         parameters:
+            #           VSCODE_QUALITY: ${{ variables.VSCODE_QUALITY }}
+            #           VSCODE_BUILD_ALPINE_ARM64: ${{ parameters.VSCODE_BUILD_ALPINE_ARM64 }}
 
             - ${{ if eq(parameters.VSCODE_BUILD_MACOS, true) }}:
               - job: CLIMacOSX64
                 pool:
-                  name: Azure Pipelines
-                  image: macOS-13
+                  name: AcesShared
+                  # name: Azure Pipelines
+                  # image: macOS-13
                   os: macOS
                 variables:
                   # todo@connor4312 to diagnose build flakes
@@ -281,8 +282,9 @@ extends:
             - ${{ if and(eq(variables['VSCODE_CIBUILD'], false), eq(parameters.VSCODE_BUILD_MACOS_ARM64, true)) }}:
               - job: CLIMacOSARM64
                 pool:
-                  name: Azure Pipelines
-                  image: macOS-13
+                  name: AcesShared
+                  # name: Azure Pipelines
+                  # image: macOS-13
                   os: macOS
                 variables:
                   # todo@connor4312 to diagnose build flakes
@@ -498,20 +500,15 @@ extends:
                       VSCODE_RUN_INTEGRATION_TESTS: ${{ eq(parameters.VSCODE_STEP_ON_IT, false) }}
                       VSCODE_RUN_SMOKE_TESTS: ${{ eq(parameters.VSCODE_STEP_ON_IT, false) }}
 
-            - ${{ if and(eq(variables['VSCODE_CIBUILD'], false), eq(parameters.VSCODE_BUILD_LINUX, true)) }}:
-              - job: LinuxSnap
-                dependsOn:
-                  - Linuxx64
-                container: snapcraft
-                variables:
-                  VSCODE_ARCH: x64
-                templateContext:
-                  authenticatedContainerRegistries:
-                    - registry: onebranch.azurecr.io
-                      tenant: AME
-                      identity: 1ESPipelineIdentity
-                steps:
-                  - template: build/azure-pipelines/linux/snap-build-linux.yml@self
+            # - ${{ if and(eq(variables['VSCODE_CIBUILD'], false), eq(parameters.VSCODE_BUILD_LINUX, true)) }}:
+            #   - job: LinuxSnap
+            #     dependsOn:
+            #       - Linuxx64
+            #     container: snapcraft
+            #     variables:
+            #       VSCODE_ARCH: x64
+            #     steps:
+            #       - template: build/azure-pipelines/linux/snap-build-linux.yml@self
 
             - ${{ if and(eq(variables['VSCODE_CIBUILD'], false), eq(parameters.VSCODE_BUILD_LINUX_ARMHF, true)) }}:
               - job: LinuxArmhf
@@ -577,8 +574,7 @@ extends:
             - ${{ if or(eq(parameters.VSCODE_BUILD_LINUX, true),eq(parameters.VSCODE_BUILD_LINUX_ARMHF, true),eq(parameters.VSCODE_BUILD_LINUX_ARM64, true),eq(parameters.VSCODE_BUILD_ALPINE, true),eq(parameters.VSCODE_BUILD_ALPINE_ARM64, true),eq(parameters.VSCODE_BUILD_MACOS, true),eq(parameters.VSCODE_BUILD_MACOS_ARM64, true),eq(parameters.VSCODE_BUILD_WIN32, true),eq(parameters.VSCODE_BUILD_WIN32_ARM64, true)) }}:
               - CompileCLI
           pool:
-            name: Azure Pipelines
-            image: macOS-13
+            name: AcesShared
             os: macOS
           variables:
             BUILDSECMON_OPT_IN: true
@@ -642,7 +638,7 @@ extends:
                 - job: macOSTest
                   timeoutInMinutes: 90
                   variables:
-                    VSCODE_ARCH: x64
+                    VSCODE_ARCH: arm64
                   steps:
                     - template: build/azure-pipelines/darwin/product-build-darwin.yml@self
                       parameters:

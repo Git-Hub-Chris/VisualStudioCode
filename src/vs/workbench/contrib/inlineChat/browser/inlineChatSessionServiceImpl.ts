@@ -20,7 +20,7 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { DEFAULT_EDITOR_ASSOCIATION } from '../../../common/editor.js';
-import { ChatAgentLocation, IChatAgentService } from '../../chat/common/chatAgents.js';
+import { IChatAgentService } from '../../chat/common/chatAgents.js';
 import { IChatService } from '../../chat/common/chatService.js';
 import { CTX_INLINE_CHAT_HAS_AGENT, CTX_INLINE_CHAT_HAS_AGENT2, CTX_INLINE_CHAT_POSSIBLE } from '../common/inlineChat.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
@@ -35,6 +35,7 @@ import { assertType } from '../../../../base/common/types.js';
 import { autorun } from '../../../../base/common/observable.js';
 import { ResourceMap } from '../../../../base/common/map.js';
 import { IChatWidgetService } from '../../chat/browser/chat.js';
+import { ChatAgentLocation } from '../../chat/common/constants.js';
 
 
 type SessionData = {
@@ -144,18 +145,31 @@ export class InlineChatSessionServiceImpl implements IInlineChatSessionService {
 
 				lastResponseListener.clear(); // ONCE
 
-				// special handling for untitled files
-				for (const part of response.response.value) {
-					if (part.kind !== 'textEditGroup' || part.uri.scheme !== Schemas.untitled || isEqual(part.uri, session.textModelN.uri)) {
-						continue;
-					}
-					const langSelection = this._languageService.createByFilepathOrFirstLine(part.uri, undefined);
-					const untitledTextModel = this._textFileService.untitled.create({
-						associatedResource: part.uri,
-						languageId: langSelection.languageId
-					});
-					untitledTextModel.resolve();
-					this._textModelService.createModelReference(part.uri).then(ref => {
+				let inlineResponse: ErrorResponse | EmptyResponse | ReplyResponse;
+
+				// make an response from the ChatResponseModel
+				if (response.isCanceled) {
+					// error: cancelled
+					inlineResponse = new ErrorResponse(response, new CancellationError());
+				} else if (response.result?.errorDetails) {
+					// error: "real" error
+					inlineResponse = new ErrorResponse(response, new Error(response.result.errorDetails.message));
+				} else if (response.response.value.length === 0) {
+					// epmty response
+					inlineResponse = new EmptyResponse(response);
+				} else {
+					inlineResponse = this._instaService.createInstance(
+						ReplyResponse,
+						session.textModelN.uri,
+						e.request,
+						response
+					);
+				}
+
+				session.addExchange(new SessionExchange(session.lastInput!, inlineResponse));
+
+				if (inlineResponse instanceof ReplyResponse && inlineResponse.untitledTextModel) {
+					this._textModelService.createModelReference(inlineResponse.untitledTextModel.resource).then(ref => {
 						store.add(ref);
 					});
 				}
@@ -409,10 +423,10 @@ export class InlineChatEnabler {
 
 		const updateAgent = () => {
 			const agent = chatAgentService.getDefaultAgent(ChatAgentLocation.Editor);
-			if (agent?.locations.length === 1) {
+			if (agent?.id === 'github.copilot.editor') {
 				this._ctxHasProvider.set(true);
 				this._ctxHasProvider2.reset();
-			} else if (agent?.locations.includes(ChatAgentLocation.EditingSession)) {
+			} else if (agent?.id === 'github.copilot.editingSessionEditor') {
 				this._ctxHasProvider.reset();
 				this._ctxHasProvider2.set(true);
 			} else {
