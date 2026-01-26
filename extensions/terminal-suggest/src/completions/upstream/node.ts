@@ -1,4 +1,4 @@
-import { filepaths } from '../../helpers/filepaths';
+import { filepaths } from '../../fig/autocomplete-tools/generators'
 
 const completionSpec: Fig.Subcommand = {
 	name: "node",
@@ -6,6 +6,7 @@ const completionSpec: Fig.Subcommand = {
 	args: {
 		name: "node script",
 		isScript: true,
+		template: 'filepaths',
 		generators: filepaths({
 			extensions: ["mjs", "js", "cjs"],
 			editFileSuggestions: { priority: 76 },

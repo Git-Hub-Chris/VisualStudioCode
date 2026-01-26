@@ -214,7 +214,6 @@ export class TerminalCompletionService extends Disposable implements ITerminalCo
 		const foldersRequested = (resourceRequestConfig.foldersRequested || resourceRequestConfig.filesRequested) ?? false;
 		const filesRequested = resourceRequestConfig.filesRequested ?? false;
 		const fileExtensions = resourceRequestConfig.fileExtensions ?? undefined;
-
 		const cwd = URI.revive(resourceRequestConfig.cwd);
 		if (!cwd || (!foldersRequested && !filesRequested)) {
 			return;

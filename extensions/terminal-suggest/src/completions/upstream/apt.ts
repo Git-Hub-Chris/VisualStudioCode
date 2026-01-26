@@ -1,4 +1,4 @@
-import { filepaths } from '../../helpers/filepaths';
+import { filepaths } from '../../fig/autocomplete-tools/generators'
 
 const packages: Fig.Generator = {
 	// only trigger when the token length transitions to or from 0
@@ -134,7 +134,11 @@ const completionSpec: Fig.Spec = {
 				name: "package",
 				description: "The package you want to install",
 				isVariadic: true,
-				generators: [packages, filepaths({ extensions: ["deb"] })],
+				template: 'filepaths',
+				generators: [
+					packages,
+					filepaths({ extensions: ["deb"] })
+				],
 			},
 			options: [
 				...installationOptions,

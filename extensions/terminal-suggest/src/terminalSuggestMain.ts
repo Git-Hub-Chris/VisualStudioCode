@@ -136,7 +136,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 
 			if (result.cwd && (result.filesRequested || result.foldersRequested)) {
-				return new vscode.TerminalCompletionList(result.items, { filesRequested: result.filesRequested, foldersRequested: result.foldersRequested, cwd: result.cwd, pathSeparator: isWindows ? '\\' : '/' });
+				return new vscode.TerminalCompletionList(result.items, { filesRequested: result.filesRequested, foldersRequested: result.foldersRequested, fileExtensions: result.fileExtensions,cwd: result.cwd, env: terminal.shellIntegration?.env.value });
 			}
 			return result.items;
 		}
@@ -242,40 +242,14 @@ export async function getCompletionItemsFromSpecs(
 		}
 	}
 
-		for (const specLabel of specLabels) {
-			const availableCommand = availableCommands.find(command => command.label === specLabel);
-			if (!availableCommand || (token && token.isCancellationRequested)) {
-				continue;
-			}
-
-			if (
-				// If the prompt is empty
-				!terminalContext.commandLine
-				// or the first command matches the command
-				|| !!firstCommand && specLabel.startsWith(firstCommand)
-			) {
-				// push it to the completion items
-				items.push(createCompletionItem(terminalContext.cursorPosition, prefix, { label: specLabel }, getDescription(spec), availableCommand.detail));
-			}
-
-			if (!terminalContext.commandLine.startsWith(specLabel)) {
-				// the spec label is not the first word in the command line, so do not provide options or args
-				continue;
-			}
-
-			const argsCompletionResult = handleArguments(specLabel, spec, terminalContext, precedingText);
-			if (argsCompletionResult) {
-				items.push(...argsCompletionResult.items);
-				filesRequested ||= argsCompletionResult.filesRequested;
-				foldersRequested ||= argsCompletionResult.foldersRequested;
-			}
-
-			const optionsCompletionResult = handleOptions(specLabel, spec, terminalContext, precedingText, prefix);
-			if (optionsCompletionResult) {
-				items.push(...optionsCompletionResult.items);
-				filesRequested ||= optionsCompletionResult.filesRequested;
-				foldersRequested ||= optionsCompletionResult.foldersRequested;
-			}
+	const result = await getFigSuggestions(specs, terminalContext, availableCommands, prefix, tokenType, shellIntegrationCwd, env, name, precedingText, executeExternals ?? { executeCommand, executeCommandTimeout }, token);
+	if (result) {
+		hasCurrentArg ||= result.hasCurrentArg;
+		filesRequested ||= result.filesRequested;
+		foldersRequested ||= result.foldersRequested;
+		fileExtensions ??= result.fileExtensions;
+		if (result.items) {
+			items.push(...result.items);
 		}
 	}
 
