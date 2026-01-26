@@ -18,7 +18,6 @@ import { IConfigurationService } from '../../../../../platform/configuration/com
 import { IViewsService } from '../../../../services/views/common/viewsService.js';
 import { IStatusbarService } from '../../../../services/statusbar/browser/statusbar.js';
 
-
 export class ChatGettingStartedContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.chatGettingStarted';
 	private recentlyInstalled: boolean = false;

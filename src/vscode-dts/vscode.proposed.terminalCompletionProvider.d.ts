@@ -60,10 +60,12 @@ declare module 'vscode' {
 	export enum TerminalCompletionItemKind {
 		File = 0,
 		Folder = 1,
-		Flag = 2,
-		Method = 3,
+		Method = 2,
+		Alias = 3,
 		Argument = 4,
-		Alias = 5,
+		Option = 5,
+		OptionValue = 6,
+		Flag = 7,
 	}
 
 	export interface TerminalCompletionContext {
@@ -132,6 +134,10 @@ declare module 'vscode' {
 		 */
 		fileExtensions?: string[];
 
+		/**
+		 * File extensions to filter by.
+		 */
+		fileExtensions?: string[];
 		/**
 		 * If no cwd is provided, no resources will be shown as completions.
 		 */

@@ -413,6 +413,7 @@ export class SettingsEditor2 extends EditorPane {
 
 		// Don't block setInput on render (which can trigger an async search)
 		this.onConfigUpdate(undefined, true).then(() => {
+			// This event runs when the editor closes.
 			this.inputChangeListener.value = input.onWillDispose(() => {
 				this.searchWidget.setValue('');
 			});
@@ -617,8 +618,8 @@ export class SettingsEditor2 extends EditorPane {
 
 		const searchContainer = DOM.append(this.headerContainer, $('.search-container'));
 
-		const clearInputAction = new Action(SETTINGS_EDITOR_COMMAND_CLEAR_SEARCH_RESULTS, localize('clearInput', "Clear Settings Search Input"), ThemeIcon.asClassName(preferencesClearInputIcon), false, async () => this.clearSearchResults());
-		const filterAction = new Action(SETTINGS_EDITOR_COMMAND_SUGGEST_FILTERS, localize('filterInput', "Filter Settings"), ThemeIcon.asClassName(preferencesFilterIcon));
+		const clearInputAction = this._register(new Action(SETTINGS_EDITOR_COMMAND_CLEAR_SEARCH_RESULTS, localize('clearInput', "Clear Settings Search Input"), ThemeIcon.asClassName(preferencesClearInputIcon), false, async () => this.clearSearchResults()));
+		const filterAction = this._register(new Action(SETTINGS_EDITOR_COMMAND_SUGGEST_FILTERS, localize('filterInput', "Filter Settings"), ThemeIcon.asClassName(preferencesFilterIcon)));
 		this.searchWidget = this._register(this.instantiationService.createInstance(SuggestEnabledInput, `${SettingsEditor2.ID}.searchbox`, searchContainer, {
 			triggerCharacters: ['@', ':'],
 			provideResults: (query: string) => {
@@ -1160,11 +1161,6 @@ export class SettingsEditor2 extends EditorPane {
 				this.renderTree(key, isManualReset);
 				this.pendingSettingUpdate = null;
 
-				// Only log 1% of modification events to reduce the volume of data
-				if (Math.random() >= 0.01) {
-					return;
-				}
-
 				const reportModifiedProps = {
 					key,
 					query,
@@ -1545,7 +1541,9 @@ export class SettingsEditor2 extends EditorPane {
 
 	private refreshSingleElement(element: SettingsTreeSettingElement): void {
 		if (this.isVisible()) {
-			this.settingsTree.rerender(element);
+			if (!element.setting.deprecationMessage || element.isConfigured) {
+				this.settingsTree.rerender(element);
+			}
 		}
 	}
 
