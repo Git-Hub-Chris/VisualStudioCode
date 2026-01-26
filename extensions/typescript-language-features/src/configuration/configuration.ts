@@ -227,36 +227,11 @@ export abstract class BaseServiceConfigurationProvider implements ServiceConfigu
 	}
 
 	private readUseVsCodeWatcher(configuration: vscode.WorkspaceConfiguration): boolean {
-		const watcherExcludes = configuration.get<Record<string, boolean>>('files.watcherExclude') ?? {};
-		if (
-			watcherExcludes['**/node_modules/*/**'] === true || // VS Code default prior to 1.94.x
-			watcherExcludes['**/node_modules/**'] === true ||
-			watcherExcludes['**/node_modules'] === true ||
-			watcherExcludes['**'] === true	 					// VS Code Watching is entirely disabled
-		) {
-			return false;
-		}
-
-		const experimentalConfig = configuration.inspect('typescript.tsserver.experimental.useVsCodeWatcher');
-		if (typeof experimentalConfig?.globalValue === 'boolean') {
-			return experimentalConfig.globalValue;
-		}
-		if (typeof experimentalConfig?.workspaceValue === 'boolean') {
-			return experimentalConfig.workspaceValue;
-		}
-		if (typeof experimentalConfig?.workspaceFolderValue === 'boolean') {
-			return experimentalConfig.workspaceFolderValue;
-		}
-
-		return configuration.get<Proto.WatchOptions | vscodeWatcherName>('typescript.tsserver.watchOptions', vscodeWatcherName) === vscodeWatcherName;
+		return configuration.get<boolean>('typescript.tsserver.experimental.useVsCodeWatcher', true);
 	}
 
 	private readWatchOptions(configuration: vscode.WorkspaceConfiguration): Proto.WatchOptions | undefined {
-		const watchOptions = configuration.get<Proto.WatchOptions | vscodeWatcherName>('typescript.tsserver.watchOptions');
-		if (watchOptions === vscodeWatcherName) {
-			return undefined;
-		}
-
+		const watchOptions = configuration.get<Proto.WatchOptions>('typescript.tsserver.watchOptions');
 		// Returned value may be a proxy. Clone it into a normal object
 		return { ...(watchOptions ?? {}) };
 	}

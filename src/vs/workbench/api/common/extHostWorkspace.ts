@@ -505,68 +505,38 @@ export class ExtHostWorkspace implements ExtHostWorkspaceShape, IExtHostWorkspac
 			throw new Error(`Invalid file pattern provided ${JSON.stringify(filePatternsToUse)}`);
 		}
 
-		const queryOptions: QueryOptions<IFileQueryBuilderOptions>[] = filePatternsToUse.map(filePattern => {
-
-			const excludePatterns = globsToISearchPatternBuilder(options.exclude);
-
-			const fileQueries: IFileQueryBuilderOptions = {
-				ignoreSymlinks: typeof options.followSymlinks === 'boolean' ? !options.followSymlinks : undefined,
-				disregardIgnoreFiles: typeof options.useIgnoreFiles?.local === 'boolean' ? !options.useIgnoreFiles.local : undefined,
-				disregardGlobalIgnoreFiles: typeof options.useIgnoreFiles?.global === 'boolean' ? !options.useIgnoreFiles.global : undefined,
-				disregardParentIgnoreFiles: typeof options.useIgnoreFiles?.parent === 'boolean' ? !options.useIgnoreFiles.parent : undefined,
-				disregardExcludeSettings: options.useExcludeSettings !== undefined && options.useExcludeSettings === ExcludeSettingOptions.None,
-				disregardSearchExcludeSettings: options.useExcludeSettings !== undefined && (options.useExcludeSettings !== ExcludeSettingOptions.SearchAndFilesExclude),
-				maxResults: options.maxResults,
-				excludePattern: excludePatterns.length > 0 ? excludePatterns : undefined,
-				_reason: 'startFileSearch',
-				shouldGlobSearch: query.type === 'include' ? undefined : true,
-			};
-
-			const parseInclude = parseSearchExcludeInclude(GlobPattern.from(filePattern));
-			const folderToUse = parseInclude?.folder;
-			if (query.type === 'include') {
-				fileQueries.includePattern = parseInclude?.pattern;
-			} else {
-				fileQueries.filePattern = parseInclude?.pattern;
-			}
-
-			return {
-				folder: folderToUse,
-				options: fileQueries
-			};
-		});
-
-		return this._findFilesBase(queryOptions, token);
+		console.log(JSON.stringify(fileQueries));
+		return this._proxy.$startFileSearch(
+			folderToUse ?? null,
+			fileQueries,
+			token
+		)
+			.then(data => Array.isArray(data) ? data.map(d => URI.revive(d)) : []);
 	}
+	findTextInFilesNew(query: vscode.TextSearchQueryNew, extensionId: ExtensionIdentifier, options?: vscode.FindTextInFilesOptionsNew, token?: vscode.CancellationToken): vscode.FindTextInFilesResponse {
+		this._logService.trace(`extHostWorkspace#findTextInFilesNew: textSearch, extension: ${extensionId.value}, entryPoint: findTextInFilesNew`);
+		const queryOptionsRaw: (QueryOptions | undefined)[] = ((options?.include?.map((include) => {
+			const parsedInclude = parseSearchExcludeInclude(GlobPattern.from(include));
 
-	private async _findFilesBase(
-		queryOptions: QueryOptions<IFileQueryBuilderOptions>[] | undefined,
-		token: CancellationToken
-	): Promise<vscode.Uri[]> {
-		const result = await Promise.all(queryOptions?.map(option => this._proxy.$startFileSearch(
-			option.folder ?? null,
-			option.options,
-			token).then(data => Array.isArray(data) ? data.map(d => URI.revive(d)) : [])
-		) ?? []);
-
-		return result.flat();
-	}
-
-	findTextInFiles2(query: vscode.TextSearchQuery2, options: vscode.FindTextInFilesOptions2 | undefined, extensionId: ExtensionIdentifier, token: vscode.CancellationToken = CancellationToken.None): vscode.FindTextInFilesResponse {
-		this._logService.trace(`extHostWorkspace#findTextInFiles2: textSearch, extension: ${extensionId.value}, entryPoint: findTextInFiles2`);
-
-
-		const getOptions = (include: vscode.GlobPattern | undefined): QueryOptions<ITextQueryBuilderOptions> => {
-			if (!options) {
-				return {
-					folder: undefined,
-					options: {}
-				};
-			}
-			const parsedInclude = include ? parseSearchExcludeInclude(GlobPattern.from(include)) : undefined;
-
-			const excludePatterns = options.exclude ? globsToISearchPatternBuilder(options.exclude) : undefined;
-
+			const excludePatterns = (
+				options.exclude?.map((exclude): ISearchPatternBuilder | undefined => {
+					if (typeof exclude === 'string') {
+						return {
+							pattern: exclude,
+							uri: undefined
+						} satisfies ISearchPatternBuilder;
+					} else {
+						const parsedExclude = parseSearchExcludeInclude(exclude);
+						if (!parsedExclude) {
+							return undefined;
+						}
+						return {
+							pattern: parsedExclude.pattern,
+							uri: parsedExclude.folder
+						} satisfies ISearchPatternBuilder;
+					}
+				}) ?? []
+			).filter((e): e is ISearchPatternBuilder => !!e);
 			return {
 				options: {
 
@@ -667,12 +637,13 @@ export class ExtHostWorkspace implements ExtHostWorkspaceShape, IExtHostWorkspac
 		}
 
 		try {
-			const result = await Promise.all(queryOptions?.map(option => this._proxy.$startTextSearch(
-				query,
-				option.folder ?? null,
-				option.options,
-				requestId,
-				token) || {}
+			const result = await Promise.all(queryOptions?.map(option =>
+				this._proxy.$startTextSearch(
+					query,
+					option.folder ?? null,
+					option.options,
+					requestId,
+					token) || {}
 			) ?? []);
 			delete this._activeSearchCallbacks[requestId];
 			return result.reduce((acc, val) => {
