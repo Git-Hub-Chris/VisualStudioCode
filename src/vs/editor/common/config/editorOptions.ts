@@ -1082,6 +1082,9 @@ function applyUpdate<T>(value: T | undefined, update: T): ApplyUpdateResult<T> {
 	let didChange = false;
 	for (const key in update) {
 		if ((update as T & object).hasOwnProperty(key)) {
+			if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+				continue;
+			}
 			const result = applyUpdate(value[key], update[key]);
 			if (result.didChange) {
 				value[key] = result.newValue;
@@ -1929,6 +1932,22 @@ class EffectiveCursorStyle extends ComputedEditorOption<EditorOption.effectiveCu
 		return env.inputMode === 'overtype' ?
 			options.get(EditorOption.overtypeCursorStyle) :
 			options.get(EditorOption.cursorStyle);
+	}
+}
+
+//#endregion
+
+//#region effectiveExperimentalEditContext
+
+class EffectiveExperimentalEditContextEnabled extends ComputedEditorOption<EditorOption.effectiveExperimentalEditContextEnabled, boolean> {
+
+	constructor() {
+		super(EditorOption.effectiveExperimentalEditContextEnabled);
+	}
+
+	public compute(env: IEnvironmentalOptions, options: IComputedEditorOptions): boolean {
+		const editContextSupported = typeof (globalThis as any).EditContext === 'function';
+		return editContextSupported && options.get(EditorOption.experimentalEditContextEnabled);
 	}
 }
 
@@ -3200,6 +3219,17 @@ export interface IEditorMinimapOptions {
 	 */
 	showMarkSectionHeaders?: boolean;
 	/**
+	 * When specified, is used to create a custom section header parser regexp.
+	 * Must contain a match group named 'label' (written as (?<label>.+)) that encapsulates the section header.
+	 * Optionally can include another match group named 'separator'.
+	 * To match multi-line headers like:
+	 *   // ==========
+	 *   // My Section
+	 *   // ==========
+	 * Use a pattern like: ^={3,}\n^\/\/ *(?<label>[^\n]*?)\n^={3,}$
+	 */
+	markSectionHeaderRegex?: string;
+	/**
 	 * Font size of section headers. Defaults to 9.
 	 */
 	sectionHeaderFontSize?: number;
@@ -3228,6 +3258,7 @@ class EditorMinimap extends BaseEditorOption<EditorOption.minimap, IEditorMinima
 			scale: 1,
 			showRegionSectionHeaders: true,
 			showMarkSectionHeaders: true,
+			markSectionHeaderRegex: '\\bMARK:\\s*(?<separator>\-?)\\s*(?<label>.*)$',
 			sectionHeaderFontSize: 9,
 			sectionHeaderLetterSpacing: 1,
 		};
@@ -3295,6 +3326,11 @@ class EditorMinimap extends BaseEditorOption<EditorOption.minimap, IEditorMinima
 					default: defaults.showMarkSectionHeaders,
 					description: nls.localize('minimap.showMarkSectionHeaders', "Controls whether MARK: comments are shown as section headers in the minimap.")
 				},
+				'editor.minimap.markSectionHeaderRegex': {
+					type: 'string',
+					default: defaults.markSectionHeaderRegex,
+					description: nls.localize('minimap.markSectionHeaderRegex', "Defines the regular expression used to find section headers in comments. The regex must contain a named match group `label` (written as `(?<label>.+)`) that encapsulates the section header, otherwise it will not work. Optionally you can include another match group named `separator`. Use \\n in the pattern to match multi-line headers."),
+				},
 				'editor.minimap.sectionHeaderFontSize': {
 					type: 'number',
 					default: defaults.sectionHeaderFontSize,
@@ -3314,6 +3350,17 @@ class EditorMinimap extends BaseEditorOption<EditorOption.minimap, IEditorMinima
 			return this.defaultValue;
 		}
 		const input = _input as IEditorMinimapOptions;
+
+		// Validate mark section header regex
+		let markSectionHeaderRegex = this.defaultValue.markSectionHeaderRegex;
+		const inputRegex = _input.markSectionHeaderRegex;
+		if (typeof inputRegex === 'string') {
+			try {
+				new RegExp(inputRegex, 'd');
+				markSectionHeaderRegex = inputRegex;
+			} catch { }
+		}
+
 		return {
 			enabled: boolean(input.enabled, this.defaultValue.enabled),
 			autohide: boolean(input.autohide, this.defaultValue.autohide),
@@ -3325,6 +3372,7 @@ class EditorMinimap extends BaseEditorOption<EditorOption.minimap, IEditorMinima
 			maxColumn: EditorIntOption.clampedInt(input.maxColumn, this.defaultValue.maxColumn, 1, 10000),
 			showRegionSectionHeaders: boolean(input.showRegionSectionHeaders, this.defaultValue.showRegionSectionHeaders),
 			showMarkSectionHeaders: boolean(input.showMarkSectionHeaders, this.defaultValue.showMarkSectionHeaders),
+			markSectionHeaderRegex: markSectionHeaderRegex,
 			sectionHeaderFontSize: EditorFloatOption.clamp(input.sectionHeaderFontSize ?? this.defaultValue.sectionHeaderFontSize, 4, 32),
 			sectionHeaderLetterSpacing: EditorFloatOption.clamp(input.sectionHeaderLetterSpacing ?? this.defaultValue.sectionHeaderLetterSpacing, 0, 5),
 		};
@@ -4211,7 +4259,11 @@ export interface IInlineSuggestOptions {
 	fontFamily?: string | 'default';
 
 	edits?: {
-		codeShifting?: boolean;
+		allowCodeShifting?: 'always' | 'horizontal' | 'never';
+
+		renderSideBySide?: 'never' | 'auto';
+
+		showCollapsed?: boolean;
 
 		/**
 		* @internal
@@ -4220,19 +4272,7 @@ export interface IInlineSuggestOptions {
 		/**
 		* @internal
 		*/
-		useMixedLinesDiff?: 'never' | 'whenPossible' | 'forStableInsertions' | 'afterJumpWhenPossible';
-		/**
-		* @internal
-		*/
-		useInterleavedLinesDiff?: 'never' | 'always' | 'afterJump';
-		/**
-		* @internal
-		*/
 		useMultiLineGhostText?: boolean;
-		/**
-		* @internal
-		*/
-		useGutterIndicator?: boolean;
 	};
 }
 
@@ -4257,13 +4297,12 @@ class InlineEditorSuggest extends BaseEditorOption<EditorOption.inlineSuggest, I
 			suppressSuggestions: false,
 			keepOnBlur: false,
 			fontFamily: 'default',
-			syntaxHighlightingEnabled: false,
+			syntaxHighlightingEnabled: true,
 			edits: {
 				enabled: true,
-				useMixedLinesDiff: 'forStableInsertions',
-				useInterleavedLinesDiff: 'never',
-				useGutterIndicator: true,
-				codeShifting: true,
+				showCollapsed: false,
+				renderSideBySide: 'auto',
+				allowCodeShifting: 'always',
 				useMultiLineGhostText: true
 			},
 		};
@@ -4302,33 +4341,30 @@ class InlineEditorSuggest extends BaseEditorOption<EditorOption.inlineSuggest, I
 					default: defaults.fontFamily,
 					description: nls.localize('inlineSuggest.fontFamily', "Controls the font family of the inline suggestions.")
 				},
-				/* 'editor.inlineSuggest.edits.useMixedLinesDiff': {
+				'editor.inlineSuggest.edits.allowCodeShifting': {
 					type: 'string',
-					default: defaults.edits.useMixedLinesDiff,
-					description: nls.localize('inlineSuggest.edits.useMixedLinesDiff', "Controls whether to enable mixed lines diff in inline suggestions."),
-					enum: ['never', 'whenPossible', 'forStableInsertions', 'afterJumpWhenPossible'],
-				}, */
-				'editor.inlineSuggest.edits.codeShifting': {
-					type: 'boolean',
-					default: defaults.edits.codeShifting,
-					description: nls.localize('inlineSuggest.edits.codeShifting', "Controls whether showing a suggestion will shift the code to make space for the suggestion inline."),
+					default: defaults.edits.allowCodeShifting,
+					description: nls.localize('inlineSuggest.edits.allowCodeShifting', "Controls whether showing a suggestion will shift the code to make space for the suggestion inline."),
+					enum: ['always', 'horizontal', 'never'],
+					tags: ['nextEditSuggestions', 'preview']
 				},
-				/* 'editor.inlineSuggest.edits.useMultiLineGhostText': {
-					type: 'boolean',
-					default: defaults.edits.useMultiLineGhostText,
-					description: nls.localize('inlineSuggest.edits.useMultiLineGhostText', "Controls whether multi line insertions can be shown with Ghost text."),
-				}, */
-				/* 'editor.inlineSuggest.edits.useInterleavedLinesDiff': {
+				'editor.inlineSuggest.edits.renderSideBySide': {
 					type: 'string',
-					default: defaults.edits.useInterleavedLinesDiff,
-					description: nls.localize('inlineSuggest.edits.useInterleavedLinesDiff', "Controls whether to enable interleaved lines diff in inline suggestions."),
-					enum: ['never', 'always', 'afterJump'],
-				}, */
-				/* 'editor.inlineSuggest.edits.useGutterIndicator': {
+					default: defaults.edits.renderSideBySide,
+					description: nls.localize('inlineSuggest.edits.renderSideBySide', "Controls whether larger suggestions can be shown side by side."),
+					enum: ['auto', 'never'],
+					enumDescriptions: [
+						nls.localize('editor.inlineSuggest.edits.renderSideBySide.auto', "Larger suggestions will show side by side if there is enough space, otherwise they will be shown below."),
+						nls.localize('editor.inlineSuggest.edits.renderSideBySide.never', "Larger suggestions are never shown side by side and will always be shown below."),
+					],
+					tags: ['nextEditSuggestions', 'preview']
+				},
+				'editor.inlineSuggest.edits.showCollapsed': {
 					type: 'boolean',
-					default: defaults.edits.useGutterIndicator,
-					description: nls.localize('inlineSuggest.edits.useGutterIndicator', "Controls whether to show a gutter indicator for inline suggestions.")
-				}, */
+					default: defaults.edits.showCollapsed,
+					description: nls.localize('inlineSuggest.edits.showCollapsed', "Controls whether the suggestion will show as collapsed until jumping to it."),
+					tags: ['nextEditSuggestions', 'preview']
+				},
 			}
 		);
 	}
@@ -4348,10 +4384,9 @@ class InlineEditorSuggest extends BaseEditorOption<EditorOption.inlineSuggest, I
 			syntaxHighlightingEnabled: boolean(input.syntaxHighlightingEnabled, this.defaultValue.syntaxHighlightingEnabled),
 			edits: {
 				enabled: boolean(input.edits?.enabled, this.defaultValue.edits.enabled),
-				useMixedLinesDiff: stringSet(input.edits?.useMixedLinesDiff, this.defaultValue.edits.useMixedLinesDiff, ['never', 'whenPossible', 'forStableInsertions', 'afterJumpWhenPossible']),
-				codeShifting: boolean(input.edits?.codeShifting, this.defaultValue.edits.codeShifting),
-				useInterleavedLinesDiff: stringSet(input.edits?.useInterleavedLinesDiff, this.defaultValue.edits.useInterleavedLinesDiff, ['never', 'always', 'afterJump']),
-				useGutterIndicator: boolean(input.edits?.useGutterIndicator, this.defaultValue.edits.useGutterIndicator),
+				showCollapsed: boolean(input.edits?.showCollapsed, this.defaultValue.edits.showCollapsed),
+				allowCodeShifting: stringSet(input.edits?.allowCodeShifting, this.defaultValue.edits.allowCodeShifting, ['always', 'horizontal', 'never']),
+				renderSideBySide: stringSet(input.edits?.renderSideBySide, this.defaultValue.edits.renderSideBySide, ['never', 'auto']),
 				useMultiLineGhostText: boolean(input.edits?.useMultiLineGhostText, this.defaultValue.edits.useMultiLineGhostText),
 			},
 		};
@@ -5570,7 +5605,8 @@ export const enum EditorOption {
 	wrappingInfo,
 	defaultColorDecorators,
 	colorDecoratorsActivatedOn,
-	inlineCompletionsAccessibilityVerbose
+	inlineCompletionsAccessibilityVerbose,
+	effectiveExperimentalEditContextEnabled
 }
 
 export const EditorOptions = {
@@ -6044,7 +6080,7 @@ export const EditorOptions = {
 	)),
 	occurrencesHighlightDelay: register(new EditorIntOption(
 		EditorOption.occurrencesHighlightDelay, 'occurrencesHighlightDelay',
-		250, 0, 2000,
+		0, 0, 2000,
 		{
 			description: nls.localize('occurrencesHighlightDelay', "Controls the delay in milliseconds after which occurrences are highlighted."),
 			tags: ['preview']
@@ -6399,7 +6435,8 @@ export const EditorOptions = {
 	layoutInfo: register(new EditorLayoutInfoComputer()),
 	wrappingInfo: register(new EditorWrappingInfoComputer()),
 	wrappingIndent: register(new WrappingIndentOption()),
-	wrappingStrategy: register(new WrappingStrategy())
+	wrappingStrategy: register(new WrappingStrategy()),
+	effectiveExperimentalEditContextEnabled: register(new EffectiveExperimentalEditContextEnabled())
 };
 
 type EditorOptionsType = typeof EditorOptions;

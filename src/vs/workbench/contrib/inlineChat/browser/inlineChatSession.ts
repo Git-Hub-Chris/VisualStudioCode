@@ -179,9 +179,8 @@ export class Session {
 	}
 
 	async undoChangesUntil(requestId: string): Promise<boolean> {
-
-		const targetAltVersion = this._versionByRequest.get(requestId);
-		if (targetAltVersion === undefined) {
+		const idx = this._exchanges.findIndex(candidate => candidate.response.chatResponse.requestId === requestId);
+		if (idx < 0) {
 			return false;
 		}
 		// undo till this point
@@ -193,6 +192,8 @@ export class Session {
 		} finally {
 			this.hunkData.ignoreTextModelNChanges = false;
 		}
+		// remove this and following exchanges
+		this._exchanges.length = idx;
 		return true;
 	}
 
@@ -236,8 +237,113 @@ export class Session {
 		this._teldata.endTime = new Date().toISOString();
 		return this._teldata;
 	}
+
+	asRecording(): Recording {
+		const result: Recording = {
+			session: this.chatModel.sessionId,
+			when: this._startTime,
+			exchanges: []
+		};
+		for (const exchange of this._exchanges) {
+			const response = exchange.response;
+			if (response instanceof ReplyResponse) {
+				result.exchanges.push({ prompt: exchange.prompt.value, res: response.chatResponse });
+			}
+		}
+		return result;
+	}
 }
 
+
+export class SessionPrompt {
+
+	readonly value: string;
+
+	constructor(
+		readonly request: IChatRequestModel,
+		readonly modelAltVersionId: number,
+	) {
+		this.value = request.message.text;
+	}
+}
+
+export class SessionExchange {
+
+	constructor(
+		readonly prompt: SessionPrompt,
+		readonly response: ReplyResponse | EmptyResponse | ErrorResponse
+	) { }
+}
+
+export class EmptyResponse {
+
+	constructor(
+		readonly chatResponse: IChatResponseModel
+	) { }
+}
+
+export class ErrorResponse {
+
+	readonly message: string;
+	readonly isCancellation: boolean;
+
+	constructor(
+		readonly chatResponse: IChatResponseModel,
+		readonly error: any
+	) {
+		this.message = toErrorMessage(error, false);
+		this.isCancellation = isCancellationError(error);
+	}
+}
+
+export class ReplyResponse {
+
+	readonly untitledTextModel: IUntitledTextEditorModel | undefined;
+
+	constructor(
+		localUri: URI,
+		readonly chatRequest: IChatRequestModel,
+		readonly chatResponse: IChatResponseModel,
+		@ITextFileService private readonly _textFileService: ITextFileService,
+		@ILanguageService private readonly _languageService: ILanguageService,
+	) {
+
+		const editsMap = new ResourceMap<TextEdit[][]>();
+
+		for (const item of chatResponse.response.value) {
+			if (item.kind === 'textEditGroup') {
+				const array = editsMap.get(item.uri);
+				for (const group of item.edits) {
+					if (array) {
+						array.push(group);
+					} else {
+						editsMap.set(item.uri, [group]);
+					}
+				}
+			}
+		}
+
+		for (const [uri, edits] of editsMap) {
+
+			const flatEdits = edits.flat();
+			if (flatEdits.length === 0) {
+				editsMap.delete(uri);
+				continue;
+			}
+
+			const isLocalUri = isEqual(uri, localUri);
+			if (uri.scheme === Schemas.untitled && !isLocalUri && !this.untitledTextModel) { //TODO@jrieken the first untitled model WINS
+				const langSelection = this._languageService.createByFilepathOrFirstLine(uri, undefined);
+				const untitledTextModel = this._textFileService.untitled.create({
+					associatedResource: uri,
+					languageId: langSelection.languageId
+				});
+				this.untitledTextModel = untitledTextModel;
+				untitledTextModel.resolve();
+			}
+		}
+	}
+}
 
 export class StashedSession {
 
@@ -449,11 +555,12 @@ export class HunkData {
 
 		diff ??= await this._editorWorkerService.computeDiff(this._textModel0.uri, this._textModelN.uri, { ignoreTrimWhitespace: false, maxComputationTimeMs: Number.MAX_SAFE_INTEGER, computeMoves: false }, 'advanced');
 
-		let mergedChanges: DetailedLineRangeMapping[] = [];
+		let hunks: RawHunk[] = [];
 
 		if (diff && diff.changes.length > 0) {
+
 			// merge changes neighboring changes
-			mergedChanges = [diff.changes[0]];
+			const mergedChanges = [diff.changes[0]];
 			for (let i = 1; i < diff.changes.length; i++) {
 				const lastChange = mergedChanges[mergedChanges.length - 1];
 				const thisChange = diff.changes[i];
@@ -467,9 +574,9 @@ export class HunkData {
 					mergedChanges.push(thisChange);
 				}
 			}
-		}
 
-		const hunks = mergedChanges.map(change => new RawHunk(change.original, change.modified, change.innerChanges ?? []));
+			hunks = mergedChanges.map(change => new RawHunk(change.original, change.modified, change.innerChanges ?? []));
+		}
 
 		editState.applied = hunks.length;
 

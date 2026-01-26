@@ -12,13 +12,10 @@ import yauzl from 'yauzl';
 import crypto from 'crypto';
 import { retry } from './retry';
 import { CosmosClient } from '@azure/cosmos';
-import cp from 'child_process';
-import os from 'os';
-import { Worker, isMainThread, workerData } from 'node:worker_threads';
-import { ConfidentialClientApplication } from '@azure/msal-node';
-import { BlobClient, BlobServiceClient, BlockBlobClient, ContainerClient } from '@azure/storage-blob';
-import jws from 'jws';
-import { clearInterval, setInterval } from 'node:timers';
+import { ClientSecretCredential, ClientAssertionCredential } from '@azure/identity';
+import * as cp from 'child_process';
+import * as os from 'os';
+import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 
 function e(name: string): string {
 	const result = process.env[name];
@@ -30,9 +27,11 @@ function e(name: string): string {
 	return result;
 }
 
-function hashStream(hashName: string, stream: Readable): Promise<Buffer> {
-	return new Promise<Buffer>((c, e) => {
-		const shasum = crypto.createHash(hashName);
+const quality = e('VSCODE_QUALITY');
+const commit = e('BUILD_SOURCEVERSION');
+
+class Temp {
+	private _files: string[] = [];
 
 		stream
 			.on('data', shasum.update.bind(shasum))
@@ -320,7 +319,8 @@ class ESRPReleaseService {
 		clientId: string,
 		authCertificatePfx: string,
 		requestSigningCertificatePfx: string,
-		containerClient: ContainerClient
+		containerClient: ContainerClient,
+		stagingSasToken: string
 	) {
 		const authKey = getKeyFromPFX(authCertificatePfx);
 		const authCertificate = getCertificatesFromPFX(authCertificatePfx)[0];
@@ -343,7 +343,7 @@ class ESRPReleaseService {
 			scopes: ['https://api.esrp.microsoft.com/.default']
 		});
 
-		return new ESRPReleaseService(log, clientId, response!.accessToken, requestSigningCertificates, requestSigningKey, containerClient);
+		return new ESRPReleaseService(log, clientId, response!.accessToken, requestSigningCertificates, requestSigningKey, containerClient, stagingSasToken);
 	}
 
 	private static API_URL = 'https://api.esrp.microsoft.com/api/v3/releaseservices/clients/';
@@ -354,7 +354,8 @@ class ESRPReleaseService {
 		private readonly accessToken: string,
 		private readonly requestSigningCertificates: string[],
 		private readonly requestSigningKey: string,
-		private readonly containerClient: ContainerClient
+		private readonly containerClient: ContainerClient,
+		private readonly stagingSasToken: string
 	) { }
 
 	async createRelease(version: string, filePath: string, friendlyFileName: string) {
@@ -411,6 +412,7 @@ class ESRPReleaseService {
 	): Promise<ReleaseSubmitResponse> {
 		const size = fs.statSync(filePath).size;
 		const hash = await hashStream('sha256', fs.createReadStream(filePath));
+		const blobUrl = `${blobClient.url}?${this.stagingSasToken}`;
 
 		const message: ReleaseRequestMessage = {
 			customerCorrelationId: correlationId,
@@ -443,11 +445,11 @@ class ESRPReleaseService {
 			files: [{
 				name: path.basename(filePath),
 				friendlyFileName,
-				tenantFileLocation: blobClient.url,
+				tenantFileLocation: blobUrl,
 				tenantFileLocationType: 'AzureBlob',
 				sourceLocation: {
 					type: 'azureBlob',
-					blobUrl: blobClient.url
+					blobUrl
 				},
 				hashType: 'sha256',
 				hash: Array.from(hash),
@@ -691,7 +693,7 @@ interface Asset {
 }
 
 // Contains all of the logic for mapping details to our actual product names in CosmosDB
-function getPlatform(product: string, os: string, arch: string, type: string, isLegacy: boolean): string {
+function getPlatform(product: string, os: string, arch: string, type: string): string {
 	switch (os) {
 		case 'win32':
 			switch (product) {
@@ -736,12 +738,12 @@ function getPlatform(product: string, os: string, arch: string, type: string, is
 						case 'client':
 							return `linux-${arch}`;
 						case 'server':
-							return isLegacy ? `server-linux-legacy-${arch}` : `server-linux-${arch}`;
+							return `server-linux-${arch}`;
 						case 'web':
 							if (arch === 'standalone') {
 								return 'web-standalone';
 							}
-							return isLegacy ? `server-linux-legacy-${arch}-web` : `server-linux-${arch}-web`;
+							return `server-linux-${arch}-web`;
 						default:
 							throw new Error(`Unrecognized: ${product} ${os} ${arch} ${type}`);
 					}
@@ -794,52 +796,7 @@ function getRealType(type: string) {
 	}
 }
 
-async function withLease<T>(client: BlockBlobClient, fn: () => Promise<T>) {
-	const lease = client.getBlobLeaseClient();
-
-	for (let i = 0; i < 360; i++) { // Try to get lease for 30 minutes
-		try {
-			await client.uploadData(new ArrayBuffer()); // blob needs to exist for lease to be acquired
-			await lease.acquireLease(60);
-
-			try {
-				const abortController = new AbortController();
-				const refresher = new Promise<void>((c, e) => {
-					abortController.signal.onabort = () => {
-						clearInterval(interval);
-						c();
-					};
-
-					const interval = setInterval(() => {
-						lease.renewLease().catch(err => {
-							clearInterval(interval);
-							e(new Error('Failed to renew lease ' + err));
-						});
-					}, 30_000);
-				});
-
-				const result = await Promise.race([fn(), refresher]);
-				abortController.abort();
-				return result;
-			} finally {
-				await lease.releaseLease();
-			}
-		} catch (err) {
-			if (err.statusCode !== 409 && err.statusCode !== 412) {
-				throw err;
-			}
-
-			await new Promise(c => setTimeout(c, 5000));
-		}
-	}
-
-	throw new Error('Failed to acquire lease on blob after 30 minutes');
-}
-
-async function processArtifact(
-	artifact: Artifact,
-	filePath: string
-) {
+async function processArtifact(artifact: Artifact, artifactFilePath: string): Promise<Asset> {
 	const log = (...args: any[]) => console.log(`[${artifact.name}]`, ...args);
 	const match = /^vscode_(?<product>[^_]+)_(?<os>[^_]+)(?:_legacy)?_(?<arch>[^_]+)_(?<unprocessedType>[^_]+)$/.exec(artifact.name);
 
@@ -847,68 +804,30 @@ async function processArtifact(
 		throw new Error(`Invalid artifact name: ${artifact.name}`);
 	}
 
-	const { cosmosDBAccessToken, blobServiceAccessToken } = JSON.parse(e('PUBLISH_AUTH_TOKENS'));
-	const quality = e('VSCODE_QUALITY');
-	const version = e('BUILD_SOURCEVERSION');
-	const friendlyFileName = `${quality}/${version}/${path.basename(filePath)}`;
+	// getPlatform needs the unprocessedType
+	const { product, os, arch, unprocessedType } = match.groups!;
+	const isLegacy = artifact.name.includes('_legacy');
+	const platform = getPlatform(product, os, arch, unprocessedType, isLegacy);
+	const type = getRealType(unprocessedType);
+	const size = fs.statSync(artifactFilePath).size;
+	const stream = fs.createReadStream(artifactFilePath);
+	const [hash, sha256hash] = await Promise.all([hashStream('sha1', stream), hashStream('sha256', stream)]); // CodeQL [SM04514] Using SHA1 only for legacy reasons, we are actually only respecting SHA256
 
-	const blobServiceClient = new BlobServiceClient(`https://${e('VSCODE_STAGING_BLOB_STORAGE_ACCOUNT_NAME')}.blob.core.windows.net/`, { getToken: async () => blobServiceAccessToken });
-	const leasesContainerClient = blobServiceClient.getContainerClient('leases');
-	await leasesContainerClient.createIfNotExists();
-	const leaseBlobClient = leasesContainerClient.getBlockBlobClient(friendlyFileName);
+	const url = await releaseAndProvision(
+		log,
+		e('RELEASE_TENANT_ID'),
+		e('RELEASE_CLIENT_ID'),
+		e('RELEASE_AUTH_CERT_SUBJECT_NAME'),
+		e('RELEASE_REQUEST_SIGNING_CERT_SUBJECT_NAME'),
+		e('PROVISION_TENANT_ID'),
+		e('PROVISION_AAD_USERNAME'),
+		e('PROVISION_AAD_PASSWORD'),
+		commit,
+		quality,
+		artifactFilePath
+	);
 
-	log(`Acquiring lease for: ${friendlyFileName}`);
-
-	await withLease(leaseBlobClient, async () => {
-		log(`Successfully acquired lease for: ${friendlyFileName}`);
-
-		const url = `${e('PRSS_CDN_URL')}/${friendlyFileName}`;
-		const res = await retry(() => fetch(url));
-
-		if (res.status === 200) {
-			log(`Already released and provisioned: ${url}`);
-		} else {
-			const stagingContainerClient = blobServiceClient.getContainerClient('staging');
-			await stagingContainerClient.createIfNotExists();
-
-			const releaseService = await ESRPReleaseService.create(
-				log,
-				e('RELEASE_TENANT_ID'),
-				e('RELEASE_CLIENT_ID'),
-				e('RELEASE_AUTH_CERT'),
-				e('RELEASE_REQUEST_SIGNING_CERT'),
-				stagingContainerClient
-			);
-
-			await releaseService.createRelease(version, filePath, friendlyFileName);
-		}
-
-		const { product, os, arch, unprocessedType } = match.groups!;
-		const isLegacy = artifact.name.includes('_legacy');
-		const platform = getPlatform(product, os, arch, unprocessedType, isLegacy);
-		const type = getRealType(unprocessedType);
-		const size = fs.statSync(filePath).size;
-		const stream = fs.createReadStream(filePath);
-		const [hash, sha256hash] = await Promise.all([hashStream('sha1', stream), hashStream('sha256', stream)]); // CodeQL [SM04514] Using SHA1 only for legacy reasons, we are actually only respecting SHA256
-		const asset: Asset = { platform, type, url, hash: hash.toString('hex'), sha256hash: sha256hash.toString('hex'), size, supportsFastUpdate: true };
-		log('Creating asset...');
-
-		const result = await retry(async (attempt) => {
-			log(`Creating asset in Cosmos DB (attempt ${attempt})...`);
-			const client = new CosmosClient({ endpoint: e('AZURE_DOCUMENTDB_ENDPOINT')!, tokenProvider: () => Promise.resolve(`type=aad&ver=1.0&sig=${cosmosDBAccessToken.token}`) });
-			const scripts = client.database('builds').container(quality).scripts;
-			const { resource: result } = await scripts.storedProcedure('createAsset').execute<'ok' | 'already exists'>('', [version, asset, true]);
-			return result;
-		});
-
-		if (result === 'already exists') {
-			log('Asset already exists!');
-		} else {
-			log('Asset successfully created: ', JSON.stringify(asset, undefined, 2));
-		}
-	});
-
-	log(`Successfully released lease for: ${friendlyFileName}`);
+	return { platform, type, url, hash, sha256hash, size, supportsFastUpdate: true };
 }
 
 // It is VERY important that we don't download artifacts too much too fast from AZDO.
@@ -920,7 +839,8 @@ async function processArtifact(
 async function main() {
 	if (!isMainThread) {
 		const { artifact, artifactFilePath } = workerData;
-		await processArtifact(artifact, artifactFilePath);
+		const asset = await processArtifact(artifact, artifactFilePath);
+		parentPort!.postMessage(asset);
 		return;
 	}
 
@@ -931,16 +851,27 @@ async function main() {
 		console.log(`\u2705 ${name}`);
 	}
 
-	const stages = new Set<string>(['Compile', 'CompileCLI']);
+	const stages = new Set<string>(['Compile']);
+
+	if (
+		e('VSCODE_BUILD_STAGE_LINUX') === 'True' ||
+		e('VSCODE_BUILD_STAGE_ALPINE') === 'True' ||
+		e('VSCODE_BUILD_STAGE_MACOS') === 'True' ||
+		e('VSCODE_BUILD_STAGE_WINDOWS') === 'True'
+	) {
+		stages.add('CompileCLI');
+	}
+
 	if (e('VSCODE_BUILD_STAGE_WINDOWS') === 'True') { stages.add('Windows'); }
 	if (e('VSCODE_BUILD_STAGE_LINUX') === 'True') { stages.add('Linux'); }
-	if (e('VSCODE_BUILD_STAGE_LINUX_LEGACY_SERVER') === 'True') { stages.add('LinuxLegacyServer'); }
 	if (e('VSCODE_BUILD_STAGE_ALPINE') === 'True') { stages.add('Alpine'); }
 	if (e('VSCODE_BUILD_STAGE_MACOS') === 'True') { stages.add('macOS'); }
 	if (e('VSCODE_BUILD_STAGE_WEB') === 'True') { stages.add('Web'); }
 
 	let resultPromise = Promise.resolve<PromiseSettledResult<void>[]>([]);
 	const operations: { name: string; operation: Promise<void> }[] = [];
+	const aadCredentials = new ClientAssertionCredential(process.env['AZURE_TENANT_ID']!, process.env['AZURE_CLIENT_ID']!, () => Promise.resolve(process.env['AZURE_ID_TOKEN']!));
+	const client = new CosmosClient({ endpoint: e('AZURE_DOCUMENTDB_ENDPOINT'), aadCredentials });
 
 	while (true) {
 		const [timeline, artifacts] = await Promise.all([retry(() => getPipelineTimeline()), retry(() => getPipelineArtifacts())]);
@@ -982,12 +913,27 @@ async function main() {
 
 			processing.add(artifact.name);
 			const promise = new Promise<void>((resolve, reject) => {
+				const log = (...args: any[]) => console.log(`[${artifact.name}]`, ...args);
 				const worker = new Worker(__filename, { workerData: { artifact, artifactFilePath } });
 				worker.on('error', reject);
-				worker.on('exit', code => {
-					if (code === 0) {
+				worker.once('message', async (asset: Asset) => {
+					try {
+						log('Creating asset...', JSON.stringify(asset, undefined, 2));
+
+						await retry(async (attempt) => {
+							log(`Creating asset in Cosmos DB (attempt ${attempt})...`);
+							const scripts = client.database('builds').container(quality).scripts;
+							await scripts.storedProcedure('createAsset').execute('', [commit, asset, true]);
+						});
+
+						log('Asset successfully created');
 						resolve();
-					} else {
+					} catch (err) {
+						reject(err);
+					}
+				});
+				worker.on('exit', code => {
+					if (code !== 0) {
 						reject(new Error(`[${artifact.name}] Worker stopped with exit code ${code}`));
 					}
 				});
