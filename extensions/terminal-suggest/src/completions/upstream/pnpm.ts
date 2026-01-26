@@ -25,7 +25,7 @@ const searchBranches: Fig.Generator = {
 				if (parts[0] == "*") {
 					// Current branch.
 					return {
-						name: elm.replace("*", "").trim(),
+						name: elm.replace(/^\*\s*/, "").trim(),
 						description: "Current branch",
 						icon: "⭐️",
 					};
@@ -990,7 +990,8 @@ const completionSpec: Fig.Spec = {
 		const { script, postProcess } = dependenciesGenerator as Fig.Generator & {
 			script: string[];
 		};
-		if (!postProcess) {
+
+		if (postProcess === undefined) {
 			return undefined;
 		}
 
@@ -1002,13 +1003,12 @@ const completionSpec: Fig.Spec = {
 				})
 			).stdout,
 			tokens
-		)?.map((e: any) => e.name as string);
-		if (!packages) {
-			return undefined;
-		}
+		)
+			?.filter((e) => e !== null)
+			.map(({ name }) => name as string);
 
 		const subcommands = packages
-			.filter((name) => nodeClis.has(name))
+			?.filter((name) => nodeClis.has(name))
 			.map((name) => ({
 				name,
 				loadSpec: name,

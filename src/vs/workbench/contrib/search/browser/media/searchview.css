@@ -67,6 +67,10 @@
 	height: 26px;
 }
 
+.search-view .search-widget .monaco-findInput .monaco-scrollable-element {
+	overflow: unset !important;
+}
+
 .search-view .search-widget .monaco-findInput .monaco-scrollable-element .scrollbar {
 	opacity: 0;
 }
