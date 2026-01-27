@@ -3,17 +3,15 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Event, Emitter } from 'vs/base/common/event';
-import { timeout } from 'vs/base/common/async';
-import { ILifecycleMainService } from 'vs/platform/lifecycle/electron-main/lifecycleMainService';
-import { IUpdateService, State, StateType, AvailableForDownload, UpdateType } from 'vs/platform/update/common/update';
-import { IEnvironmentMainService } from 'vs/platform/environment/electron-main/environmentMainService';
-import { ILogService } from 'vs/platform/log/common/log';
-import * as path from 'vs/base/common/path';
-import { realpath, watch } from 'fs';
 import { spawn } from 'child_process';
-import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
-import { UpdateNotAvailableClassification } from 'vs/platform/update/electron-main/abstractUpdateService';
+import { realpath, watch } from 'fs';
+import { timeout } from '../../../base/common/async.js';
+import { Emitter, Event } from '../../../base/common/event.js';
+import * as path from '../../../base/common/path.js';
+import { IEnvironmentMainService } from '../../environment/electron-main/environmentMainService.js';
+import { ILifecycleMainService } from '../../lifecycle/electron-main/lifecycleMainService.js';
+import { ILogService } from '../../log/common/log.js';
+import { AvailableForDownload, IUpdateService, State, StateType, UpdateType } from '../common/update.js';
 
 abstract class AbstractUpdateService implements IUpdateService {
 
@@ -49,6 +47,8 @@ abstract class AbstractUpdateService implements IUpdateService {
 		// Start checking for updates after 30 seconds
 		this.scheduleCheckForUpdates(30 * 1000).then(undefined, err => this.logService.error(err));
 	}
+
+	async initialize(): Promise<void> { }
 
 	private scheduleCheckForUpdates(delay = 60 * 60 * 1000): Promise<void> {
 		return timeout(delay)
@@ -129,6 +129,11 @@ abstract class AbstractUpdateService implements IUpdateService {
 	}
 
 	abstract isLatestVersion(): Promise<boolean | undefined>;
+
+	async _applySpecificUpdate(packagePath: string): Promise<void> {
+		// noop
+	}
+
 	protected abstract doCheckForUpdates(context: any): void;
 }
 
@@ -140,7 +145,6 @@ export class SnapUpdateService extends AbstractUpdateService {
 		@ILifecycleMainService lifecycleMainService: ILifecycleMainService,
 		@IEnvironmentMainService environmentMainService: IEnvironmentMainService,
 		@ILogService logService: ILogService,
-		@ITelemetryService private readonly telemetryService: ITelemetryService
 	) {
 		super(lifecycleMainService, environmentMainService, logService);
 
@@ -160,15 +164,12 @@ export class SnapUpdateService extends AbstractUpdateService {
 		this.setState(State.CheckingForUpdates(false));
 		this.isUpdateAvailable().then(result => {
 			if (result) {
-				this.setState(State.Ready({ version: 'something', productVersion: 'something' }));
+				this.setState(State.Ready({ version: 'something' }));
 			} else {
-				this.telemetryService.publicLog2<{ explicit: boolean }, UpdateNotAvailableClassification>('update:notAvailable', { explicit: false });
-
 				this.setState(State.Idle(UpdateType.Snap));
 			}
 		}, err => {
 			this.logService.error(err);
-			this.telemetryService.publicLog2<{ explicit: boolean }, UpdateNotAvailableClassification>('update:notAvailable', { explicit: false });
 			this.setState(State.Idle(UpdateType.Snap, err.message || err));
 		});
 	}

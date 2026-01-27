@@ -5,13 +5,14 @@
 
 import * as vscode from 'vscode';
 
-export function disposeAll(disposables: vscode.Disposable[]) {
-	while (disposables.length) {
-		const item = disposables.pop();
-		if (item) {
-			item.dispose();
-		}
+export function disposeAll(disposables: Iterable<vscode.Disposable>) {
+	for (const disposable of disposables) {
+		disposable.dispose();
 	}
+}
+
+export interface IDisposable {
+	dispose(): void;
 }
 
 export abstract class Disposable {
@@ -38,5 +39,14 @@ export abstract class Disposable {
 
 	protected get isDisposed() {
 		return this._isDisposed;
+	}
+}
+
+export class DisposableStore extends Disposable {
+
+	public add<T extends IDisposable>(disposable: T): T {
+		this._register(disposable);
+
+		return disposable;
 	}
 }

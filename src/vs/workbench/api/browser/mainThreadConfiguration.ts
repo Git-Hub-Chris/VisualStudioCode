@@ -8,10 +8,11 @@ import { IDisposable } from 'vs/base/common/lifecycle';
 import { Registry } from 'vs/platform/registry/common/platform';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions, ConfigurationScope, getScopes } from 'vs/platform/configuration/common/configurationRegistry';
 import { IWorkspaceContextService, WorkbenchState } from 'vs/platform/workspace/common/workspace';
-import { MainThreadConfigurationShape, MainContext, ExtHostContext, IExtHostContext, IConfigurationInitData } from '../common/extHost.protocol';
-import { extHostNamedCustomer } from 'vs/workbench/api/common/extHostCustomers';
+import { MainThreadConfigurationShape, MainContext, ExtHostContext, IConfigurationInitData } from '../common/extHost.protocol';
+import { extHostNamedCustomer, IExtHostContext } from 'vs/workbench/services/extensions/common/extHostCustomers';
 import { ConfigurationTarget, IConfigurationService, IConfigurationOverrides } from 'vs/platform/configuration/common/configuration';
 import { IEnvironmentService } from 'vs/platform/environment/common/environment';
+import { ErrorNoTelemetry } from 'vs/base/common/errors';
 
 @extHostNamedCustomer(MainContext.MainThreadConfiguration)
 export class MainThreadConfiguration implements MainThreadConfigurationShape {
@@ -72,12 +73,16 @@ export class MainThreadConfiguration implements MainThreadConfigurationShape {
 		}
 	}
 
-	private _updateValue(key: string, value: any, configurationTarget: ConfigurationTarget, overriddenValue: any | undefined, overrides: IConfigurationOverrides, scopeToLanguage: boolean | undefined): Promise<void> {
+	private async _updateValue(key: string, value: any, configurationTarget: ConfigurationTarget, overriddenValue: any | undefined, overrides: IConfigurationOverrides, scopeToLanguage: boolean | undefined): Promise<void> {
 		overrides = scopeToLanguage === true ? overrides
 			: scopeToLanguage === false ? { resource: overrides.resource }
 				: overrides.overrideIdentifier && overriddenValue !== undefined ? overrides
 					: { resource: overrides.resource };
-		return this.configurationService.updateValue(key, value, overrides, configurationTarget, true);
+		try {
+			return await this.configurationService.updateValue(key, value, overrides, configurationTarget, true);
+		} catch (error) {
+			throw ErrorNoTelemetry.fromError(error);
+		}
 	}
 
 	private deriveConfigurationTarget(key: string, overrides: IConfigurationOverrides): ConfigurationTarget {
