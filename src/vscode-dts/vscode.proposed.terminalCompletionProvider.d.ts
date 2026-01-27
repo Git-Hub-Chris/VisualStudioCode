@@ -128,6 +128,12 @@ declare module 'vscode' {
 		 * Show folders as completion items.
 		 */
 		foldersRequested?: boolean;
+
+		/**
+		 * The file extensions to show as completion items.
+		 */
+		fileExtensions?: string[];
+
 		/**
 		 * File extensions to filter by.
 		 */

@@ -140,8 +140,8 @@ suite('git smoke test', function () {
 
 		assert.strictEqual(repository.state.indexChanges.length, 0);
 
-		await repository.commit('third commit', { all: true });
-
+		await commands.executeCommand('git.stageAll');
+		await repository.commit('third commit');
 		assert.strictEqual(repository.state.workingTreeChanges.length, 0);
 		assert.strictEqual(repository.state.indexChanges.length, 0);
 	});

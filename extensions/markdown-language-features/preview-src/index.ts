@@ -10,6 +10,7 @@ import { getEditorLineNumberForPageOffset, scrollToRevealSourceLine, getLineElem
 import { SettingsManager, getData, getRawData } from './settings';
 import throttle = require('lodash.throttle');
 import morphdom from 'morphdom';
+import DOMPurify from 'dompurify';
 import type { ToWebviewMessage } from '../types/previewMessaging';
 import { isOfScheme, Schemes } from '../src/util/schemes';
 
@@ -68,7 +69,7 @@ onceDocumentLoaded(() => {
 		getRawData('data-initial-md-content'),
 		'text/html'
 	);
-	document.body.appendChild(markDownHtml.body);
+	document.body.append(...markDownHtml.body.children);
 
 	// Restore
 	const scrollProgress = state.scrollProgress;
@@ -206,7 +207,8 @@ window.addEventListener('message', async event => {
 			const root = document.querySelector('.markdown-body')!;
 
 			const parser = new DOMParser();
-			const newContent = parser.parseFromString(data.content, 'text/html'); // CodeQL [SM03712] This renderers content from the workspace into the Markdown preview. Webviews (and the markdown preview) have many other security measures in place to make this safe
+			const sanitizedContent = DOMPurify.sanitize(data.content);
+			const newContent = parser.parseFromString(sanitizedContent, 'text/html'); // CodeQL [SM03712] This renderers content from the workspace into the Markdown preview. Webviews (and the markdown preview) have many other security measures in place to make this safe
 
 			// Strip out meta http-equiv tags
 			for (const metaElement of Array.from(newContent.querySelectorAll('meta'))) {

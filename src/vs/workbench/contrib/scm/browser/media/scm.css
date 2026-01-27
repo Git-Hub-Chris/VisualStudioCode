@@ -380,10 +380,16 @@
 	outline: 1px solid var(--vscode-panelInput-border);
 }
 
-.scm-view .scm-editor.synthetic-focus,
-.monaco-workbench .part.panel .scm-view .scm-editor.synthetic-focus {
-	outline: 1px solid var(--vscode-focusBorder);
-	outline-offset: -1px;
+.scm-view .scm-editor-container {
+	position: relative;
+	box-sizing: border-box;
+	background-color: var(--vscode-input-background);
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 2px;
+}
+
+.scm-view .scm-editor-container.synthetic-focus {
+	outline: 2px solid var(--vscode-focusBorder);
 }
 
 .scm-view .scm-editor.validation-info {

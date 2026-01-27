@@ -9,12 +9,15 @@ import { Emitter } from '../../../../../base/common/event.js';
 import { IMarkdownString, MarkdownString } from '../../../../../base/common/htmlContent.js';
 import { Disposable, DisposableStore, IDisposable } from '../../../../../base/common/lifecycle.js';
 import { ThemeIcon } from '../../../../../base/common/themables.js';
+import { assertType } from '../../../../../base/common/types.js';
 import { MarkdownRenderer } from '../../../../../editor/browser/widget/markdownRenderer/browser/markdownRenderer.js';
 import { ILanguageService } from '../../../../../editor/common/languages/language.js';
 import { IModelService } from '../../../../../editor/common/services/model.js';
 import { localize } from '../../../../../nls.js';
+import { IContextKeyService } from '../../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IKeybindingService } from '../../../../../platform/keybinding/common/keybinding.js';
+import { ChatContextKeys } from '../../common/chatContextKeys.js';
 import { IChatMarkdownContent, IChatProgressMessage, IChatTerminalToolInvocationData, IChatToolInvocation, IChatToolInvocationSerialized } from '../../common/chatService.js';
 import { IChatRendererContent } from '../../common/chatViewModel.js';
 import { CodeBlockModelCollection } from '../../common/codeBlockModelCollection.js';
@@ -127,6 +130,7 @@ class ChatToolInvocationSubPart extends Disposable {
 		@IKeybindingService private readonly keybindingService: IKeybindingService,
 		@IModelService private readonly modelService: IModelService,
 		@ILanguageService private readonly languageService: ILanguageService,
+		@IContextKeyService private readonly contextKeyService: IContextKeyService,
 	) {
 		super();
 
@@ -150,11 +154,12 @@ class ChatToolInvocationSubPart extends Disposable {
 	}
 
 	private createConfirmationWidget(toolInvocation: IChatToolInvocation): HTMLElement {
-		if (!toolInvocation.confirmationMessages) {
-			throw new Error('Confirmation messages are missing');
-		}
+		assertType(toolInvocation.confirmationMessages, 'Confirmation messages are missing');
+
 		const title = toolInvocation.confirmationMessages.title;
 		const message = toolInvocation.confirmationMessages.message;
+		const toolInput = toolInvocation.confirmationMessages.toolInput;
+
 		const continueLabel = localize('continue', "Continue");
 		const continueKeybinding = this.keybindingService.lookupKeybinding(AcceptToolConfirmationActionId)?.getLabel();
 		const continueTooltip = continueKeybinding ? `${continueLabel} (${continueKeybinding})` : continueLabel;
@@ -180,6 +185,7 @@ class ChatToolInvocationSubPart extends Disposable {
 				ChatConfirmationWidget,
 				title,
 				message,
+				toolInput,
 				buttons
 			));
 		} else {
@@ -201,6 +207,7 @@ class ChatToolInvocationSubPart extends Disposable {
 				ChatCustomConfirmationWidget,
 				title,
 				this.markdownPart.domNode,
+				toolInput,
 				buttons
 			));
 		}
@@ -216,9 +223,8 @@ class ChatToolInvocationSubPart extends Disposable {
 	}
 
 	private createTerminalConfirmationWidget(toolInvocation: IChatToolInvocation, terminalData: IChatTerminalToolInvocationData): HTMLElement {
-		if (!toolInvocation.confirmationMessages) {
-			throw new Error('Confirmation messages are missing');
-		}
+		assertType(toolInvocation.confirmationMessages, 'Confirmation messages are missing');
+
 		const title = toolInvocation.confirmationMessages.title;
 		const message = toolInvocation.confirmationMessages.message;
 		const continueLabel = localize('continue', "Continue");
@@ -288,14 +294,17 @@ class ChatToolInvocationSubPart extends Disposable {
 			ChatCustomConfirmationWidget,
 			title,
 			element,
+			undefined,
 			buttons
 		));
 
+		ChatContextKeys.Editing.hasToolConfirmation.bindTo(this.contextKeyService).set(true);
 		this._register(confirmWidget.onDidClick(button => {
 			toolInvocation.confirmed.complete(button.data);
 		}));
 		this._register(confirmWidget.onDidChangeHeight(() => this._onDidChangeHeight.fire()));
 		toolInvocation.confirmed.p.then(() => {
+			ChatContextKeys.Editing.hasToolConfirmation.bindTo(this.contextKeyService).set(false);
 			this._onNeedsRerender.fire();
 		});
 		return confirmWidget.domNode;
