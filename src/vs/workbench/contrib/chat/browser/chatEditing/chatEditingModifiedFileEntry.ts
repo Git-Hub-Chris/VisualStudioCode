@@ -304,6 +304,7 @@ export interface IModifiedEntryTelemetryInfo {
 
 export interface ISnapshotEntry {
 	readonly resource: URI;
+	readonly notebookType: string | undefined;
 	readonly languageId: string;
 	readonly snapshotUri: URI;
 	readonly original: string;
