@@ -237,6 +237,6 @@
     "url": "https://github.com/microsoft/vscode/issues"
   },
   "optionalDependencies": {
-    "windows-foreground-love": "0.5.0"
+    "windows-foreground-love": "0.6.1"
   }
 }
