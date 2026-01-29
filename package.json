@@ -86,7 +86,7 @@
     "@vscode/vscode-languagedetection": "1.0.23",
     "@vscode/windows-mutex": "^0.5.3",
     "@vscode/windows-process-tree": "^0.6.3",
-    "@vscode/windows-registry": "^1.1.0",
+    "@vscode/windows-registry": "^1.1.3",
     "@xterm/addon-clipboard": "^0.2.0-beta.82",
     "@xterm/addon-image": "^0.10.0-beta.109",
     "@xterm/addon-ligatures": "^0.11.0-beta.107",
