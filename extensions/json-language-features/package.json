@@ -139,6 +139,12 @@
           "strings": true
         },
         "editor.suggest.insertMode": "replace"
+      },
+      "[snippets]": {
+        "editor.quickSuggestions": {
+          "strings": true
+        },
+        "editor.suggest.insertMode": "replace"
       }
     },
     "jsonValidation": [
@@ -161,12 +167,12 @@
     ]
   },
   "dependencies": {
-    "@vscode/extension-telemetry": "^0.9.0",
+    "@vscode/extension-telemetry": "^1.4.0",
     "request-light": "^0.8.0",
-    "vscode-languageclient": "^10.0.0-next.13"
+    "vscode-languageclient": "^10.0.0-next.19"
   },
   "devDependencies": {
-    "@types/node": "20.x"
+    "@types/node": "25.x"
   },
   "repository": {
     "type": "git",

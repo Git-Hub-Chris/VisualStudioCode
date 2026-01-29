@@ -28,7 +28,7 @@ function getTagBodyText(
 		if (/^\s*[~`]{3}/m.test(text)) {
 			return text;
 		}
-		return '```\n' + text + '\n```';
+		return '```tsx\n' + text + '\n```';
 	}
 
 	let text = convertLinkTags(tag.text, filePathConverter);
@@ -210,7 +210,8 @@ function convertLinkTags(
 }
 
 function escapeMarkdownSyntaxTokensForCode(text: string): string {
-	return text.replace(/`/g, '\\$&'); // CodeQL [SM02383] This is only meant to escape backticks. The Markdown is fully sanitized after being rendered.
+	// First escape backslashes, then backticks
+	return text.replace(/\\/g, '\\\\').replace(/`/g, '\\$&'); // CodeQL [SM02383] This now escapes backticks and backslashes.
 }
 
 export function tagsToMarkdown(
