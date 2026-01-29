@@ -38,6 +38,9 @@ export function connectProxyResolver(
 	initData: IExtensionHostInitData,
 	disposables: DisposableStore,
 ) {
+	if (extHostLogService.getLevel() === LogServiceLevel.Trace) {
+		testKerberosImport(extHostLogService);
+	}
 
 	const isRemote = initData.remote.isRemote;
 	const useHostProxyDefault = initData.environment.useHostProxy ?? !isRemote;
@@ -100,6 +103,27 @@ export function connectProxyResolver(
 
 	const lookup = createPatchedModules(params, resolveProxyWithRequest);
 	return configureModuleLoading(extensionService, lookup);
+}
+
+function testKerberosImport(extHostLogService: ILogService) {
+	(async () => {
+		try {
+			const importKerberos = await import('kerberos');
+			const importType = typeof importKerberos;
+			extHostLogService.trace('ProxyResolver#testKerberosImport Kerberos import type', importType);
+			if (importKerberos && importType === 'object') {
+				const importDefault = importKerberos.default;
+				const importDefaultType = typeof importDefault;
+				extHostLogService.trace('ProxyResolver#testKerberosImport Kerberos import.default type', importDefaultType);
+				if (importDefault && importDefaultType === 'object') {
+					extHostLogService.trace('ProxyResolver#testKerberosImport Kerberos import.default.initializeClient type', typeof importDefault.initializeClient);
+				}
+				extHostLogService.trace('ProxyResolver#testKerberosImport Kerberos import.initializeClient type', typeof importKerberos.initializeClient);
+			}
+		} catch (err) {
+			extHostLogService.trace('ProxyResolver#testKerberosImport Kerberos import failed', err);
+		}
+	})();
 }
 
 const unsafeHeaders = [
@@ -324,8 +348,14 @@ async function lookupProxyAuthorization(
 		state.kerberosRequested = true;
 
 		try {
-			const spnConfig = getExtHostConfigValue<string>(configProvider, isRemote, 'http.proxyKerberosServicePrincipal');
-			const response = await lookupKerberosAuthorization(proxyURL, spnConfig, extHostLogService, 'ProxyResolver#lookupProxyAuthorization');
+			const importKerberos = await import('kerberos');
+			const kerberos = importKerberos.default || importKerberos;
+			const url = new URL(proxyURL);
+			const spn = configProvider.getConfiguration('http').get<string>('proxyKerberosServicePrincipal')
+				|| (process.platform === 'win32' ? `HTTP/${url.hostname}` : `HTTP@${url.hostname}`);
+			extHostLogService.debug('ProxyResolver#lookupProxyAuthorization Kerberos authentication lookup', `proxyURL:${proxyURL}`, `spn:${spn}`);
+			const client = await kerberos.initializeClient(spn);
+			const response = await client.step('');
 			return 'Negotiate ' + response;
 		} catch (err) {
 			extHostLogService.debug('ProxyResolver#lookupProxyAuthorization Kerberos authentication failed', err);
