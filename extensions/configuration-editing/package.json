@@ -10,10 +10,10 @@
   },
   "icon": "images/icon.png",
   "activationEvents": [
-    "onLanguage:json",
-    "onLanguage:jsonc",
     "onProfile",
-    "onProfile:github"
+    "onProfile:github",
+    "onLanguage:json",
+    "onLanguage:jsonc"
   ],
   "enabledApiProposals": [
     "profileContentHandlers"
@@ -25,8 +25,8 @@
     "watch": "gulp watch-extension:configuration-editing"
   },
   "dependencies": {
-    "jsonc-parser": "^2.2.1",
-    "@octokit/rest": "19.0.4",
+    "@octokit/rest": "^22.0.1",
+    "jsonc-parser": "^3.3.1",
     "tunnel": "^0.0.6"
   },
   "capabilities": {
@@ -43,25 +43,22 @@
           ".code-workspace",
           "language-configuration.json",
           "icon-theme.json",
-          "color-theme.json",
-          ".code-snippets"
+          "color-theme.json"
         ],
         "filenames": [
           "settings.json",
           "launch.json",
           "tasks.json",
+          "mcp.json",
           "keybindings.json",
           "extensions.json",
           "argv.json",
           "profiles.json",
           "devcontainer.json",
           ".devcontainer.json"
-        ],
-        "filenamePatterns": [
-          "**/User/snippets/*.json",
-          "**/User/profiles/*/snippets/*.json"
         ]
-      }, {
+      },
+      {
         "id": "json",
         "extensions": [
           ".code-profile"
@@ -122,6 +119,10 @@
         "url": "vscode://schemas/tasks"
       },
       {
+        "fileMatch": "/.vscode/mcp.json",
+        "url": "vscode://schemas/mcp"
+      },
+      {
         "fileMatch": "%APP_SETTINGS_HOME%/tasks.json",
         "url": "vscode://schemas/tasks"
       },
@@ -168,7 +169,7 @@
     ]
   },
   "devDependencies": {
-    "@types/node": "16.x"
+    "@types/node": "25.x"
   },
   "repository": {
     "type": "git",
