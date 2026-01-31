@@ -3,21 +3,23 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { TestInstantiationService } from 'vs/platform/instantiation/test/common/instantiationServiceMock';
-import { DomActivityTracker } from 'vs/workbench/services/userActivity/browser/domActivityTracker';
-import { UserActivityService } from 'vs/workbench/services/userActivity/common/userActivityService';
+import { TestInstantiationService } from '../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
+import { DomActivityTracker } from '../../browser/domActivityTracker.js';
+import { UserActivityService } from '../../common/userActivityService.js';
 import * as sinon from 'sinon';
-import * as assert from 'assert';
+import assert from 'assert';
 
 suite('DomActivityTracker', () => {
 	let uas: UserActivityService;
 	let dom: DomActivityTracker;
+	let insta: TestInstantiationService;
 	let clock: sinon.SinonFakeTimers;
 	const maxTimeToBecomeIdle = 3 * 30_000; // (MIN_INTERVALS_WITHOUT_ACTIVITY + 1) * CHECK_INTERVAL;
 
 	setup(() => {
 		clock = sinon.useFakeTimers();
-		uas = new UserActivityService(new TestInstantiationService());
+		insta = new TestInstantiationService();
+		uas = new UserActivityService(insta);
 		dom = new DomActivityTracker(uas);
 	});
 
@@ -25,6 +27,7 @@ suite('DomActivityTracker', () => {
 		dom.dispose();
 		uas.dispose();
 		clock.restore();
+		insta.dispose();
 	});
 
 

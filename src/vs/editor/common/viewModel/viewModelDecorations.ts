@@ -3,15 +3,15 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IDisposable } from 'vs/base/common/lifecycle';
-import { Position } from 'vs/editor/common/core/position';
-import { Range } from 'vs/editor/common/core/range';
-import { IEditorConfiguration } from 'vs/editor/common/config/editorConfiguration';
-import { IModelDecoration, ITextModel, PositionAffinity } from 'vs/editor/common/model';
-import { IViewModelLines } from 'vs/editor/common/viewModel/viewModelLines';
-import { ICoordinatesConverter, InlineDecoration, InlineDecorationType, ViewModelDecoration } from 'vs/editor/common/viewModel';
-import { filterValidationDecorations } from 'vs/editor/common/config/editorOptions';
-import { StandardTokenType } from 'vs/editor/common/encodedTokenAttributes';
+import { IDisposable } from '../../../base/common/lifecycle.js';
+import { Position } from '../core/position.js';
+import { Range } from '../core/range.js';
+import { IEditorConfiguration } from '../config/editorConfiguration.js';
+import { IModelDecoration, ITextModel, PositionAffinity } from '../model.js';
+import { IViewModelLines } from './viewModelLines.js';
+import { ICoordinatesConverter, InlineDecoration, InlineDecorationType, ViewModelDecoration } from '../viewModel.js';
+import { filterValidationDecorations } from '../config/editorOptions.js';
+import { StandardTokenType } from '../encodedTokenAttributes.js';
 
 export interface IDecorationsViewportData {
 	/**
@@ -82,7 +82,7 @@ export class ViewModelDecorations implements IDisposable {
 			const options = modelDecoration.options;
 			let viewRange: Range;
 			if (options.isWholeLine) {
-				const start = this._coordinatesConverter.convertModelPositionToViewPosition(new Position(modelRange.startLineNumber, 1), PositionAffinity.Left);
+				const start = this._coordinatesConverter.convertModelPositionToViewPosition(new Position(modelRange.startLineNumber, 1), PositionAffinity.Left, false, true);
 				const end = this._coordinatesConverter.convertModelPositionToViewPosition(new Position(modelRange.endLineNumber, this.model.getLineMaxColumn(modelRange.endLineNumber)), PositionAffinity.Right);
 				viewRange = new Range(start.lineNumber, start.column, end.lineNumber, end.column);
 			} else {

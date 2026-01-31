@@ -4,11 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type * as vscode from 'vscode';
-import { ExtHostShareShape, IMainContext, IShareableItemDto, MainContext, MainThreadShareShape } from 'vs/workbench/api/common/extHost.protocol';
-import { DocumentSelector, Range } from 'vs/workbench/api/common/extHostTypeConverters';
-import { IURITransformer } from 'vs/base/common/uriIpc';
-import { CancellationToken } from 'vs/base/common/cancellation';
-import { URI, UriComponents } from 'vs/base/common/uri';
+import { ExtHostShareShape, IMainContext, IShareableItemDto, MainContext, MainThreadShareShape } from './extHost.protocol.js';
+import { DocumentSelector, Range } from './extHostTypeConverters.js';
+import { IURITransformer } from '../../../base/common/uriIpc.js';
+import { CancellationToken } from '../../../base/common/cancellation.js';
+import { URI, UriComponents } from '../../../base/common/uri.js';
 
 export class ExtHostShare implements ExtHostShareShape {
 	private static handlePool: number = 0;
@@ -23,9 +23,9 @@ export class ExtHostShare implements ExtHostShareShape {
 		this.proxy = mainContext.getProxy(MainContext.MainThreadShare);
 	}
 
-	async $provideShare(handle: number, shareableItem: IShareableItemDto, token: CancellationToken): Promise<UriComponents | undefined> {
+	async $provideShare(handle: number, shareableItem: IShareableItemDto, token: CancellationToken): Promise<UriComponents | string | undefined> {
 		const provider = this.providers.get(handle);
-		const result = await provider?.provideShare({ selection: Range.to(shareableItem.range), resourceUri: URI.revive(shareableItem.resourceUri) }, token);
+		const result = await provider?.provideShare({ selection: Range.to(shareableItem.selection), resourceUri: URI.revive(shareableItem.resourceUri) }, token);
 		return result ?? undefined;
 	}
 

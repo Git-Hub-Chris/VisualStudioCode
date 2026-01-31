@@ -3,15 +3,15 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 //
-import { DeferredPromise } from 'vs/base/common/async';
-import * as errors from 'vs/base/common/errors';
-import { Emitter } from 'vs/base/common/event';
-import { Disposable } from 'vs/base/common/lifecycle';
-import { RemoteAuthorities } from 'vs/base/common/network';
-import { URI } from 'vs/base/common/uri';
-import { IProductService } from 'vs/platform/product/common/productService';
-import { IRemoteAuthorityResolverService, IRemoteConnectionData, RemoteConnectionType, ResolvedAuthority, ResolvedOptions, ResolverResult } from 'vs/platform/remote/common/remoteAuthorityResolver';
-import { getRemoteServerRootPath } from 'vs/platform/remote/common/remoteHosts';
+import { DeferredPromise } from '../../../base/common/async.js';
+import * as errors from '../../../base/common/errors.js';
+import { Emitter } from '../../../base/common/event.js';
+import { Disposable } from '../../../base/common/lifecycle.js';
+import { RemoteAuthorities } from '../../../base/common/network.js';
+import { URI } from '../../../base/common/uri.js';
+import { IProductService } from '../../product/common/productService.js';
+import { IRemoteAuthorityResolverService, IRemoteConnectionData, RemoteConnectionType, ResolvedAuthority, ResolvedOptions, ResolverResult } from '../common/remoteAuthorityResolver.js';
+import { ElectronRemoteResourceLoader } from './electronRemoteResourceLoader.js';
 
 export class RemoteAuthorityResolverService extends Disposable implements IRemoteAuthorityResolverService {
 
@@ -25,14 +25,14 @@ export class RemoteAuthorityResolverService extends Disposable implements IRemot
 	private readonly _canonicalURIRequests: Map<string, { input: URI; result: DeferredPromise<URI> }>;
 	private _canonicalURIProvider: ((uri: URI) => Promise<URI>) | null;
 
-	constructor(@IProductService productService: IProductService) {
+	constructor(@IProductService productService: IProductService, private readonly remoteResourceLoader: ElectronRemoteResourceLoader) {
 		super();
 		this._resolveAuthorityRequests = new Map<string, DeferredPromise<ResolverResult>>();
 		this._connectionTokens = new Map<string, string>();
 		this._canonicalURIRequests = new Map();
 		this._canonicalURIProvider = null;
 
-		RemoteAuthorities.setServerRootPath(getRemoteServerRootPath(productService));
+		RemoteAuthorities.setServerRootPath(productService, undefined); // on the desktop we don't support custom server base paths
 	}
 
 	resolveAuthority(authority: string): Promise<ResolverResult> {
@@ -81,8 +81,9 @@ export class RemoteAuthorityResolverService extends Disposable implements IRemot
 		if (this._resolveAuthorityRequests.has(resolvedAuthority.authority)) {
 			const request = this._resolveAuthorityRequests.get(resolvedAuthority.authority)!;
 			if (resolvedAuthority.connectTo.type === RemoteConnectionType.WebSocket) {
-				// todo@connor4312 need to implement some kind of loopback for ext host based messaging
 				RemoteAuthorities.set(resolvedAuthority.authority, resolvedAuthority.connectTo.host, resolvedAuthority.connectTo.port);
+			} else {
+				RemoteAuthorities.setDelegate(this.remoteResourceLoader.getResourceUriProvider());
 			}
 			if (resolvedAuthority.connectionToken) {
 				RemoteAuthorities.setConnectionToken(resolvedAuthority.authority, resolvedAuthority.connectionToken);

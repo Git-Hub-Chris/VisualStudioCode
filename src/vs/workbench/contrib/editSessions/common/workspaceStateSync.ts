@@ -3,33 +3,33 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { CancellationToken, CancellationTokenSource } from 'vs/base/common/cancellation';
-import { IStringDictionary } from 'vs/base/common/collections';
-import { Emitter, Event } from 'vs/base/common/event';
-import { parse, stringify } from 'vs/base/common/marshalling';
-import { URI } from 'vs/base/common/uri';
-import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { IEnvironmentService } from 'vs/platform/environment/common/environment';
-import { IFileService } from 'vs/platform/files/common/files';
-import { IStorageService, StorageScope, StorageTarget } from 'vs/platform/storage/common/storage';
-import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
-import { IUriIdentityService } from 'vs/platform/uriIdentity/common/uriIdentity';
-import { IUserDataProfile } from 'vs/platform/userDataProfile/common/userDataProfile';
-import { AbstractSynchroniser, IAcceptResult, IMergeResult, IResourcePreview, ISyncResourcePreview } from 'vs/platform/userDataSync/common/abstractSynchronizer';
-import { IRemoteUserData, IResourceRefHandle, IUserDataSyncBackupStoreService, IUserDataSyncConfiguration, IUserDataSyncEnablementService, IUserDataSyncLogService, IUserDataSyncStoreService, IUserDataSynchroniser, IWorkspaceState, SyncResource } from 'vs/platform/userDataSync/common/userDataSync';
-import { IEditSessionsStorageService } from 'vs/workbench/contrib/editSessions/common/editSessions';
-import { IWorkspaceIdentityService } from 'vs/workbench/services/workspaces/common/workspaceIdentityService';
+import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
+import { IStringDictionary } from '../../../../base/common/collections.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
+import { parse, stringify } from '../../../../base/common/marshalling.js';
+import { URI } from '../../../../base/common/uri.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { IStorageEntry, IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
+import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
+import { IUserDataProfile } from '../../../../platform/userDataProfile/common/userDataProfile.js';
+import { AbstractSynchroniser, IAcceptResult, IMergeResult, IResourcePreview, ISyncResourcePreview } from '../../../../platform/userDataSync/common/abstractSynchronizer.js';
+import { IRemoteUserData, IResourceRefHandle, IUserDataSyncLocalStoreService, IUserDataSyncConfiguration, IUserDataSyncEnablementService, IUserDataSyncLogService, IUserDataSyncStoreService, IUserDataSynchroniser, IWorkspaceState, SyncResource, IUserDataSyncResourcePreview } from '../../../../platform/userDataSync/common/userDataSync.js';
+import { EditSession, IEditSessionsStorageService } from './editSessions.js';
+import { IWorkspaceIdentityService } from '../../../services/workspaces/common/workspaceIdentityService.js';
 
 
-class NullBackupStoreService implements IUserDataSyncBackupStoreService {
+class NullBackupStoreService implements IUserDataSyncLocalStoreService {
 	_serviceBrand: undefined;
-	async backup(profile: IUserDataProfile, resource: SyncResource, content: string): Promise<void> {
+	async writeResource(): Promise<void> {
 		return;
 	}
-	async getAllRefs(profile: IUserDataProfile, resource: SyncResource): Promise<IResourceRefHandle[]> {
+	async getAllResourceRefs(): Promise<IResourceRefHandle[]> {
 		return [];
 	}
-	async resolveContent(profile: IUserDataProfile, resource: SyncResource, ref: string): Promise<string | null> {
+	async resolveResourceContent(): Promise<string | null> {
 		return null;
 	}
 
@@ -70,16 +70,16 @@ export class WorkspaceStateSynchroniser extends AbstractSynchroniser implements 
 		@IWorkspaceIdentityService private readonly workspaceIdentityService: IWorkspaceIdentityService,
 		@IEditSessionsStorageService private readonly editSessionsStorageService: IEditSessionsStorageService,
 	) {
-		const userDataSyncBackupStoreService = new NullBackupStoreService();
+		const userDataSyncLocalStoreService = new NullBackupStoreService();
 		const userDataSyncEnablementService = new NullEnablementService();
-		super({ syncResource: SyncResource.WorkspaceState, profile }, collection, fileService, environmentService, storageService, userDataSyncStoreService, userDataSyncBackupStoreService, userDataSyncEnablementService, telemetryService, logService, configurationService, uriIdentityService);
+		super({ syncResource: SyncResource.WorkspaceState, profile }, collection, fileService, environmentService, storageService, userDataSyncStoreService, userDataSyncLocalStoreService, userDataSyncEnablementService, telemetryService, logService, configurationService, uriIdentityService);
 	}
 
-	override async sync(): Promise<void> {
+	override async sync(): Promise<IUserDataSyncResourcePreview | null> {
 		const cancellationTokenSource = new CancellationTokenSource();
 		const folders = await this.workspaceIdentityService.getWorkspaceStateFolders(cancellationTokenSource.token);
 		if (!folders.length) {
-			return;
+			return null;
 		}
 
 		// Ensure we have latest state by sending out onWillSaveState event
@@ -87,7 +87,7 @@ export class WorkspaceStateSynchroniser extends AbstractSynchroniser implements 
 
 		const keys = this.storageService.keys(StorageScope.WORKSPACE, StorageTarget.USER);
 		if (!keys.length) {
-			return;
+			return null;
 		}
 
 		const contributedData: IStringDictionary<string> = {};
@@ -99,11 +99,15 @@ export class WorkspaceStateSynchroniser extends AbstractSynchroniser implements 
 		});
 
 		const content: IWorkspaceState = { folders, storage: contributedData, version: this.version };
-		this.editSessionsStorageService.write('workspaceState', stringify(content));
+		await this.editSessionsStorageService.write('workspaceState', stringify(content));
+		return null;
 	}
 
 	override async apply(): Promise<ISyncResourcePreview | null> {
-		const resource = await this.editSessionsStorageService.read('workspaceState', undefined);
+		const payload = this.editSessionsStorageService.lastReadResources.get('editSessions')?.content;
+		const workspaceStateId = payload ? (JSON.parse(payload) as EditSession).workspaceStateId : undefined;
+
+		const resource = await this.editSessionsStorageService.read('workspaceState', workspaceStateId);
 		if (!resource) {
 			return null;
 		}
@@ -129,19 +133,22 @@ export class WorkspaceStateSynchroniser extends AbstractSynchroniser implements 
 
 		if (Object.keys(storage).length) {
 			// Initialize storage with remote storage
+			const storageEntries: Array<IStorageEntry> = [];
 			for (const key of Object.keys(storage)) {
 				// Deserialize the stored state
 				try {
 					const value = parse(storage[key]);
 					// Run URI conversion on the stored state
 					replaceUris(value);
-					// Write the stored state to the storage service
-					this.storageService.store(key, value, StorageScope.WORKSPACE, StorageTarget.USER);
+					storageEntries.push({ key, value, scope: StorageScope.WORKSPACE, target: StorageTarget.USER });
 				} catch {
-					this.storageService.store(key, storage[key], StorageScope.WORKSPACE, StorageTarget.USER);
+					storageEntries.push({ key, value: storage[key], scope: StorageScope.WORKSPACE, target: StorageTarget.USER });
 				}
 			}
+			this.storageService.storeAll(storageEntries, true);
 		}
+
+		this.editSessionsStorageService.delete('workspaceState', resource.ref);
 		return null;
 	}
 

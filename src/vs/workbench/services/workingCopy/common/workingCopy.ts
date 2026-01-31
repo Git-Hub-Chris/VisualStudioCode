@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Event } from 'vs/base/common/event';
-import { URI } from 'vs/base/common/uri';
-import { ISaveOptions, IRevertOptions, SaveReason, SaveSource } from 'vs/workbench/common/editor';
-import { CancellationToken } from 'vs/base/common/cancellation';
-import { VSBufferReadable, VSBufferReadableStream } from 'vs/base/common/buffer';
+import { Event } from '../../../../base/common/event.js';
+import { URI } from '../../../../base/common/uri.js';
+import { ISaveOptions, IRevertOptions, SaveReason, SaveSource } from '../../../common/editor.js';
+import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { VSBufferReadable, VSBufferReadableStream } from '../../../../base/common/buffer.js';
 
 export const enum WorkingCopyCapabilities {
 
@@ -181,6 +181,15 @@ export interface IWorkingCopy extends IWorkingCopyIdentifier {
 
 
 	//#region Save / Backup
+
+	/**
+	 * The delay in milliseconds to wait before triggering
+	 * a backup after the content of the model has changed.
+	 *
+	 * If not configured, a sensible default will be taken
+	 * based on user settings.
+	 */
+	readonly backupDelay?: number;
 
 	/**
 	 * The workbench may call this method often after it receives

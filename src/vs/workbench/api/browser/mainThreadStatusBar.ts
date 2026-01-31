@@ -3,26 +3,29 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { MainThreadStatusBarShape, MainContext, ExtHostContext, StatusBarItemDto } from '../common/extHost.protocol';
-import { ThemeColor } from 'vs/base/common/themables';
-import { extHostNamedCustomer, IExtHostContext } from 'vs/workbench/services/extensions/common/extHostCustomers';
-import { DisposableMap } from 'vs/base/common/lifecycle';
-import { Command } from 'vs/editor/common/languages';
-import { IAccessibilityInformation } from 'vs/platform/accessibility/common/accessibility';
-import { IMarkdownString } from 'vs/base/common/htmlContent';
-import { IExtensionStatusBarItemService } from 'vs/workbench/api/browser/statusBarExtensionPoint';
-import { IStatusbarEntry, StatusbarAlignment } from 'vs/workbench/services/statusbar/browser/statusbar';
+import { MainThreadStatusBarShape, MainContext, ExtHostContext, StatusBarItemDto, ExtHostStatusBarShape } from '../common/extHost.protocol.js';
+import { ThemeColor } from '../../../base/common/themables.js';
+import { extHostNamedCustomer, IExtHostContext } from '../../services/extensions/common/extHostCustomers.js';
+import { DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
+import { Command } from '../../../editor/common/languages.js';
+import { IAccessibilityInformation } from '../../../platform/accessibility/common/accessibility.js';
+import { IMarkdownString } from '../../../base/common/htmlContent.js';
+import { IExtensionStatusBarItemService, StatusBarUpdateKind } from './statusBarExtensionPoint.js';
+import { IStatusbarEntry, StatusbarAlignment } from '../../services/statusbar/browser/statusbar.js';
+import { IManagedHoverTooltipMarkdownString } from '../../../base/browser/ui/hover/hover.js';
+import { CancellationToken } from '../../../base/common/cancellation.js';
 
 @extHostNamedCustomer(MainContext.MainThreadStatusBar)
 export class MainThreadStatusBar implements MainThreadStatusBarShape {
 
-	private readonly entries = new DisposableMap<string>();
+	private readonly _proxy: ExtHostStatusBarShape;
+	private readonly _store = new DisposableStore();
 
 	constructor(
 		extHostContext: IExtHostContext,
 		@IExtensionStatusBarItemService private readonly statusbarService: IExtensionStatusBarItemService
 	) {
-		const proxy = extHostContext.getProxy(ExtHostContext.ExtHostStatusBar);
+		this._proxy = extHostContext.getProxy(ExtHostContext.ExtHostStatusBar);
 
 		// once, at startup read existing items and send them over
 		const entries: StatusBarItemDto[] = [];
@@ -30,38 +33,49 @@ export class MainThreadStatusBar implements MainThreadStatusBarShape {
 			entries.push(asDto(entryId, item));
 		}
 
-		proxy.$acceptStaticEntries(entries);
+		this._proxy.$acceptStaticEntries(entries);
 
-		statusbarService.onDidChange(e => {
+		this._store.add(statusbarService.onDidChange(e => {
 			if (e.added) {
-				proxy.$acceptStaticEntries([asDto(e.added[0], e.added[1])]);
+				this._proxy.$acceptStaticEntries([asDto(e.added[0], e.added[1])]);
 			}
-		});
+		}));
 
 		function asDto(entryId: string, item: { entry: IStatusbarEntry; alignment: StatusbarAlignment; priority: number }): StatusBarItemDto {
 			return {
 				entryId,
 				name: item.entry.name,
 				text: item.entry.text,
-				command: typeof item.entry.command === 'string' ? item.entry.command : undefined,
+				tooltip: item.entry.tooltip as string | undefined,
+				command: typeof item.entry.command === 'string' ? item.entry.command : typeof item.entry.command === 'object' ? item.entry.command.id : undefined,
 				priority: item.priority,
-				alignLeft: item.alignment === StatusbarAlignment.LEFT
+				alignLeft: item.alignment === StatusbarAlignment.LEFT,
+				accessibilityInformation: item.entry.ariaLabel ? { label: item.entry.ariaLabel, role: item.entry.role } : undefined
 			};
 		}
 	}
 
 	dispose(): void {
-		this.entries.dispose();
+		this._store.dispose();
 	}
 
-	$setEntry(entryId: string, id: string, extensionId: string | undefined, name: string, text: string, tooltip: IMarkdownString | string | undefined, command: Command | undefined, color: string | ThemeColor | undefined, backgroundColor: string | ThemeColor | undefined, alignLeft: boolean, priority: number | undefined, accessibilityInformation: IAccessibilityInformation | undefined): void {
-		const dispo = this.statusbarService.setOrUpdateEntry(entryId, id, extensionId, name, text, tooltip, command, color, backgroundColor, alignLeft, priority, accessibilityInformation);
-		if (!this.entries.has(entryId)) {
-			this.entries.set(entryId, dispo);
+	$setEntry(entryId: string, id: string, extensionId: string | undefined, name: string, text: string, tooltip: IMarkdownString | string | undefined, hasTooltipProvider: boolean, command: Command | undefined, color: string | ThemeColor | undefined, backgroundColor: ThemeColor | undefined, alignLeft: boolean, priority: number | undefined, accessibilityInformation: IAccessibilityInformation | undefined): void {
+		const tooltipOrTooltipProvider = hasTooltipProvider
+			? {
+				markdown: (cancellation: CancellationToken) => {
+					return this._proxy.$provideTooltip(entryId, cancellation);
+				},
+				markdownNotSupportedFallback: undefined
+			} satisfies IManagedHoverTooltipMarkdownString
+			: tooltip;
+
+		const kind = this.statusbarService.setOrUpdateEntry(entryId, id, extensionId, name, text, tooltipOrTooltipProvider, command, color, backgroundColor, alignLeft, priority, accessibilityInformation);
+		if (kind === StatusBarUpdateKind.DidDefine) {
+			this._store.add(toDisposable(() => this.statusbarService.unsetEntry(entryId)));
 		}
 	}
 
 	$disposeEntry(entryId: string) {
-		this.entries.deleteAndDispose(entryId);
+		this.statusbarService.unsetEntry(entryId);
 	}
 }

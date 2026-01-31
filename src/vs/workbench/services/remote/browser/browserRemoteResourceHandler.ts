@@ -3,11 +3,12 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { VSBuffer } from 'vs/base/common/buffer';
-import { Disposable } from 'vs/base/common/lifecycle';
-import { URI, UriComponents } from 'vs/base/common/uri';
-import { FileOperationError, FileOperationResult, IFileContent, IFileService } from 'vs/platform/files/common/files';
-import { IRemoteResourceProvider, IResourceUriProvider } from 'vs/workbench/browser/web.api';
+import { VSBuffer } from '../../../../base/common/buffer.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { getMediaOrTextMime } from '../../../../base/common/mime.js';
+import { URI, UriComponents } from '../../../../base/common/uri.js';
+import { FileOperationError, FileOperationResult, IFileContent, IFileService } from '../../../../platform/files/common/files.js';
+import { IRemoteResourceProvider, IResourceUriProvider } from '../../../browser/web.api.js';
 
 export class BrowserRemoteResourceLoader extends Disposable {
 	constructor(
@@ -21,7 +22,7 @@ export class BrowserRemoteResourceLoader extends Disposable {
 			try {
 				uri = JSON.parse(decodeURIComponent(request.uri.query));
 			} catch {
-				return request.respondWith(404, new Uint8Array());
+				return request.respondWith(404, new Uint8Array(), {});
 			}
 
 			let content: IFileContent;
@@ -30,13 +31,14 @@ export class BrowserRemoteResourceLoader extends Disposable {
 			} catch (e) {
 				const str = VSBuffer.fromString(e.message).buffer;
 				if (e instanceof FileOperationError && e.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
-					return request.respondWith(404, str);
+					return request.respondWith(404, str, {});
 				} else {
-					return request.respondWith(500, str);
+					return request.respondWith(500, str, {});
 				}
 			}
 
-			request.respondWith(200, content.value.buffer);
+			const mime = uri.path && getMediaOrTextMime(uri.path);
+			request.respondWith(200, content.value.buffer, mime ? { 'content-type': mime } : {});
 		}));
 	}
 

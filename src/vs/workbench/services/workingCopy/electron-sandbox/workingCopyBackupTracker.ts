@@ -3,30 +3,32 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { localize } from 'vs/nls';
-import { IWorkingCopyBackupService } from 'vs/workbench/services/workingCopy/common/workingCopyBackup';
-import { IWorkbenchContribution } from 'vs/workbench/common/contributions';
-import { IFilesConfigurationService, AutoSaveMode } from 'vs/workbench/services/filesConfiguration/common/filesConfigurationService';
-import { IWorkingCopyService } from 'vs/workbench/services/workingCopy/common/workingCopyService';
-import { IWorkingCopy, IWorkingCopyIdentifier, WorkingCopyCapabilities } from 'vs/workbench/services/workingCopy/common/workingCopy';
-import { ILifecycleService, ShutdownReason } from 'vs/workbench/services/lifecycle/common/lifecycle';
-import { ConfirmResult, IFileDialogService, IDialogService, getFileNamesMessage } from 'vs/platform/dialogs/common/dialogs';
-import { WorkbenchState, IWorkspaceContextService } from 'vs/platform/workspace/common/workspace';
-import { isMacintosh } from 'vs/base/common/platform';
-import { HotExitConfiguration } from 'vs/platform/files/common/files';
-import { INativeHostService } from 'vs/platform/native/common/native';
-import { WorkingCopyBackupTracker } from 'vs/workbench/services/workingCopy/common/workingCopyBackupTracker';
-import { ILogService } from 'vs/platform/log/common/log';
-import { IEditorService } from 'vs/workbench/services/editor/common/editorService';
-import { SaveReason } from 'vs/workbench/common/editor';
-import { IEnvironmentService } from 'vs/platform/environment/common/environment';
-import { CancellationToken, CancellationTokenSource } from 'vs/base/common/cancellation';
-import { IProgressService, ProgressLocation } from 'vs/platform/progress/common/progress';
-import { Promises, raceCancellation } from 'vs/base/common/async';
-import { IWorkingCopyEditorService } from 'vs/workbench/services/workingCopy/common/workingCopyEditorService';
-import { IEditorGroupsService } from 'vs/workbench/services/editor/common/editorGroupsService';
+import { localize } from '../../../../nls.js';
+import { IWorkingCopyBackupService } from '../common/workingCopyBackup.js';
+import { IWorkbenchContribution } from '../../../common/contributions.js';
+import { IFilesConfigurationService, AutoSaveMode } from '../../filesConfiguration/common/filesConfigurationService.js';
+import { IWorkingCopyService } from '../common/workingCopyService.js';
+import { IWorkingCopy, IWorkingCopyIdentifier, WorkingCopyCapabilities } from '../common/workingCopy.js';
+import { ILifecycleService, ShutdownReason } from '../../lifecycle/common/lifecycle.js';
+import { ConfirmResult, IFileDialogService, IDialogService, getFileNamesMessage } from '../../../../platform/dialogs/common/dialogs.js';
+import { WorkbenchState, IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { isMacintosh } from '../../../../base/common/platform.js';
+import { HotExitConfiguration } from '../../../../platform/files/common/files.js';
+import { INativeHostService } from '../../../../platform/native/common/native.js';
+import { WorkingCopyBackupTracker } from '../common/workingCopyBackupTracker.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
+import { IEditorService } from '../../editor/common/editorService.js';
+import { SaveReason } from '../../../common/editor.js';
+import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
+import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
+import { IProgressService, ProgressLocation } from '../../../../platform/progress/common/progress.js';
+import { Promises, raceCancellation } from '../../../../base/common/async.js';
+import { IWorkingCopyEditorService } from '../common/workingCopyEditorService.js';
+import { IEditorGroupsService } from '../../editor/common/editorGroupsService.js';
 
 export class NativeWorkingCopyBackupTracker extends WorkingCopyBackupTracker implements IWorkbenchContribution {
+
+	static readonly ID = 'workbench.contrib.nativeWorkingCopyBackupTracker';
 
 	constructor(
 		@IWorkingCopyBackupService workingCopyBackupService: IWorkingCopyBackupService,
@@ -87,11 +89,12 @@ export class NativeWorkingCopyBackupTracker extends WorkingCopyBackupTracker imp
 		// If auto save is enabled, save all non-untitled working copies
 		// and then check again for modified copies
 
-		if (this.filesConfigurationService.getAutoSaveMode() !== AutoSaveMode.OFF) {
+		const workingCopiesToAutoSave = modifiedWorkingCopies.filter(wc => !(wc.capabilities & WorkingCopyCapabilities.Untitled) && this.filesConfigurationService.getAutoSaveMode(wc.resource).mode !== AutoSaveMode.OFF);
+		if (workingCopiesToAutoSave.length > 0) {
 
-			// Save all modified working copies
+			// Save all modified working copies that can be auto-saved
 			try {
-				await this.doSaveAllBeforeShutdown(false /* not untitled */, SaveReason.AUTO);
+				await this.doSaveAllBeforeShutdown(workingCopiesToAutoSave, SaveReason.AUTO);
 			} catch (error) {
 				this.logService.error(`[backup tracker] error saving modified working copies: ${error}`); // guard against misbehaving saves, we handle remaining modified below
 			}
@@ -114,10 +117,10 @@ export class NativeWorkingCopyBackupTracker extends WorkingCopyBackupTracker imp
 		// Trigger backup if configured and enabled for shutdown reason
 		let backups: IWorkingCopy[] = [];
 		let backupError: Error | undefined = undefined;
-		const backup = await this.shouldBackupBeforeShutdown(reason);
-		if (backup) {
+		const modifiedWorkingCopiesToBackup = await this.shouldBackupBeforeShutdown(reason, modifiedWorkingCopies);
+		if (modifiedWorkingCopiesToBackup.length > 0) {
 			try {
-				const backupResult = await this.backupBeforeShutdown(modifiedWorkingCopies);
+				const backupResult = await this.backupBeforeShutdown(modifiedWorkingCopiesToBackup);
 				backups = backupResult.backups;
 				backupError = backupResult.error;
 
@@ -139,9 +142,7 @@ export class NativeWorkingCopyBackupTracker extends WorkingCopyBackupTracker imp
 				return false; // do not block shutdown during extension development (https://github.com/microsoft/vscode/issues/115028)
 			}
 
-			this.showErrorDialog(localize('backupTrackerBackupFailed', "The following editors with unsaved changes could not be saved to the back up location."), remainingModifiedWorkingCopies, backupError);
-
-			return true; // veto (the backup failed)
+			return this.showErrorDialog(localize('backupTrackerBackupFailed', "The following editors with unsaved changes could not be saved to the backup location."), remainingModifiedWorkingCopies, backupError, reason);
 		}
 
 		// Since a backup did not happen, we have to confirm for
@@ -156,68 +157,98 @@ export class NativeWorkingCopyBackupTracker extends WorkingCopyBackupTracker imp
 				return false; // do not block shutdown during extension development (https://github.com/microsoft/vscode/issues/115028)
 			}
 
-			this.showErrorDialog(localize('backupTrackerConfirmFailed', "The following editors with unsaved changes could not be saved or reverted."), remainingModifiedWorkingCopies, error);
-
-			return true; // veto (save or revert failed)
+			return this.showErrorDialog(localize('backupTrackerConfirmFailed', "The following editors with unsaved changes could not be saved or reverted."), remainingModifiedWorkingCopies, error, reason);
 		}
 	}
 
-	private async shouldBackupBeforeShutdown(reason: ShutdownReason): Promise<boolean> {
-		let backup: boolean | undefined;
+	private async shouldBackupBeforeShutdown(reason: ShutdownReason, modifiedWorkingCopies: readonly IWorkingCopy[]): Promise<readonly IWorkingCopy[]> {
 		if (!this.filesConfigurationService.isHotExitEnabled) {
-			backup = false; // never backup when hot exit is disabled via settings
-		} else if (this.environmentService.isExtensionDevelopment) {
-			backup = true; // always backup closing extension development window without asking to speed up debugging
-		} else {
-
-			// When quit is requested skip the confirm callback and attempt to backup all workspaces.
-			// When quit is not requested the confirm callback should be shown when the window being
-			// closed is the only VS Code window open, except for on Mac where hot exit is only
-			// ever activated when quit is requested.
-
-			switch (reason) {
-				case ShutdownReason.CLOSE:
-					if (this.contextService.getWorkbenchState() !== WorkbenchState.EMPTY && this.filesConfigurationService.hotExitConfiguration === HotExitConfiguration.ON_EXIT_AND_WINDOW_CLOSE) {
-						backup = true; // backup if a folder is open and onExitAndWindowClose is configured
-					} else if (await this.nativeHostService.getWindowCount() > 1 || isMacintosh) {
-						backup = false; // do not backup if a window is closed that does not cause quitting of the application
-					} else {
-						backup = true; // backup if last window is closed on win/linux where the application quits right after
-					}
-					break;
-
-				case ShutdownReason.QUIT:
-					backup = true; // backup because next start we restore all backups
-					break;
-
-				case ShutdownReason.RELOAD:
-					backup = true; // backup because after window reload, backups restore
-					break;
-
-				case ShutdownReason.LOAD:
-					if (this.contextService.getWorkbenchState() !== WorkbenchState.EMPTY && this.filesConfigurationService.hotExitConfiguration === HotExitConfiguration.ON_EXIT_AND_WINDOW_CLOSE) {
-						backup = true; // backup if a folder is open and onExitAndWindowClose is configured
-					} else {
-						backup = false; // do not backup because we are switching contexts
-					}
-					break;
-			}
+			return []; // never backup when hot exit is disabled via settings
 		}
 
-		return backup;
+		if (this.environmentService.isExtensionDevelopment) {
+			return modifiedWorkingCopies; // always backup closing extension development window without asking to speed up debugging
+		}
+
+		switch (reason) {
+
+			// Window Close
+			case ShutdownReason.CLOSE:
+				if (this.contextService.getWorkbenchState() !== WorkbenchState.EMPTY && this.filesConfigurationService.hotExitConfiguration === HotExitConfiguration.ON_EXIT_AND_WINDOW_CLOSE) {
+					return modifiedWorkingCopies; // backup if a workspace/folder is open and onExitAndWindowClose is configured
+				}
+
+				if (isMacintosh || await this.nativeHostService.getWindowCount() > 1) {
+					if (this.contextService.getWorkbenchState() !== WorkbenchState.EMPTY) {
+						return modifiedWorkingCopies.filter(modifiedWorkingCopy => modifiedWorkingCopy.capabilities & WorkingCopyCapabilities.Scratchpad); // backup scratchpads automatically to avoid user confirmation
+					}
+
+					return []; // do not backup if a window is closed that does not cause quitting of the application
+				}
+
+				return modifiedWorkingCopies; // backup if last window is closed on win/linux where the application quits right after
+
+			// Application Quit
+			case ShutdownReason.QUIT:
+				return modifiedWorkingCopies; // backup because next start we restore all backups
+
+			// Window Reload
+			case ShutdownReason.RELOAD:
+				return modifiedWorkingCopies; // backup because after window reload, backups restore
+
+			// Workspace Change
+			case ShutdownReason.LOAD:
+				if (this.contextService.getWorkbenchState() !== WorkbenchState.EMPTY) {
+					if (this.filesConfigurationService.hotExitConfiguration === HotExitConfiguration.ON_EXIT_AND_WINDOW_CLOSE) {
+						return modifiedWorkingCopies; // backup if a workspace/folder is open and onExitAndWindowClose is configured
+					}
+
+					return modifiedWorkingCopies.filter(modifiedWorkingCopy => modifiedWorkingCopy.capabilities & WorkingCopyCapabilities.Scratchpad); // backup scratchpads automatically to avoid user confirmation
+				}
+
+				return []; // do not backup because we are switching contexts with no workspace/folder open
+		}
 	}
 
-	private showErrorDialog(msg: string, workingCopies: readonly IWorkingCopy[], error?: Error): void {
+	private async showErrorDialog(message: string, workingCopies: readonly IWorkingCopy[], error: Error, reason: ShutdownReason): Promise<boolean> {
+		this.logService.error(`[backup tracker] ${message}: ${error}`);
+
 		const modifiedWorkingCopies = workingCopies.filter(workingCopy => workingCopy.isModified());
 
 		const advice = localize('backupErrorDetails', "Try saving or reverting the editors with unsaved changes first and then try again.");
 		const detail = modifiedWorkingCopies.length
-			? getFileNamesMessage(modifiedWorkingCopies.map(x => x.name)) + '\n' + advice
+			? `${getFileNamesMessage(modifiedWorkingCopies.map(x => x.name))}\n${advice}`
 			: advice;
 
-		this.dialogService.error(msg, detail);
+		const { result } = await this.dialogService.prompt({
+			type: 'error',
+			message,
+			detail,
+			buttons: [
+				{
+					label: localize({ key: 'ok', comment: ['&& denotes a mnemonic'] }, "&&OK"),
+					run: () => true // veto
+				},
+				{
+					label: this.toForceShutdownLabel(reason),
+					run: () => false // no veto
+				}
+			],
+		});
 
-		this.logService.error(error ? `[backup tracker] ${msg}: ${error}` : `[backup tracker] ${msg}`);
+		return result ?? true;
+	}
+
+	private toForceShutdownLabel(reason: ShutdownReason): string {
+		switch (reason) {
+			case ShutdownReason.CLOSE:
+			case ShutdownReason.LOAD:
+				return localize('shutdownForceClose', "Close Anyway");
+			case ShutdownReason.QUIT:
+				return localize('shutdownForceQuit', "Quit Anyway");
+			case ShutdownReason.RELOAD:
+				return localize('shutdownForceReload', "Reload Anyway");
+		}
 	}
 
 	private async backupBeforeShutdown(modifiedWorkingCopies: readonly IWorkingCopy[]): Promise<{ backups: IWorkingCopy[]; error?: Error }> {
@@ -298,17 +329,7 @@ export class NativeWorkingCopyBackupTracker extends WorkingCopyBackupTracker imp
 		return true; // veto (user canceled)
 	}
 
-	private doSaveAllBeforeShutdown(modifiedWorkingCopies: IWorkingCopy[], reason: SaveReason): Promise<void>;
-	private doSaveAllBeforeShutdown(includeUntitled: boolean, reason: SaveReason): Promise<void>;
-	private doSaveAllBeforeShutdown(arg1: IWorkingCopy[] | boolean, reason: SaveReason): Promise<void> {
-		const modifiedWorkingCopies = Array.isArray(arg1) ? arg1 : this.workingCopyService.modifiedWorkingCopies.filter(workingCopy => {
-			if (arg1 === false && (workingCopy.capabilities & WorkingCopyCapabilities.Untitled)) {
-				return false; // skip untitled unless explicitly included
-			}
-
-			return true;
-		});
-
+	private doSaveAllBeforeShutdown(workingCopies: IWorkingCopy[], reason: SaveReason): Promise<void> {
 		return this.withProgressAndCancellation(async () => {
 
 			// Skip save participants on shutdown for performance reasons
@@ -316,18 +337,27 @@ export class NativeWorkingCopyBackupTracker extends WorkingCopyBackupTracker imp
 
 			// First save through the editor service if we save all to benefit
 			// from some extras like switching to untitled modified editors before saving.
-
 			let result: boolean | undefined = undefined;
-			if (typeof arg1 === 'boolean' || modifiedWorkingCopies.length === this.workingCopyService.modifiedCount) {
-				result = (await this.editorService.saveAll({ includeUntitled: typeof arg1 === 'boolean' ? arg1 : true, ...saveOptions })).success;
+			if (workingCopies.length === this.workingCopyService.modifiedCount) {
+				result = (await this.editorService.saveAll({
+					includeUntitled: { includeScratchpad: true },
+					...saveOptions
+				})).success;
 			}
 
 			// If we still have modified working copies, save those directly
 			// unless the save was not successful (e.g. cancelled)
 			if (result !== false) {
-				await Promises.settled(modifiedWorkingCopies.map(workingCopy => workingCopy.isModified() ? workingCopy.save(saveOptions) : Promise.resolve(true)));
+				await Promises.settled(workingCopies.map(workingCopy => workingCopy.isModified() ? workingCopy.save(saveOptions) : Promise.resolve(true)));
 			}
-		}, localize('saveBeforeShutdown', "Saving editors with unsaved changes is taking a bit longer..."));
+		},
+			localize('saveBeforeShutdown', "Saving editors with unsaved changes is taking a bit longer..."),
+			undefined,
+			// Do not pick `Dialog` as location for reporting progress if it is likely
+			// that the save operation will itself open a dialog for asking for the
+			// location to save to for untitled or scratchpad working copies.
+			// https://github.com/microsoft/vscode-internalbacklog/issues/4943
+			workingCopies.some(workingCopy => workingCopy.capabilities & WorkingCopyCapabilities.Untitled || workingCopy.capabilities & WorkingCopyCapabilities.Scratchpad) ? ProgressLocation.Window : ProgressLocation.Dialog);
 	}
 
 	private doRevertAllBeforeShutdown(modifiedWorkingCopies: IWorkingCopy[]): Promise<void> {
@@ -416,13 +446,13 @@ export class NativeWorkingCopyBackupTracker extends WorkingCopyBackupTracker imp
 		}, localize('discardBackupsBeforeShutdown', "Discarding backups is taking a bit longer..."));
 	}
 
-	private withProgressAndCancellation(promiseFactory: (token: CancellationToken) => Promise<void>, title: string, detail?: string): Promise<void> {
+	private withProgressAndCancellation(promiseFactory: (token: CancellationToken) => Promise<void>, title: string, detail?: string, location = ProgressLocation.Dialog): Promise<void> {
 		const cts = new CancellationTokenSource();
 
 		return this.progressService.withProgress({
-			location: ProgressLocation.Dialog, 	// use a dialog to prevent the user from making any more changes now (https://github.com/microsoft/vscode/issues/122774)
-			cancellable: true, 					// allow to cancel (https://github.com/microsoft/vscode/issues/112278)
-			delay: 800, 						// delay so that it only appears when operation takes a long time
+			location, 			// by default use a dialog to prevent the user from making any more changes now (https://github.com/microsoft/vscode/issues/122774)
+			cancellable: true, 	// allow to cancel (https://github.com/microsoft/vscode/issues/112278)
+			delay: 800, 		// delay so that it only appears when operation takes a long time
 			title,
 			detail
 		}, () => raceCancellation(promiseFactory(cts.token), cts.token), () => cts.dispose(true));
