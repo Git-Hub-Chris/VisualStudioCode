@@ -7,10 +7,12 @@ import { ActiveLineMarker } from './activeLineMarker';
 import { onceDocumentLoaded } from './events';
 import { createPosterForVsCode } from './messaging';
 import { getEditorLineNumberForPageOffset, scrollToRevealSourceLine, getLineElementForFragment } from './scroll-sync';
-import { SettingsManager, getData } from './settings';
+import { SettingsManager, getData, getRawData } from './settings';
 import throttle = require('lodash.throttle');
 import morphdom from 'morphdom';
+import DOMPurify from 'dompurify';
 import type { ToWebviewMessage } from '../types/previewMessaging';
+import { isOfScheme, Schemes } from '../src/util/schemes';
 
 let scrollDisabledCount = 0;
 
@@ -61,8 +63,16 @@ function doAfterImagesLoaded(cb: () => void) {
 }
 
 onceDocumentLoaded(() => {
-	const scrollProgress = state.scrollProgress;
+	// Load initial html
+	const htmlParser = new DOMParser();
+	const markDownHtml = htmlParser.parseFromString(
+		getRawData('data-initial-md-content'),
+		'text/html'
+	);
+	document.body.append(...markDownHtml.body.children);
 
+	// Restore
+	const scrollProgress = state.scrollProgress;
 	addImageContexts();
 	if (typeof scrollProgress === 'number' && !settings.settings.fragment) {
 		doAfterImagesLoaded(() => {
@@ -132,7 +142,10 @@ function addImageContexts() {
 	for (const img of images) {
 		img.id = 'image-' + idNumber;
 		idNumber += 1;
-		img.setAttribute('data-vscode-context', JSON.stringify({ webviewSection: 'image', id: img.id, 'preventDefaultContextMenuItems': true, resource: documentResource }));
+		const imageSource = img.getAttribute('data-src');
+		const isLocalFile = imageSource && !(isOfScheme(Schemes.http, imageSource) || isOfScheme(Schemes.https, imageSource));
+		const webviewSection = isLocalFile ? 'localImage' : 'image';
+		img.setAttribute('data-vscode-context', JSON.stringify({ webviewSection, id: img.id, 'preventDefaultContextMenuItems': true, resource: documentResource, imageSource }));
 	}
 }
 
@@ -194,7 +207,8 @@ window.addEventListener('message', async event => {
 			const root = document.querySelector('.markdown-body')!;
 
 			const parser = new DOMParser();
-			const newContent = parser.parseFromString(data.content, 'text/html'); // CodeQL [SM03712] This renderers content from the workspace into the Markdown preview. Webviews (and the markdown preview) have many other security measures in place to make this safe
+			const sanitizedContent = DOMPurify.sanitize(data.content);
+			const newContent = parser.parseFromString(sanitizedContent, 'text/html'); // CodeQL [SM03712] This renderers content from the workspace into the Markdown preview. Webviews (and the markdown preview) have many other security measures in place to make this safe
 
 			// Strip out meta http-equiv tags
 			for (const metaElement of Array.from(newContent.querySelectorAll('meta'))) {

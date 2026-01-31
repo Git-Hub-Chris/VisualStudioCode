@@ -18,12 +18,6 @@ export function createUpdateURL(platform: string, quality: string, productServic
 	return `${productService.updateUrl}/api/update/${platform}/${quality}/${productService.commit}`;
 }
 
-export type UpdateNotAvailableClassification = {
-	owner: 'joaomoreno';
-	explicit: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'Whether the user has manually checked for updates, or this was an automatic check.' };
-	comment: 'This is used to understand how often VS Code pings the update server for an update and there\'s none available.';
-};
-
 export type UpdateErrorClassification = {
 	owner: 'joaomoreno';
 	messageHash: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'The hash of the error message.' };
@@ -68,7 +62,7 @@ export abstract class AbstractUpdateService implements IUpdateService {
 	 * optimization, to avoid using extra CPU cycles before first window open.
 	 * https://github.com/microsoft/vscode/issues/89784
 	 */
-	protected async initialize(): Promise<void> {
+	async initialize(): Promise<void> {
 		if (!this.environmentMainService.isBuilt) {
 			this.setState(State.Disabled(DisablementReason.NotBuilt));
 			return; // updates are never enabled when running out of sources
@@ -86,7 +80,7 @@ export abstract class AbstractUpdateService implements IUpdateService {
 			return;
 		}
 
-		const updateMode = this.configurationService.getValue<'none' | 'manual' | 'start' | 'default'>('update.mode');
+		const updateMode = this.configurationService.getValue<'none' | 'manual' | 'start' | 'default' | 'block'>('update.mode');
 		const quality = this.getProductQuality(updateMode);
 
 		if (!quality) {
@@ -178,22 +172,28 @@ export abstract class AbstractUpdateService implements IUpdateService {
 		// noop
 	}
 
-	quitAndInstall(): Promise<void> {
-		this.logService.trace('update#quitAndInstall, state = ', this.state.type);
+	quitAndInstall(force?: boolean): Promise<void> {
+		this.logService.info('update#quitAndInstall, state = ', this.state.type);
 
 		if (this.state.type !== StateType.Ready) {
 			return Promise.resolve(undefined);
 		}
 
-		this.logService.trace('update#quitAndInstall(): before lifecycle quit()');
+		if (force) {
+			this.logService.info('update#quitAndInstall(): running raw#quitAndInstall()');
+			this.doQuitAndInstall();
+			return Promise.resolve(undefined);
+		}
+
+		this.logService.info('update#quitAndInstall(): before lifecycle quit()');
 
 		this.lifecycleMainService.quit(true /* will restart */).then(vetod => {
-			this.logService.trace(`update#quitAndInstall(): after lifecycle quit() with veto: ${vetod}`);
+			this.logService.info(`update#quitAndInstall(): after lifecycle quit() with veto: ${vetod}`);
 			if (vetod) {
 				return;
 			}
 
-			this.logService.trace('update#quitAndInstall(): running raw#quitAndInstall()');
+			this.logService.info('update#quitAndInstall(): running raw#quitAndInstall()');
 			this.doQuitAndInstall();
 		});
 
@@ -205,7 +205,7 @@ export abstract class AbstractUpdateService implements IUpdateService {
 			return undefined;
 		}
 
-		const mode = this.configurationService.getValue<'none' | 'manual' | 'start' | 'default'>('update.mode');
+		const mode = this.configurationService.getValue<'none' | 'manual' | 'start' | 'default' | 'block'>('update.mode');
 
 		if (mode === 'none') {
 			return false;

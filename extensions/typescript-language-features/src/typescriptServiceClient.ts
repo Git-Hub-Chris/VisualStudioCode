@@ -12,7 +12,7 @@ import { Schemes } from './configuration/schemes';
 import { IExperimentationTelemetryReporter } from './experimentTelemetryReporter';
 import { DiagnosticKind, DiagnosticsManager } from './languageFeatures/diagnostics';
 import { Logger } from './logging/logger';
-import { TelemetryProperties, TelemetryReporter, VSCodeTelemetryReporter } from './logging/telemetry';
+import { TelemetryReporter, VSCodeTelemetryReporter } from './logging/telemetry';
 import Tracer from './logging/tracer';
 import { ProjectType, inferredProjectCompilerOptions } from './tsconfig';
 import { API } from './tsServer/api';
@@ -30,8 +30,10 @@ import { TypeScriptServerSpawner } from './tsServer/spawner';
 import { TypeScriptVersionManager } from './tsServer/versionManager';
 import { ITypeScriptVersionProvider, TypeScriptVersion } from './tsServer/versionProvider';
 import { ClientCapabilities, ClientCapability, ExecConfig, ITypeScriptServiceClient, ServerResponse, TypeScriptRequests } from './typescriptService';
+import { ServiceConfigurationProvider, SyntaxServerConfiguration, TsServerLogLevel, TypeScriptServiceConfiguration, areServiceConfigurationsEqual } from './configuration/configuration';
 import { Disposable, DisposableStore, disposeAll } from './utils/dispose';
-import { hash } from './utils/hash';
+import * as fileSchemes from './configuration/fileSchemes';
+import { Logger } from './logging/logger';
 import { isWeb, isWebAndHasSharedArrayBuffers } from './utils/platform';
 
 
@@ -138,8 +140,6 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 	private readonly processFactory: TsServerProcessFactory;
 
 	private readonly watches = new Map<number, Disposable>();
-	private readonly watchEvents = new Map<number, WatchEvent>();
-	private watchChangeTimeout: NodeJS.Timeout | undefined;
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
@@ -319,7 +319,7 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 
 	public restartTsServer(fromUserAction = false): void {
 		if (this.serverState.type === ServerState.Type.Running) {
-			this.info('Killing TS Server');
+			this.logger.info('Killing TS Server');
 			this.isRestarting = true;
 			this.serverState.server.kill();
 		}
@@ -372,18 +372,6 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 		return this._onReady!.promise.then(f);
 	}
 
-	private info(message: string, ...data: any[]): void {
-		this.logger.info(message, ...data);
-	}
-
-	private error(message: string, ...data: any[]): void {
-		this.logger.error(message, ...data);
-	}
-
-	private logTelemetry(eventName: string, properties?: TelemetryProperties) {
-		this.telemetryReporter.logTelemetry(eventName, properties);
-	}
-
 	public ensureServiceStarted() {
 		if (this.serverState.type !== ServerState.Type.Running) {
 			this.startService();
@@ -392,15 +380,15 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 
 	private token: number = 0;
 	private startService(resendModels: boolean = false): ServerState.State {
-		this.info(`Starting TS Server`);
+		this.logger.info(`Starting TS Server`);
 
 		if (this.isDisposed) {
-			this.info(`Not starting server: disposed`);
+			this.logger.info(`Not starting server: disposed`);
 			return ServerState.None;
 		}
 
 		if (this.hasServerFatallyCrashedTooManyTimes) {
-			this.info(`Not starting server: too many crashes`);
+			this.logger.info(`Not starting server: too many crashes`);
 			return ServerState.None;
 		}
 
@@ -412,10 +400,10 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 			version = this._versionManager.currentVersion;
 		}
 
-		this.info(`Using tsserver from: ${version.path}`);
+		this.logger.info(`Using tsserver from: ${version.path}`);
 		const nodePath = this._nodeVersionManager.currentVersion;
 		if (nodePath) {
-			this.info(`Using Node installation from ${nodePath} to run TS Server`);
+			this.logger.info(`Using Node installation from ${nodePath} to run TS Server`);
 		}
 
 		this.resetWatchers();
@@ -451,7 +439,7 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 				"typeScriptVersionSource": { "classification": "SystemMetaData", "purpose": "FeatureInsight" }
 			}
 		*/
-		this.logTelemetry('tsserver.spawned', {
+		this.telemetryReporter.logTelemetry('tsserver.spawned', {
 			...typeScriptServerEnvCommonProperties,
 			localTypeScriptVersion: this.versionProvider.localVersion ? this.versionProvider.localVersion.displayName : '',
 			typeScriptVersionSource: version.source,
@@ -468,9 +456,9 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 			}
 
 			this.serverState = new ServerState.Errored(err, handle.tsServerLog);
-			this.error('TSServer errored with error.', err);
+			this.logger.error('TSServer errored with error.', err);
 			if (handle.tsServerLog?.type === 'file') {
-				this.error(`TSServer log file: ${handle.tsServerLog.uri.fsPath}`);
+				this.logger.error(`TSServer log file: ${handle.tsServerLog.uri.fsPath}`);
 			}
 
 			/* __GDPR__
@@ -482,7 +470,7 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 					]
 				}
 			*/
-			this.logTelemetry('tsserver.error', {
+			this.telemetryReporter.logTelemetry('tsserver.error', {
 				...typeScriptServerEnvCommonProperties
 			});
 			this.serviceExited(false, apiVersion);
@@ -490,7 +478,7 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 
 		handle.onExit((data: TypeScriptServerExitEvent) => {
 			const { code, signal } = data;
-			this.error(`TSServer exited. Code: ${code}. Signal: ${signal}`);
+			this.logger.error(`TSServer exited. Code: ${code}. Signal: ${signal}`);
 
 			// In practice, the exit code is an integer with no ties to any identity,
 			// so it can be classified as SystemMetaData, rather than CallstackOrException.
@@ -505,7 +493,7 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 					"signal" : { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth" }
 				}
 			*/
-			this.logTelemetry('tsserver.exitWithCode', {
+			this.telemetryReporter.logTelemetry('tsserver.exitWithCode', {
 				...typeScriptServerEnvCommonProperties,
 				code: code ?? undefined,
 				signal: signal ?? undefined,
@@ -517,7 +505,7 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 			}
 
 			if (handle.tsServerLog?.type === 'file') {
-				this.info(`TSServer log file: ${handle.tsServerLog.uri.fsPath}`);
+				this.logger.info(`TSServer log file: ${handle.tsServerLog.uri.fsPath}`);
 			}
 			this.serviceExited(!this.isRestarting, apiVersion);
 			this.isRestarting = false;
@@ -534,8 +522,8 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 	}
 
 	private resetWatchers() {
-		clearTimeout(this.watchChangeTimeout);
-		disposeAll(Array.from(this.watches.values()));
+		disposeAll(this.watches.values());
+		this.watches.clear();
 	}
 
 	public async showVersionPicker(): Promise<void> {
@@ -638,7 +626,7 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 		};
 	}
 
-	private serviceExited(restart: boolean, tsVersion: API): void {
+	private serviceExited(restart: boolean): void {
 		this.resetWatchers();
 		this.loadingIndicator.reset();
 
@@ -678,7 +666,7 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 							]
 						}
 					*/
-					this.logTelemetry('serviceExited');
+					this.telemetryReporter.logTelemetry('serviceExited');
 				} else if (diff < 60 * 1000 * 5 /* 5 Minutes */) {
 					this.lastStart = Date.now();
 					if (!this._isPromptingAfterCrash) {
@@ -848,9 +836,10 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 			}
 		}
 
-		for (const root of roots.sort((a, b) => a.uri.fsPath.length - b.uri.fsPath.length)) {
+		// Find the highest level workspace folder that contains the file
+		for (const root of roots.sort((a, b) => a.uri.path.length - b.uri.path.length)) {
 			if (root.uri.scheme === resource.scheme && root.uri.authority === resource.authority) {
-				if (resource.fsPath.startsWith(root.uri.fsPath + path.sep)) {
+				if (resource.path.startsWith(root.uri.path + '/')) {
 					return root.uri;
 				}
 			}
@@ -956,14 +945,14 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 				"command" : { "classification": "SystemMetaData", "purpose": "FeatureInsight" }
 			}
 		*/
-		this.logTelemetry('fatalError', { ...(error instanceof TypeScriptServerError ? error.telemetry : { command }) });
+		this.telemetryReporter.logTelemetry('fatalError', { ...(error instanceof TypeScriptServerError ? error.telemetry : { command }) });
 		console.error(`A non-recoverable error occurred while executing tsserver command: ${command}`);
 		if (error instanceof TypeScriptServerError && error.serverErrorText) {
 			console.error(error.serverErrorText);
 		}
 
 		if (this.serverState.type === ServerState.Type.Running) {
-			this.info('Killing TS Server');
+			this.logger.info('Killing TS Server');
 			const logfile = this.serverState.server.tsServerLog;
 			this.serverState.server.kill();
 			if (error instanceof TypeScriptServerError) {
@@ -1139,15 +1128,32 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 				removeEvent('updated');
 				aggregateEvent();
 				break;
-			case 'updated':
-				if (event?.created?.has(path)) {
-					return;
-				}
-				removeEvent('deleted');
-				aggregateEvent();
+
+			case EventName.createDirectoryWatcher:
+				this.createFileSystemWatcher(
+					(event.body as Proto.CreateDirectoryWatcherEventBody).id,
+					new vscode.RelativePattern(
+						vscode.Uri.file((event.body as Proto.CreateDirectoryWatcherEventBody).path),
+						(event.body as Proto.CreateDirectoryWatcherEventBody).recursive ? '**' : '*'
+					),
+					event.body.ignoreUpdate // TODO when typescript.d.ts gets updated update the type info
+				);
+				break;
+
+			case EventName.createFileWatcher:
+				this.createFileSystemWatcher(
+					(event.body as Proto.CreateFileWatcherEventBody).id,
+					new vscode.RelativePattern(
+						vscode.Uri.file((event.body as Proto.CreateFileWatcherEventBody).path),
+						'*'
+					)
+				);
+				break;
+
+			case EventName.closeFileWatcher:
+				this.closeFileSystemWatcher(event.body.id);
 				break;
 		}
-		this.scheduleExecuteWatchChangeRequest();
 	}
 
 	private createFileSystemWatcher(
@@ -1156,25 +1162,63 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 		ignoreChangeEvents?: boolean,
 	) {
 		const disposable = new DisposableStore();
-		const watcher = disposable.add(vscode.workspace.createFileSystemWatcher(pattern, undefined, ignoreChangeEvents));
-		disposable.add(watcher.onDidChange(changeFile =>
-			this.addWatchEvent(id, 'updated', changeFile.fsPath)
-		));
-		disposable.add(watcher.onDidCreate(createFile =>
-			this.addWatchEvent(id, 'created', createFile.fsPath)
-		));
-		disposable.add(watcher.onDidDelete(deletedFile =>
-			this.addWatchEvent(id, 'deleted', deletedFile.fsPath)
-		));
-		disposable.add({
-			dispose: () => {
-				this.watchEvents.delete(id);
-				this.watches.delete(id);
+
+		const events = { updated: new Set<string>(), created: new Set<string>(), deleted: new Set<string>() };
+
+		let timeout: NodeJS.Timeout | undefined;
+		disposable.add({ dispose: () => clearTimeout(timeout) });
+
+		const executeWatchChangeRequest = () => {
+			try {
+				// TODO:: not sure whwere we check typescript version but this has to be 5.4+ or 5.5 depeneding on which version of typescript the protocol changes go into
+				this.executeWithoutWaitingForResponse('watchChange', {
+					id,
+					updated: events.updated.size > 0 ? Array.from(events.updated) : undefined,
+					created: events.created.size > 0 ? Array.from(events.created) : undefined,
+					deleted: events.deleted.size > 0 ? Array.from(events.deleted) : undefined
+				});
+			} finally {
+				events.updated.clear();
+				events.created.clear();
+				events.deleted.clear();
+
+				timeout = undefined;
 			}
-		});
+		};
+
+		const scheduleExecuteWatchChangeRequest = () => {
+			if (!timeout) {
+				timeout = setTimeout(() => executeWatchChangeRequest(), 100 /* aggregate events over 100ms to reduce client<->server IPC overhead */);
+			}
+		};
+
+		const watcher = disposable.add(vscode.workspace.createFileSystemWatcher(pattern, { excludes: [] /* TODO:: need to fill in excludes list */, ignoreChangeEvents }));
+		disposable.add(watcher.onDidChange(changeFile => {
+			events.updated.add(changeFile.fsPath);
+			scheduleExecuteWatchChangeRequest();
+		}));
+		disposable.add(watcher.onDidCreate(createFile => {
+			events.created.add(createFile.fsPath);
+			scheduleExecuteWatchChangeRequest();
+		}));
+		disposable.add(watcher.onDidDelete(deletedFile => {
+			events.deleted.add(deletedFile.fsPath);
+			scheduleExecuteWatchChangeRequest();
+		}));
 
 		if (this.watches.has(id)) {
 			this.closeFileSystemWatcher(id);
+		}
+		this.watches.set(id, disposable);
+	}
+
+	private closeFileSystemWatcher(
+		id: number,
+	) {
+		const existing = this.watches.get(id);
+		if (existing) {
+			existing.dispose();
+			this.watches.delete(id);
 		}
 		this.watches.set(id, disposable);
 	}
@@ -1235,7 +1279,7 @@ export default class TypeScriptServiceClient extends Disposable implements IType
 			}
 		*/
 		// __GDPR__COMMENT__: Other events are defined by TypeScript.
-		this.logTelemetry(telemetryData.telemetryEventName, properties);
+		this.telemetryReporter.logTelemetry(telemetryData.telemetryEventName, properties);
 	}
 
 	private configurePlugin(pluginName: string, configuration: {}): any {
