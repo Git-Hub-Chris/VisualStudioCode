@@ -9,16 +9,13 @@ import { ActionsOrientation } from '../../../../../base/browser/ui/actionbar/act
 import { HoverPosition } from '../../../../../base/browser/ui/hover/hoverWidget.js';
 import { IBoundarySashes } from '../../../../../base/browser/ui/sash/sash.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
-import { IObservable, autorun, autorunWithStore, derived, observableFromEvent, observableValue } from '../../../../../base/common/observable.js';
-import { derivedDisposable, derivedWithSetter } from '../../../../../base/common/observableInternal/derived.js';
+import { IObservable, autorun, autorunWithStore, derived, derivedDisposable, derivedWithSetter, observableFromEvent, observableValue } from '../../../../../base/common/observable.js';
 import { URI } from '../../../../../base/common/uri.js';
-import { DiffEditorEditors } from '../components/diffEditorEditors.js';
-import { DiffEditorSash, SashLayout } from '../components/diffEditorSash.js';
-import { DiffEditorOptions } from '../diffEditorOptions.js';
-import { DiffEditorViewModel } from '../diffEditorViewModel.js';
-import { appendRemoveOnDispose, applyStyle, prependRemoveOnDispose } from '../utils.js';
-import { EditorGutter, IGutterItemInfo, IGutterItemView } from '../utils/editorGutter.js';
-import { ActionRunnerWithContext } from '../../multiDiffEditor/utils.js';
+import { HiddenItemStrategy, MenuWorkbenchToolBar } from '../../../../../platform/actions/browser/toolbar.js';
+import { IMenuService, MenuId } from '../../../../../platform/actions/common/actions.js';
+import { IContextKeyService } from '../../../../../platform/contextkey/common/contextkey.js';
+import { WorkbenchHoverDelegate } from '../../../../../platform/hover/browser/hover.js';
+import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { EditorOption } from '../../../../common/config/editorOptions.js';
 import { LineRange, LineRangeSet } from '../../../../common/core/lineRange.js';
 import { OffsetRange } from '../../../../common/core/offsetRange.js';
@@ -26,11 +23,13 @@ import { Range } from '../../../../common/core/range.js';
 import { TextEdit } from '../../../../common/core/textEdit.js';
 import { DetailedLineRangeMapping } from '../../../../common/diff/rangeMapping.js';
 import { TextModelText } from '../../../../common/model/textModelText.js';
-import { HiddenItemStrategy, MenuWorkbenchToolBar } from '../../../../../platform/actions/browser/toolbar.js';
-import { IMenuService, MenuId } from '../../../../../platform/actions/common/actions.js';
-import { IContextKeyService } from '../../../../../platform/contextkey/common/contextkey.js';
-import { WorkbenchHoverDelegate } from '../../../../../platform/hover/browser/hover.js';
-import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
+import { ActionRunnerWithContext } from '../../multiDiffEditor/utils.js';
+import { DiffEditorEditors } from '../components/diffEditorEditors.js';
+import { DiffEditorSash, SashLayout } from '../components/diffEditorSash.js';
+import { DiffEditorOptions } from '../diffEditorOptions.js';
+import { DiffEditorViewModel } from '../diffEditorViewModel.js';
+import { appendRemoveOnDispose, applyStyle, prependRemoveOnDispose } from '../utils.js';
+import { EditorGutter, IGutterItemInfo, IGutterItemView } from '../utils/editorGutter.js';
 
 const emptyArr: never[] = [];
 const width = 35;
@@ -51,7 +50,7 @@ export class DiffEditorGutter extends Disposable {
 		private readonly _editors: DiffEditorEditors,
 		private readonly _options: DiffEditorOptions,
 		private readonly _sashLayout: SashLayout,
-		private readonly _boundarySashes: IObservable<IBoundarySashes | undefined, void>,
+		private readonly _boundarySashes: IObservable<IBoundarySashes | undefined>,
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 		@IContextKeyService private readonly _contextKeyService: IContextKeyService,
 		@IMenuService private readonly _menuService: IMenuService,
@@ -219,7 +218,7 @@ class DiffToolBar extends Disposable implements IGutterItemView {
 		const hoverDelegate = this._register(instantiationService.createInstance(
 			WorkbenchHoverDelegate,
 			'element',
-			true,
+			{ instantHover: true },
 			{ position: { hoverPosition: HoverPosition.RIGHT } }
 		));
 
@@ -246,7 +245,7 @@ class DiffToolBar extends Disposable implements IGutterItemView {
 				},
 				overflowBehavior: { maxItems: this._isSmall.read(reader) ? 1 : 3 },
 				hiddenItemStrategy: HiddenItemStrategy.Ignore,
-				actionRunner: new ActionRunnerWithContext(() => {
+				actionRunner: store.add(new ActionRunnerWithContext(() => {
 					const item = this._item.get();
 					const mapping = item.mapping;
 					return {
@@ -255,7 +254,7 @@ class DiffToolBar extends Disposable implements IGutterItemView {
 						originalUri: item.originalUri,
 						modifiedUri: item.modifiedUri,
 					} satisfies DiffEditorSelectionHunkToolbarContext;
-				}),
+				})),
 				menuOptions: {
 					shouldForwardArgs: true,
 				},

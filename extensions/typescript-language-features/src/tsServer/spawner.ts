@@ -268,11 +268,7 @@ export class TypeScriptServerSpawner {
 
 		args.push('--noGetErrOnBackgroundUpdate');
 
-		if (
-			apiVersion.gte(API.v544)
-			&& configuration.useVsCodeWatcher
-			&& !apiVersion.isYarnPnp() // Disable for yarn pnp as it currently breaks with the VS Code watcher
-		) {
+		if (apiVersion.gte(API.v544) && configuration.useVsCodeWatcher) {
 			args.push('--canUseWatchEvents');
 		}
 

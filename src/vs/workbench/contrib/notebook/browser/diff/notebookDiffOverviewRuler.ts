@@ -57,7 +57,7 @@ export class NotebookDiffOverviewRuler extends Themable {
 		}));
 
 		this._register(this.themeService.onDidColorThemeChange(e => {
-			const colorChanged = this.applyColors(e);
+			const colorChanged = this.applyColors(e.theme);
 			if (colorChanged) {
 				this._scheduleRender();
 			}
@@ -193,8 +193,10 @@ export class NotebookDiffOverviewRuler extends Themable {
 					ctx.fillRect(0, currentFrom, laneWidth, cellHeight);
 					break;
 				case 'unchanged':
+				case 'unchangedMetadata':
 					break;
 				case 'modified':
+				case 'modifiedMetadata':
 					ctx.fillStyle = this._removeColorHex;
 					ctx.fillRect(0, currentFrom, laneWidth, cellHeight);
 					ctx.fillStyle = this._insertColorHex;

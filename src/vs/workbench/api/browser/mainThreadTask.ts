@@ -15,7 +15,7 @@ import { Disposable, IDisposable } from '../../../base/common/lifecycle.js';
 import { IWorkspace, IWorkspaceContextService, IWorkspaceFolder } from '../../../platform/workspace/common/workspace.js';
 
 import {
-	ContributedTask, ConfiguringTask, KeyedTaskIdentifier, ITaskExecution, Task, ITaskEvent, TaskEventKind,
+	ContributedTask, ConfiguringTask, KeyedTaskIdentifier, ITaskExecution, Task, ITaskEvent,
 	IPresentationOptions, CommandOptions, ICommandConfiguration, RuntimeType, CustomTask, TaskScope, TaskSource,
 	TaskSourceKind, IExtensionTaskSource, IRunOptions, ITaskSet, TaskGroup, TaskDefinition, PresentationOptions, RunOptions
 } from '../../contrib/tasks/common/tasks.js';
@@ -29,11 +29,14 @@ import { ExtHostContext, MainThreadTaskShape, ExtHostTaskShape, MainContext } fr
 import {
 	ITaskDefinitionDTO, ITaskExecutionDTO, IProcessExecutionOptionsDTO, ITaskPresentationOptionsDTO,
 	IProcessExecutionDTO, IShellExecutionDTO, IShellExecutionOptionsDTO, ICustomExecutionDTO, ITaskDTO, ITaskSourceDTO, ITaskHandleDTO, ITaskFilterDTO, ITaskProcessStartedDTO, ITaskProcessEndedDTO, ITaskSystemInfoDTO,
-	IRunOptionsDTO, ITaskGroupDTO
+	IRunOptionsDTO, ITaskGroupDTO,
+	ITaskStatus,
+	TaskEventKind
 } from '../common/shared/tasks.js';
 import { IConfigurationResolverService } from '../../services/configurationResolver/common/configurationResolver.js';
 import { ConfigurationTarget } from '../../../platform/configuration/common/configuration.js';
 import { ErrorNoTelemetry } from '../../../base/common/errors.js';
+import { IExtensionDescription } from '../../../platform/extensions/common/extensions.js';
 
 namespace TaskExecutionDTO {
 	export function from(value: ITaskExecution): ITaskExecutionDTO {
@@ -43,6 +46,24 @@ namespace TaskExecutionDTO {
 		};
 	}
 }
+
+export interface ITaskTerminalStatusDTO {
+	execution: ITaskExecutionDTO;
+	taskEventKind: TaskEventKind;
+}
+
+export namespace TaskTerminalStatusDTO {
+	export function from(value: ITaskStatus): ITaskTerminalStatusDTO {
+		return {
+			execution: {
+				id: value.execution.id,
+				task: TaskDTO.from(value.execution.task)
+			},
+			taskEventKind: value.taskEventKind
+		};
+	}
+}
+
 
 namespace TaskProcessStartedDTO {
 	export function from(value: ITaskExecution, processId: number): ITaskProcessStartedDTO {
@@ -454,6 +475,7 @@ export class MainThreadTask extends Disposable implements MainThreadTaskShape {
 			} else if (event.kind === TaskEventKind.End) {
 				this._proxy.$OnDidEndTask(TaskExecutionDTO.from(task.getTaskExecution()));
 			}
+			this._proxy.$onDidChangeTaskTerminalStatus(TaskTerminalStatusDTO.from({ execution: task.getTaskExecution(), taskEventKind: event.kind }));
 		}));
 	}
 
@@ -489,10 +511,14 @@ export class MainThreadTask extends Disposable implements MainThreadTaskShape {
 							console.error(`Task System: can not convert task: ${JSON.stringify(dto.definition, undefined, 0)}. Task will be dropped`);
 						}
 					}
+					const processedExtension: IExtensionDescription = {
+						...value.extension,
+						extensionLocation: URI.revive(value.extension.extensionLocation)
+					};
 					return {
 						tasks,
-						extension: value.extension
-					} as ITaskSet;
+						extension: processedExtension
+					} satisfies ITaskSet;
 				});
 			},
 			resolveTask: (task: ConfiguringTask) => {

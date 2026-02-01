@@ -117,7 +117,7 @@ export interface TypeScriptServiceConfiguration {
 	readonly enableProjectDiagnostics: boolean;
 	readonly maxTsServerMemory: number;
 	readonly enablePromptUseWorkspaceTsdk: boolean;
-	readonly useVsCodeWatcher: boolean; // TODO@bpasero remove this setting eventually
+	readonly useVsCodeWatcher: boolean;
 	readonly watchOptions: Proto.WatchOptions | undefined;
 	readonly includePackageJsonAutoImports: 'auto' | 'on' | 'off' | undefined;
 	readonly enableTsServerTracing: boolean;
@@ -134,6 +134,10 @@ export function areServiceConfigurationsEqual(a: TypeScriptServiceConfiguration,
 export interface ServiceConfigurationProvider {
 	loadFromWorkspace(): TypeScriptServiceConfiguration;
 }
+
+const vscodeWatcherName = 'vscode';
+type vscodeWatcherName = typeof vscodeWatcherName;
+
 
 export abstract class BaseServiceConfigurationProvider implements ServiceConfigurationProvider {
 
@@ -223,7 +227,7 @@ export abstract class BaseServiceConfigurationProvider implements ServiceConfigu
 	}
 
 	private readUseVsCodeWatcher(configuration: vscode.WorkspaceConfiguration): boolean {
-		return configuration.get<boolean>('typescript.tsserver.experimental.useVsCodeWatcher', false);
+		return configuration.get<boolean>('typescript.tsserver.experimental.useVsCodeWatcher', true);
 	}
 
 	private readWatchOptions(configuration: vscode.WorkspaceConfiguration): Proto.WatchOptions | undefined {

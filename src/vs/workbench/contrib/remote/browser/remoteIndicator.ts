@@ -8,11 +8,11 @@ import { IRemoteAgentService, remoteConnectionLatencyMeasurer } from '../../../s
 import { RunOnceScheduler, retry } from '../../../../base/common/async.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
-import { MenuId, IMenuService, MenuItemAction, MenuRegistry, registerAction2, Action2, SubmenuItemAction } from '../../../../platform/actions/common/actions.js';
+import { MenuId, IMenuService, MenuItemAction, MenuRegistry, registerAction2, Action2, SubmenuItemAction, IMenu } from '../../../../platform/actions/common/actions.js';
 import { IWorkbenchContribution } from '../../../common/contributions.js';
 import { StatusbarAlignment, IStatusbarService, IStatusbarEntryAccessor, IStatusbarEntry } from '../../../services/statusbar/browser/statusbar.js';
 import { ILabelService } from '../../../../platform/label/common/label.js';
-import { ContextKeyExpr, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
+import { ContextKeyExpr, IContextKey, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
@@ -30,12 +30,10 @@ import { getCodiconAriaLabel } from '../../../../base/common/iconLabels.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { ReloadWindowAction } from '../../../browser/actions/windowActions.js';
 import { EXTENSION_INSTALL_SKIP_WALKTHROUGH_CONTEXT, IExtensionGalleryService, IExtensionManagementService } from '../../../../platform/extensionManagement/common/extensionManagement.js';
-import { IExtensionsViewPaneContainer, LIST_WORKSPACE_UNSUPPORTED_EXTENSIONS_COMMAND_ID, VIEWLET_ID } from '../../extensions/common/extensions.js';
+import { IExtensionsWorkbenchService, LIST_WORKSPACE_UNSUPPORTED_EXTENSIONS_COMMAND_ID } from '../../extensions/common/extensions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IMarkdownString, MarkdownString } from '../../../../base/common/htmlContent.js';
 import { RemoteNameContext, VirtualWorkspaceContext } from '../../../common/contextkeys.js';
-import { IPaneCompositePartService } from '../../../services/panecomposite/browser/panecomposite.js';
-import { ViewContainerLocation } from '../../../common/views.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { WorkbenchActionExecutedClassification, WorkbenchActionExecutedEvent } from '../../../../base/common/actions.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
@@ -84,18 +82,16 @@ export class RemoteStatusIndicator extends Disposable implements IWorkbenchContr
 
 	private remoteStatusEntry: IStatusbarEntryAccessor | undefined;
 
-	private readonly legacyIndicatorMenu = this._register(this.menuService.createMenu(MenuId.StatusBarWindowIndicatorMenu, this.contextKeyService)); // to be removed once migration completed
-	private readonly remoteIndicatorMenu = this._register(this.menuService.createMenu(MenuId.StatusBarRemoteIndicatorMenu, this.contextKeyService));
+	private readonly legacyIndicatorMenu: IMenu; // to be removed once migration completed
+	private readonly remoteIndicatorMenu: IMenu;
 
 	private remoteMenuActionsGroups: ActionGroup[] | undefined;
-
-	private readonly remoteAuthority = this.environmentService.remoteAuthority;
 
 	private virtualWorkspaceLocation: { scheme: string; authority: string } | undefined = undefined;
 
 	private connectionState: 'initializing' | 'connected' | 'reconnecting' | 'disconnected' | undefined = undefined;
 	private connectionToken: string | undefined = undefined;
-	private readonly connectionStateContextKey = new RawContextKey<'' | 'initializing' | 'disconnected' | 'connected'>('remoteConnectionState', '').bindTo(this.contextKeyService);
+	private readonly connectionStateContextKey: IContextKey<'' | 'initializing' | 'disconnected' | 'connected'>;
 
 	private networkState: 'online' | 'offline' | 'high-latency' | undefined = undefined;
 	private measureNetworkConnectionLatencyScheduler: RunOnceScheduler | undefined = undefined;
@@ -127,6 +123,10 @@ export class RemoteStatusIndicator extends Disposable implements IWorkbenchContr
 		return this._remoteExtensionMetadata;
 	}
 
+	private get remoteAuthority(): string | undefined {
+		return this.environmentService.remoteAuthority;
+	}
+
 	private remoteMetadataInitialized: boolean = false;
 	private readonly _onDidChangeEntries = this._register(new Emitter<void>());
 	private readonly onDidChangeEntries: Event<void> = this._onDidChangeEntries.event;
@@ -153,6 +153,11 @@ export class RemoteStatusIndicator extends Disposable implements IWorkbenchContr
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 	) {
 		super();
+
+		this.legacyIndicatorMenu = this._register(this.menuService.createMenu(MenuId.StatusBarWindowIndicatorMenu, this.contextKeyService)); // to be removed once migration completed
+		this.remoteIndicatorMenu = this._register(this.menuService.createMenu(MenuId.StatusBarRemoteIndicatorMenu, this.contextKeyService));
+
+		this.connectionStateContextKey = new RawContextKey<'' | 'initializing' | 'disconnected' | 'connected'>('remoteConnectionState', '').bindTo(this.contextKeyService);
 
 		// Set initial connection state
 		if (this.remoteAuthority) {
@@ -227,13 +232,8 @@ export class RemoteStatusIndicator extends Disposable implements IWorkbenchContr
 					});
 				}
 				run = (accessor: ServicesAccessor, input: string) => {
-					const paneCompositeService = accessor.get(IPaneCompositePartService);
-					return paneCompositeService.openPaneComposite(VIEWLET_ID, ViewContainerLocation.Sidebar, true).then(viewlet => {
-						if (viewlet) {
-							(viewlet?.getViewPaneContainer() as IExtensionsViewPaneContainer).search(`@recommended:remotes`);
-							viewlet.focus();
-						}
-					});
+					const extensionsWorkbenchService = accessor.get(IExtensionsWorkbenchService);
+					return extensionsWorkbenchService.openSearch(`@recommended:remotes`);
 				};
 			}));
 		}
@@ -566,7 +566,7 @@ export class RemoteStatusIndicator extends Disposable implements IWorkbenchContr
 		if (this.remoteStatusEntry) {
 			this.remoteStatusEntry.update(properties);
 		} else {
-			this.remoteStatusEntry = this.statusbarService.addEntry(properties, 'status.host', StatusbarAlignment.LEFT, Number.MAX_VALUE /* first entry */);
+			this.remoteStatusEntry = this.statusbarService.addEntry(properties, 'status.host', StatusbarAlignment.LEFT, Number.POSITIVE_INFINITY /* first entry */);
 		}
 	}
 
