@@ -165,7 +165,7 @@
     "event-stream": "4.0.1",
     "fancy-log": "^2.0.0",
     "file-loader": "^6.2.0",
-    "glob": "^9.0.1",
+    "glob": "^13.0.1",
     "gulp": "^5.0.1",
     "gulp-azure-storage": "^0.12.1",
     "gulp-bom": "^5.0.0",
