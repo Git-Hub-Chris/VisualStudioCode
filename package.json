@@ -153,7 +153,7 @@
     "cookie": "^1.1.1",
     "copy-webpack-plugin": "^13.0.1",
     "css-loader": "^7.1.2",
-    "cssnano": "^6.0.3",
+    "cssnano": "^7.1.2",
     "debounce": "^3.0.0",
     "deemon": "^1.13.6",
     "electron": "40.0.0",
