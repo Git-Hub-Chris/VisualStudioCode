@@ -21,7 +21,7 @@
     "@xterm/addon-progress": "^0.3.0-beta.148",
     "@xterm/addon-search": "^0.17.0-beta.109",
     "@xterm/addon-serialize": "^0.15.0-beta.151",
-    "@xterm/addon-unicode11": "^0.10.0-beta.109",
+    "@xterm/addon-unicode11": "^0.10.0-beta.151",
     "@xterm/addon-webgl": "^0.20.0-beta.150",
     "@xterm/headless": "^6.0.0",
     "@xterm/xterm": "^6.0.0",
