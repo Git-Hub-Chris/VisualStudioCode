@@ -113,7 +113,7 @@
     "vscode-regexpp": "^3.1.0",
     "vscode-textmate": "9.3.2",
     "yauzl": "^3.2.0",
-    "yazl": "^2.4.3"
+    "yazl": "^3.3.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",
@@ -136,7 +136,7 @@
     "@types/windows-foreground-love": "^0.3.1",
     "@types/winreg": "^1.2.36",
     "@types/yauzl": "^2.10.0",
-    "@types/yazl": "^2.4.2",
+    "@types/yazl": "^3.3.0",
     "@typescript-eslint/utils": "^8.53.1",
     "@vscode/gulp-electron": "^1.38.2",
     "@vscode/l10n-dev": "0.0.35",
