@@ -214,6 +214,32 @@ export class ContentHoverController extends Disposable implements IEditorContrib
 		this._reactToEditorMouseMove(mouseEvent);
 	}
 
+	private _shouldReactToEditorMouseMove(mouseEvent: IEditorMouseEvent): boolean {
+		if (this.shouldKeepOpenOnEditorMouseMoveOrLeave) {
+			return false;
+		}
+		this._mouseMoveEvent = mouseEvent;
+		if (this._contentWidget && (this._contentWidget.isFocused || this._contentWidget.isResizing || this._isMouseDown && this._contentWidget.isColorPickerVisible)) {
+			return false;
+		}
+		const hiddenAndDisabled = !this._contentWidget?.isVisible && !this._hoverSettings.enabled;
+		if (hiddenAndDisabled) {
+			return false;
+		}
+		const sticky = this._hoverSettings.sticky;
+		if (sticky && this._contentWidget?.isVisibleFromKeyboard) {
+			// Sticky mode is on and the hover has been shown via keyboard
+			// so moving the mouse has no effect
+			return false;
+		}
+		const shouldNotRecomputeCurrentHoverWidget = this._shouldNotRecomputeCurrentHoverWidget(mouseEvent);
+		if (shouldNotRecomputeCurrentHoverWidget) {
+			this._reactToEditorMouseMoveRunner.cancel();
+			return false;
+		}
+		return true;
+	}
+
 	private _shouldRescheduleHoverComputation(): boolean {
 		const hidingDelay = this._hoverSettings.hidingDelay;
 		const isContentHoverWidgetVisible = this._contentWidget?.isVisible ?? false;
@@ -240,7 +266,8 @@ export class ContentHoverController extends Disposable implements IEditorContrib
 			return;
 		}
 		const isPotentialKeyboardShortcut = this._isPotentialKeyboardShortcut(e);
-		if (isPotentialKeyboardShortcut) {
+		const isModifierKeyPressed = this._isModifierKeyPressed(e);
+		if (isPotentialKeyboardShortcut || isModifierKeyPressed) {
 			return;
 		}
 		if (this._contentWidget.isFocused && e.keyCode === KeyCode.Tab) {
@@ -261,6 +288,13 @@ export class ContentHoverController extends Disposable implements IEditorContrib
 				|| resolvedKeyboardEvent.commandId === DECREASE_HOVER_VERBOSITY_ACTION_ID)
 			&& this._contentWidget.isVisible;
 		return moreChordsAreNeeded || isHoverAction;
+	}
+
+	private _isModifierKeyPressed(e: IKeyboardEvent): boolean {
+		return e.keyCode === KeyCode.Ctrl
+			|| e.keyCode === KeyCode.Alt
+			|| e.keyCode === KeyCode.Meta
+			|| e.keyCode === KeyCode.Shift;
 	}
 
 	public hideContentHover(): void {

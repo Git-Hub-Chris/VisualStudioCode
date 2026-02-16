@@ -35,6 +35,7 @@ import {
 } from './errors.js';
 import { convertSubcommand, initializeDefault } from '../fig-autocomplete-shared';
 import { exec, type ExecException } from 'child_process';
+import type { IFigExecuteExternals } from '../execute';
 
 type ArgArrayState = {
 	args: Array<Internal.Arg> | null;
@@ -89,6 +90,7 @@ export type ArgumentParserState = {
 	// Used to exclude subcommand suggestions after user has entered a subcommand arg.
 	haveEnteredSubcommandArgs: boolean;
 	isEndOfOptions: boolean;
+	fileExtensions?: string[];
 };
 
 // Result with derived completionObj/currentArg from cached state.
@@ -100,6 +102,7 @@ export type ArgumentParserResult = {
 	commandIndex: number;
 	suggestionFlags: SuggestionFlags;
 	annotations: Annotation[];
+	fileExtensions?: string[];
 };
 
 export const createArgState = (args?: Internal.Arg[]): ArgArrayState => {
@@ -605,8 +608,15 @@ const historyExecuteShellCommand: Fig.ExecuteCommandFunction = async () => {
 	);
 };
 
-const getExecuteShellCommandFunction = (isParsingHistory = false) =>
-	isParsingHistory ? historyExecuteShellCommand : () => { throw new Error('Not implemented'); };
+function getExecuteShellCommandFunction(
+	isParsingHistory = false,
+	executeExternals: IFigExecuteExternals,
+) {
+	if (isParsingHistory) {
+		return historyExecuteShellCommand;
+	}
+	return executeExternals.executeCommand;
+}
 
 // const getGenerateSpecCacheKey = (
 // 	completionObj: Internal.Subcommand,
@@ -749,6 +759,7 @@ export const getResultFromState = (
 		currentArg,
 		searchTerm,
 		suggestionFlags,
+		fileExtensions: state.fileExtensions,
 	};
 };
 
@@ -790,13 +801,14 @@ const parseArgumentsCached = async (
 	command: Command,
 	context: Fig.ShellContext,
 	spec: Fig.Spec,
+	executeExternals: IFigExecuteExternals,
 	// authClient: AuthClient,
 	isParsingHistory?: boolean,
 	startIndex = 0,
 	// localconsole: console.console = console,
 ): Promise<ArgumentParserState> => {
 	// Route to cp.exec instead, we don't need to deal with ipc
-	const exec = getExecuteShellCommandFunction(isParsingHistory);
+	const exec = getExecuteShellCommandFunction(isParsingHistory, executeExternals);
 
 	let currentCommand = command;
 	let tokens = currentCommand.tokens.slice(startIndex);
@@ -1036,7 +1048,15 @@ const parseArgumentsCached = async (
 	// } else {
 	// 	parseArgumentsCache.set(cacheKey, state);
 	// }
-
+	if ('args' in spec) {
+		for (const arg of Array.isArray(spec.args) ? spec.args : [spec.args]) {
+			for (const generator of Array.isArray(arg?.generators) ? arg.generators : [arg?.generators]) {
+				if (generator?.filepathOptions?.extensions) {
+					state.fileExtensions = generator.filepathOptions.extensions;
+				}
+			}
+		}
+	}
 	return state;
 };
 
@@ -1124,6 +1144,7 @@ export const parseArguments = async (
 	command: Command | null,
 	context: Fig.ShellContext,
 	spec: Fig.Spec,
+	executeExternals: IFigExecuteExternals,
 	// authClient: AuthClient,
 	isParsingHistory = false,
 	// localconsole: console.console = console,
@@ -1157,6 +1178,7 @@ export const parseArguments = async (
 		context,
 		// authClient,
 		spec,
+		executeExternals,
 		isParsingHistory,
 		0,
 	);

@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { app, BrowserWindow, protocol, session, Session, systemPreferences, WebFrameMain } from 'electron';
+import { app, BrowserWindow, protocol, session, Session, systemPreferences, WebFrameMain, Notification } from 'electron';
 import { addUNCHostToAllowlist, disableUNCAccessRestrictions } from '../../base/node/unc.js';
 import { validatedIpcMain } from '../../base/parts/ipc/electron-main/ipcMain.js';
 import { hostname, release } from 'os';
@@ -71,7 +71,7 @@ import { ITelemetryService, TelemetryLevel } from '../../platform/telemetry/comm
 import { TelemetryAppenderClient } from '../../platform/telemetry/common/telemetryIpc.js';
 import { ITelemetryServiceConfig, TelemetryService } from '../../platform/telemetry/common/telemetryService.js';
 import { getPiiPathsFromEnvironment, getTelemetryLevel, isInternalTelemetry, NullTelemetryService, supportsTelemetry } from '../../platform/telemetry/common/telemetryUtils.js';
-import { IUpdateService } from '../../platform/update/common/update.js';
+import { IUpdateService, StateType } from '../../platform/update/common/update.js';
 import { UpdateChannel } from '../../platform/update/common/updateIpc.js';
 import { DarwinUpdateService } from '../../platform/update/electron-main/updateService.darwin.js';
 import { LinuxUpdateService } from '../../platform/update/electron-main/updateService.linux.js';
@@ -83,7 +83,7 @@ import { NativeURLService } from '../../platform/url/common/urlService.js';
 import { ElectronURLListener } from '../../platform/url/electron-main/electronUrlListener.js';
 import { IWebviewManagerService } from '../../platform/webview/common/webviewManagerService.js';
 import { WebviewMainService } from '../../platform/webview/electron-main/webviewMainService.js';
-import { isFolderToOpen, isWorkspaceToOpen, IWindowOpenable, TitlebarStyle, overrideDefaultTitlebarStyle } from '../../platform/window/common/window.js';
+import { isFolderToOpen, isWorkspaceToOpen, IWindowOpenable } from '../../platform/window/common/window.js';
 import { IWindowsMainService, OpenContext } from '../../platform/windows/electron-main/windows.js';
 import { ICodeWindow } from '../../platform/window/electron-main/window.js';
 import { WindowsMainService } from '../../platform/windows/electron-main/windowsMainService.js';
@@ -118,6 +118,10 @@ import { IAuxiliaryWindowsMainService } from '../../platform/auxiliaryWindow/ele
 import { AuxiliaryWindowsMainService } from '../../platform/auxiliaryWindow/electron-main/auxiliaryWindowsMainService.js';
 import { normalizeNFC } from '../../base/common/normalization.js';
 import { ICSSDevelopmentService, CSSDevelopmentService } from '../../platform/cssDev/node/cssDevService.js';
+import { INativeMcpDiscoveryHelperService, NativeMcpDiscoveryHelperChannelName } from '../../platform/mcp/common/nativeMcpDiscoveryHelper.js';
+import { NativeMcpDiscoveryHelperService } from '../../platform/mcp/node/nativeMcpDiscoveryHelperService.js';
+import { IWebContentExtractorService } from '../../platform/webContentExtractor/common/webContentExtractor.js';
+import { NativeWebContentExtractorService } from '../../platform/webContentExtractor/electron-main/webContentExtractorService.js';
 
 /**
  * The main VS Code application. There will only ever be one instance,
@@ -599,12 +603,92 @@ export class CodeApplication extends Disposable {
 		// Services
 		const appInstantiationService = await this.initServices(machineId, sqmId, devDeviceId, sharedProcessReady);
 
-		// Linux (stable only): custom title default style override
-		if (isLinux && this.productService.quality === 'stable') {
-			const titleBarDefaultStyleOverride = this.stateService.getItem('window.titleBarStyleOverride');
-			if (titleBarDefaultStyleOverride === TitlebarStyle.CUSTOM) {
-				overrideDefaultTitlebarStyle(titleBarDefaultStyleOverride);
-			}
+		// Update mode: block
+		if (this.configurationService.getValue('update.mode') === 'block') {
+			await appInstantiationService.invokeFunction(async accessor => {
+				const updateService = accessor.get(IUpdateService);
+
+				const logUpdate = () => {
+					switch (updateService.state.type) {
+						case StateType.Uninitialized:
+							this.logService.info('Update State: Uninitialized');
+							break;
+						case StateType.Idle:
+							this.logService.info('Update State: Idle');
+							break;
+						case StateType.Disabled:
+							this.logService.info('Update State: Disabled');
+							break;
+						case StateType.CheckingForUpdates:
+							this.logService.info('Update State: CheckingForUpdates');
+							break;
+						case StateType.AvailableForDownload:
+							this.logService.info('Update State: AvailableForDownload');
+							break;
+						case StateType.Downloading:
+							this.logService.info('Update State: Downloading');
+							break;
+						case StateType.Downloaded:
+							this.logService.info('Update State: Downloaded');
+							break;
+						case StateType.Updating:
+							this.logService.info('Update State: Updating');
+							break;
+						case StateType.Ready:
+							this.logService.info('Update State: Ready');
+							break;
+					}
+				};
+
+				logUpdate();
+				await updateService.initialize();
+				logUpdate();
+
+				setInterval(() => logUpdate(), 100);
+
+				let notification = new Notification({
+					title: 'Checking for updates...',
+					timeoutType: 'never'
+				});
+				notification.show();
+
+				app.setBadgeCount();
+
+				await updateService.checkForUpdates(true);
+				await this.awaitUpdateState(updateService, StateType.Ready, StateType.Idle);
+				notification.close();
+
+				if (updateService.state.type === StateType.Ready) {
+					// this.logService.info('Before downloadUpdate()');
+					// notification = new Notification({
+					// 	title: 'Downloading update...',
+					// 	timeoutType: 'never'
+					// });
+					// notification.show();
+					// await updateService.downloadUpdate();
+					// this.logService.info('After downloadUpdate()');
+
+					// notification.close();
+					// notification = new Notification({
+					// 	title: 'Applying update...',
+					// 	timeoutType: 'never'
+					// });
+					// notification.show();
+					// this.logService.info('Before applyUpdate()');
+					// await updateService.applyUpdate();
+					// this.logService.info('After applyUpdate()');
+
+					// notification.close();
+					notification = new Notification({
+						title: 'Restarting...',
+						timeoutType: 'never'
+					});
+					notification.show();
+					await updateService.quitAndInstall(true);
+
+					return;
+				}
+			});
 		}
 
 		// Auth Handler
@@ -646,6 +730,17 @@ export class CodeApplication extends Disposable {
 			}, 2500));
 		}, 2500));
 		eventuallyPhaseScheduler.schedule();
+	}
+
+	private awaitUpdateState(updateService: IUpdateService, ...types: StateType[]): Promise<void> {
+		return new Promise<void>(resolve => {
+			const disposable = this._register(updateService.onStateChange(e => {
+				if (types.includes(e.type)) {
+					disposable.dispose();
+					resolve();
+				}
+			}));
+		});
 	}
 
 	private async setupProtocolUrlHandlers(accessor: ServicesAccessor, mainProcessElectronServer: ElectronIPCServer): Promise<IInitialProtocolUrls | undefined> {
@@ -1054,6 +1149,9 @@ export class CodeApplication extends Disposable {
 		// Native Host
 		services.set(INativeHostMainService, new SyncDescriptor(NativeHostMainService, undefined, false /* proxied to other processes */));
 
+		// Web Contents Extractor
+		services.set(IWebContentExtractorService, new SyncDescriptor(NativeWebContentExtractorService, undefined, false /* proxied to other processes */));
+
 		// Webview Manager
 		services.set(IWebviewManagerService, new SyncDescriptor(WebviewMainService));
 
@@ -1127,6 +1225,10 @@ export class CodeApplication extends Disposable {
 		// Proxy Auth
 		services.set(IProxyAuthService, new SyncDescriptor(ProxyAuthService));
 
+		// MCP
+		services.set(INativeMcpDiscoveryHelperService, new SyncDescriptor(NativeMcpDiscoveryHelperService));
+
+
 		// Dev Only: CSS service (for ESM)
 		services.set(ICSSDevelopmentService, new SyncDescriptor(CSSDevelopmentService, undefined, true));
 
@@ -1197,6 +1299,10 @@ export class CodeApplication extends Disposable {
 		mainProcessElectronServer.registerChannel('nativeHost', nativeHostChannel);
 		sharedProcessClient.then(client => client.registerChannel('nativeHost', nativeHostChannel));
 
+		// Web Content Extractor
+		const webContentExtractorChannel = ProxyChannel.fromService(accessor.get(IWebContentExtractorService), disposables);
+		mainProcessElectronServer.registerChannel('webContentExtractor', webContentExtractorChannel);
+
 		// Workspaces
 		const workspacesChannel = ProxyChannel.fromService(accessor.get(IWorkspacesService), disposables);
 		mainProcessElectronServer.registerChannel('workspaces', workspacesChannel);
@@ -1229,6 +1335,10 @@ export class CodeApplication extends Disposable {
 		// External Terminal
 		const externalTerminalChannel = ProxyChannel.fromService(accessor.get(IExternalTerminalMainService), disposables);
 		mainProcessElectronServer.registerChannel('externalTerminal', externalTerminalChannel);
+
+		// MCP
+		const mcpDiscoveryChannel = ProxyChannel.fromService(accessor.get(INativeMcpDiscoveryHelperService), disposables);
+		mainProcessElectronServer.registerChannel(NativeMcpDiscoveryHelperChannelName, mcpDiscoveryChannel);
 
 		// Logger
 		const loggerChannel = new LoggerChannel(accessor.get(ILoggerMainService),);
