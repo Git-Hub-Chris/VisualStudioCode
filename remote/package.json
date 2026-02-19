@@ -20,7 +20,7 @@
     "@xterm/addon-ligatures": "^0.11.0-beta.165",
     "@xterm/addon-progress": "^0.3.0-beta.161",
     "@xterm/addon-search": "^0.17.0-beta.161",
-    "@xterm/addon-serialize": "^0.15.0-beta.164",
+    "@xterm/addon-serialize": "^0.15.0-beta.165",
     "@xterm/addon-unicode11": "^0.10.0-beta.161",
     "@xterm/addon-webgl": "^0.20.0-beta.164",
     "@xterm/headless": "^6.0.0",
