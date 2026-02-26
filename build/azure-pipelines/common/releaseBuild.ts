@@ -67,7 +67,9 @@ async function main(force: boolean): Promise<void> {
 
 const [, , force] = process.argv;
 
-console.log(process.argv);
+if (process.env['RELEASE_BUILD_DEBUG']) {
+	console.log(process.argv);
+}
 
 main(/^true$/i.test(force)).then(() => {
 	console.log('Build successfully released');
