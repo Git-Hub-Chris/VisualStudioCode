@@ -67,7 +67,7 @@ function main() {
 				log('Inheriting OSS built-in extensions', builtInExtensions.map(e => e.name));
 			}
 
-			const result = { webBuiltInExtensions: oss.webBuiltInExtensions, ...distro, builtInExtensions };
+			const result = { ...distro, webBuiltInExtensions: oss.webBuiltInExtensions, builtInExtensions };
 			fs.writeFileSync(ossPath, JSON.stringify(result, null, '\t'), 'utf8');
 		} else {
 			fs.cpSync(distroPath, ossPath, { force: true, recursive: true });
