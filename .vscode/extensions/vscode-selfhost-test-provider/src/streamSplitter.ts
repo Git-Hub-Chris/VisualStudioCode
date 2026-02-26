@@ -16,12 +16,12 @@ import { Transform } from 'stream';
 export class StreamSplitter extends Transform {
 	private buffer: Buffer | undefined;
 	private readonly splitter: number;
-	private readonly spitterLen: number;
+	private readonly splitterLen: number;
 
 	constructor(splitter: number) {
 		super();
 		this.splitter = splitter;
-		this.spitterLen = 1;
+		this.splitterLen = 1;
 	}
 
 	override _transform(
@@ -42,8 +42,8 @@ export class StreamSplitter extends Transform {
 				break;
 			}
 
-			this.push(this.buffer.slice(offset, index + this.spitterLen));
-			offset = index + this.spitterLen;
+			this.push(this.buffer.slice(offset, index + this.splitterLen));
+			offset = index + this.splitterLen;
 		}
 
 		this.buffer = offset === this.buffer.length ? undefined : this.buffer.slice(offset);
