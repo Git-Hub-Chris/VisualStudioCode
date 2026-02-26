@@ -21,7 +21,7 @@ export class StreamSplitter extends Transform {
 	constructor(splitter: number) {
 		super();
 		this.splitter = splitter;
-		this.splitterLength = 1;
+		this.spitterLen = 1;
 	}
 
 	override _transform(
