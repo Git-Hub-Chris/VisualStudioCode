@@ -18,14 +18,10 @@ export class StreamSplitter extends Transform {
 	private readonly splitter: number;
 	private readonly spitterLen: number;
 
-	constructor(splitter: string | number | Buffer) {
+	constructor(splitter: number) {
 		super();
-		if (typeof splitter === 'number') {
-			this.splitter = splitter;
-			this.spitterLen = 1;
-		} else {
-			throw new Error('not implemented here');
-		}
+		this.splitter = splitter;
+		this.spitterLen = 1;
 	}
 
 	override _transform(
