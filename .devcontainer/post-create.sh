@@ -1,4 +1,4 @@
 #!/bin/sh
 
-npm i
+npm ci
 npm run electron
