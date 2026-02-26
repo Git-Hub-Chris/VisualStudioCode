@@ -80,8 +80,8 @@ steps:
         VSCODE_CLI_ARTIFACT: vscode_cli_alpine_x64_cli
         VSCODE_QUALITY: ${{ parameters.VSCODE_QUALITY }}
         VSCODE_CLI_ENV:
-          CXX_aarch64-unknown-linux-musl: musl-g++
-          CC_aarch64-unknown-linux-musl: musl-gcc
+          CXX_x86_64-unknown-linux-musl: musl-g++
+          CC_x86_64-unknown-linux-musl: musl-gcc
           OPENSSL_LIB_DIR: $(Build.ArtifactStagingDirectory)/openssl/x64-linux-musl/lib
           OPENSSL_INCLUDE_DIR: $(Build.ArtifactStagingDirectory)/openssl/x64-linux-musl/include
           OPENSSL_STATIC: "1"
