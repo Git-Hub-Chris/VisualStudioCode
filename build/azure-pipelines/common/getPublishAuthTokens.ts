@@ -25,7 +25,8 @@ export async function getAccessToken(endpoint: string, tenantId: string, clientI
 		}
 	});
 
-	const result = await app.acquireTokenByClientCredential({ scopes: [`${endpoint}.default`] });
+	const normalizedEndpoint = endpoint.replace(/\/+$/, '');
+	const result = await app.acquireTokenByClientCredential({ scopes: [`${normalizedEndpoint}/.default`] });
 
 	if (!result) {
 		throw new Error('Failed to get access token');
