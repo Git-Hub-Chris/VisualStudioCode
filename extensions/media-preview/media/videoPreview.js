@@ -5,6 +5,18 @@
 // @ts-check
 "use strict";
 
+// Returns true if src is a safe URL for video.src
+function isSafeVideoSrc(src) {
+	try {
+		const allowedProtocols = ['http:', 'https:', 'blob:', 'filesystem:', ''];
+		// If relative URL, use document.baseURI as base
+		const url = new URL(src, document.baseURI);
+		return allowedProtocols.includes(url.protocol);
+	} catch {
+		return false;
+	}
+}
+
 (function () {
 	// @ts-ignore
 	const vscode = acquireVsCodeApi();
@@ -28,11 +40,14 @@
 
 	// Elements
 	const video = document.createElement('video');
-	if (settings.src !== null) {
+	if (settings.src !== null && isSafeVideoSrc(settings.src)) {
 		video.src = settings.src;
 	}
 	video.playsInline = true;
 	video.controls = true;
+	video.autoplay = settings.autoplay;
+	video.muted = settings.autoplay;
+	video.loop = settings.loop;
 
 	function onLoaded() {
 		if (hasLoadedMedia) {

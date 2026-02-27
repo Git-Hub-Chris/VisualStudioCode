@@ -2,7 +2,6 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-declare let self: any;
 
 import * as l10n from '@vscode/l10n';
 
@@ -23,9 +22,9 @@ const messageHandler = async (e: any) => {
 		} else {
 			l10nLog.push(`l10n: No bundle configured.`);
 		}
-		await import('./jsonServerMain');
+		await import('./jsonServerMain.js');
 		if (self.onmessage !== messageHandler) {
-			pendingMessages.forEach(self.onmessage);
+			pendingMessages.forEach(msg => self.onmessage?.(msg));
 			pendingMessages.length = 0;
 		}
 		l10nLog.forEach(console.log);

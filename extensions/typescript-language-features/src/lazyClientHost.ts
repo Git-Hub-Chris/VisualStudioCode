@@ -11,14 +11,14 @@ import { ILogDirectoryProvider } from './tsServer/logDirectoryProvider';
 import { TsServerProcessFactory } from './tsServer/server';
 import { ITypeScriptVersionProvider } from './tsServer/versionProvider';
 import TypeScriptServiceClientHost from './typeScriptServiceClientHost';
-import { ActiveJsTsEditorTracker } from './utils/activeJsTsEditorTracker';
-import { ServiceConfigurationProvider } from './utils/configuration';
-import * as fileSchemes from './utils/fileSchemes';
-import { standardLanguageDescriptions } from './utils/languageDescription';
-import { Lazy, lazy } from './utils/lazy';
-import { Logger } from './utils/logger';
-import ManagedFileContextManager from './utils/managedFileContext';
-import { PluginManager } from './utils/plugins';
+import { ActiveJsTsEditorTracker } from './ui/activeJsTsEditorTracker';
+import ManagedFileContextManager from './ui/managedFileContext';
+import { ServiceConfigurationProvider } from './configuration/configuration';
+import * as fileSchemes from './configuration/fileSchemes';
+import { standardLanguageDescriptions, isJsConfigOrTsConfigFileName } from './configuration/languageDescription';
+import { Lazy } from './utils/lazy';
+import { Logger } from './logging/logger';
+import { PluginManager } from './tsServer/plugins';
 
 export function createLazyClientHost(
 	context: vscode.ExtensionContext,
@@ -37,7 +37,7 @@ export function createLazyClientHost(
 	},
 	onCompletionAccepted: (item: vscode.CompletionItem) => void,
 ): Lazy<TypeScriptServiceClientHost> {
-	return lazy(() => {
+	return new Lazy(() => {
 		const clientHost = new TypeScriptServiceClientHost(
 			standardLanguageDescriptions,
 			context,
@@ -73,9 +73,7 @@ export function lazilyActivateClient(
 				// Force activation
 				void lazyClientHost.value;
 
-				disposables.push(new ManagedFileContextManager(activeJsTsEditorTracker, resource => {
-					return lazyClientHost.value.serviceClient.toPath(resource);
-				}));
+				disposables.push(new ManagedFileContextManager(activeJsTsEditorTracker));
 			});
 
 			return true;
@@ -99,6 +97,6 @@ function isSupportedDocument(
 	supportedLanguage: readonly string[],
 	document: vscode.TextDocument
 ): boolean {
-	return supportedLanguage.indexOf(document.languageId) >= 0
+	return (supportedLanguage.indexOf(document.languageId) >= 0 || isJsConfigOrTsConfigFileName(document.fileName))
 		&& !fileSchemes.disabledSchemes.has(document.uri.scheme);
 }

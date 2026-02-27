@@ -2,15 +2,18 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-import * as assert from 'assert';
-import { toSlashes } from 'vs/base/common/extpath';
-import { posix, win32 } from 'vs/base/common/path';
-import { isWindows } from 'vs/base/common/platform';
-import { addTrailingPathSeparator, basename, dirname, distinctParents, extUri, extUriIgnorePathCase, hasTrailingPathSeparator, isAbsolutePath, joinPath, normalizePath, relativePath, removeTrailingPathSeparator, resolvePath } from 'vs/base/common/resources';
-import { URI } from 'vs/base/common/uri';
+import assert from 'assert';
+import { toSlashes } from '../../common/extpath.js';
+import { posix, win32 } from '../../common/path.js';
+import { isWindows } from '../../common/platform.js';
+import { addTrailingPathSeparator, basename, dirname, distinctParents, extUri, extUriIgnorePathCase, hasTrailingPathSeparator, isAbsolutePath, joinPath, normalizePath, relativePath, removeTrailingPathSeparator, resolvePath } from '../../common/resources.js';
+import { URI } from '../../common/uri.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from './utils.js';
 
 
 suite('Resources', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('distinctParents', () => {
 
@@ -273,6 +276,8 @@ suite('Resources', () => {
 		assertRelativePath(URI.parse('foo://a/foo'), URI.parse('foo://A/FOO/BAR/GOO'), 'BAR/GOO', false, true);
 		assertRelativePath(URI.parse('foo://a/foo/xoo'), URI.parse('foo://A/FOO/BAR/GOO'), '../BAR/GOO', false, true);
 		assertRelativePath(URI.parse('foo:///c:/a/foo'), URI.parse('foo:///C:/a/foo/xoo/'), 'xoo', false, true);
+		assertRelativePath(URI.parse('foo:///c:/a/foo'), URI.parse('foo:///D:/a/foo/xoo/'), undefined, false, true);
+		assertRelativePath(URI.parse('file:///c:/a/foo'), URI.parse('file:///D:/a/foo/xoo/'), undefined, false, true);
 
 		if (isWindows) {
 			assertRelativePath(URI.file('c:\\foo\\bar'), URI.file('c:\\foo\\bar'), '');

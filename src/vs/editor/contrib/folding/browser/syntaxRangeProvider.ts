@@ -3,13 +3,13 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { CancellationToken } from 'vs/base/common/cancellation';
-import { onUnexpectedExternalError } from 'vs/base/common/errors';
-import { DisposableStore } from 'vs/base/common/lifecycle';
-import { ITextModel } from 'vs/editor/common/model';
-import { FoldingContext, FoldingRange, FoldingRangeProvider } from 'vs/editor/common/languages';
-import { FoldingLimitReporter, RangeProvider } from './folding';
-import { FoldingRegions, MAX_LINE_NUMBER } from './foldingRanges';
+import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { onUnexpectedExternalError } from '../../../../base/common/errors.js';
+import { DisposableStore } from '../../../../base/common/lifecycle.js';
+import { ITextModel } from '../../../common/model.js';
+import { FoldingContext, FoldingRange, FoldingRangeProvider } from '../../../common/languages.js';
+import { FoldingLimitReporter, RangeProvider } from './folding.js';
+import { FoldingRegions, MAX_LINE_NUMBER } from './foldingRanges.js';
 
 export interface IFoldingRangeData extends FoldingRange {
 	rank: number;
@@ -122,7 +122,7 @@ class RangesCollector {
 	public toIndentRanges() {
 		const limit = this._foldingRangesLimit.limit;
 		if (this._length <= limit) {
-			this._foldingRangesLimit.report({ limited: false, computed: this._length });
+			this._foldingRangesLimit.update(this._length, false);
 
 			const startIndexes = new Uint32Array(this._length);
 			const endIndexes = new Uint32Array(this._length);
@@ -132,7 +132,7 @@ class RangesCollector {
 			}
 			return new FoldingRegions(startIndexes, endIndexes, this._types);
 		} else {
-			this._foldingRangesLimit.report({ limited: limit, computed: this._length });
+			this._foldingRangesLimit.update(this._length, limit);
 
 			let entries = 0;
 			let maxLevel = this._nestingLevelCounts.length;

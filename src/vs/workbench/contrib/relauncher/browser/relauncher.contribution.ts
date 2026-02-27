@@ -3,83 +3,108 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IDisposable, dispose, Disposable, toDisposable } from 'vs/base/common/lifecycle';
-import { IWorkbenchContributionsRegistry, IWorkbenchContribution, Extensions as WorkbenchExtensions } from 'vs/workbench/common/contributions';
-import { Registry } from 'vs/platform/registry/common/platform';
-import { IWindowsConfiguration, IWindowSettings } from 'vs/platform/window/common/window';
-import { IHostService } from 'vs/workbench/services/host/browser/host';
-import { ConfigurationTarget, IConfigurationChangeEvent, IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { localize } from 'vs/nls';
-import { IWorkspaceContextService, WorkbenchState } from 'vs/platform/workspace/common/workspace';
-import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
-import { RunOnceScheduler } from 'vs/base/common/async';
-import { URI } from 'vs/base/common/uri';
-import { isEqual } from 'vs/base/common/resources';
-import { isMacintosh, isNative, isLinux, isWindows } from 'vs/base/common/platform';
-import { LifecyclePhase } from 'vs/workbench/services/lifecycle/common/lifecycle';
-import { IDialogService } from 'vs/platform/dialogs/common/dialogs';
-import { IWorkbenchEnvironmentService } from 'vs/workbench/services/environment/common/environmentService';
-import { IProductService } from 'vs/platform/product/common/productService';
+import { IDisposable, dispose, Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { IWorkbenchContributionsRegistry, IWorkbenchContribution, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
+import { Registry } from '../../../../platform/registry/common/platform.js';
+import { IWindowsConfiguration, IWindowSettings, TitleBarSetting, TitlebarStyle } from '../../../../platform/window/common/window.js';
+import { IHostService } from '../../../services/host/browser/host.js';
+import { ConfigurationTarget, IConfigurationChangeEvent, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { localize } from '../../../../nls.js';
+import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
+import { IExtensionService } from '../../../services/extensions/common/extensions.js';
+import { RunOnceScheduler } from '../../../../base/common/async.js';
+import { URI } from '../../../../base/common/uri.js';
+import { isEqual } from '../../../../base/common/resources.js';
+import { isMacintosh, isNative, isLinux } from '../../../../base/common/platform.js';
+import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
+import { IProductService } from '../../../../platform/product/common/productService.js';
+import { IUserDataSyncEnablementService, IUserDataSyncService, SyncStatus } from '../../../../platform/userDataSync/common/userDataSync.js';
+import { IUserDataSyncWorkbenchService } from '../../../services/userDataSync/common/userDataSync.js';
+import { ChatConfiguration } from '../../chat/common/constants.js';
 
 interface IConfiguration extends IWindowsConfiguration {
 	update?: { mode?: string };
 	debug?: { console?: { wordWrap?: boolean } };
 	editor?: { accessibilitySupport?: 'on' | 'off' | 'auto' };
-	security?: { workspace?: { trust?: { enabled?: boolean } } };
-	window: IWindowSettings & { experimental?: { windowControlsOverlay?: { enabled?: boolean }; useSandbox?: boolean } };
+	security?: { workspace?: { trust?: { enabled?: boolean } }; restrictUNCAccess?: boolean };
+	window: IWindowSettings;
 	workbench?: { enableExperiments?: boolean };
-	extensions?: { experimental?: { useUtilityProcess?: boolean } };
+	telemetry?: { disableFeedback?: boolean };
 	_extensionsGallery?: { enablePPE?: boolean };
+	accessibility?: { verbosity?: { debug?: boolean } };
+	chat?: { experimental?: { unifiedChatView?: boolean } };
 }
 
 export class SettingsChangeRelauncher extends Disposable implements IWorkbenchContribution {
 
 	private static SETTINGS = [
-		'window.titleBarStyle',
-		'window.experimental.windowControlsOverlay.enabled',
-		'window.experimental.useSandbox',
-		'extensions.experimental.useUtilityProcess',
+		TitleBarSetting.TITLE_BAR_STYLE,
 		'window.nativeTabs',
 		'window.nativeFullScreen',
 		'window.clickThroughInactive',
+		'window.controlsStyle',
 		'update.mode',
 		'editor.accessibilitySupport',
 		'security.workspace.trust.enabled',
 		'workbench.enableExperiments',
-		'_extensionsGallery.enablePPE'
+		'_extensionsGallery.enablePPE',
+		'security.restrictUNCAccess',
+		'accessibility.verbosity.debug',
+		ChatConfiguration.UnifiedChatView,
+		'telemetry.disableFeedback'
 	];
 
-	private readonly titleBarStyle = new ChangeObserver<'native' | 'custom'>('string');
-	private readonly windowControlsOverlayEnabled = new ChangeObserver('boolean');
-	private readonly windowSandboxEnabled = new ChangeObserver('boolean');
-	private readonly extensionHostUtilityProcessEnabled = new ChangeObserver('boolean');
+	private readonly titleBarStyle = new ChangeObserver<TitlebarStyle>('string');
 	private readonly nativeTabs = new ChangeObserver('boolean');
 	private readonly nativeFullScreen = new ChangeObserver('boolean');
 	private readonly clickThroughInactive = new ChangeObserver('boolean');
+	private readonly controlsStyle = new ChangeObserver('string');
 	private readonly updateMode = new ChangeObserver('string');
 	private accessibilitySupport: 'on' | 'off' | 'auto' | undefined;
 	private readonly workspaceTrustEnabled = new ChangeObserver('boolean');
 	private readonly experimentsEnabled = new ChangeObserver('boolean');
 	private readonly enablePPEExtensionsGallery = new ChangeObserver('boolean');
+	private readonly restrictUNCAccess = new ChangeObserver('boolean');
+	private readonly accessibilityVerbosityDebug = new ChangeObserver('boolean');
+	private readonly unifiedChatView = new ChangeObserver('boolean');
+	private readonly telemetryDisableFeedback = new ChangeObserver('boolean');
 
 	constructor(
 		@IHostService private readonly hostService: IHostService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IUserDataSyncService private readonly userDataSyncService: IUserDataSyncService,
+		@IUserDataSyncEnablementService private readonly userDataSyncEnablementService: IUserDataSyncEnablementService,
+		@IUserDataSyncWorkbenchService userDataSyncWorkbenchService: IUserDataSyncWorkbenchService,
 		@IProductService private readonly productService: IProductService,
 		@IDialogService private readonly dialogService: IDialogService
 	) {
 		super();
 
-		this.onConfigurationChange(undefined);
+		this.update(false);
 		this._register(this.configurationService.onDidChangeConfiguration(e => this.onConfigurationChange(e)));
+		this._register(userDataSyncWorkbenchService.onDidTurnOnSync(e => this.update(true)));
 	}
 
-	private onConfigurationChange(e: IConfigurationChangeEvent | undefined): void {
+	private onConfigurationChange(e: IConfigurationChangeEvent): void {
 		if (e && !SettingsChangeRelauncher.SETTINGS.some(key => e.affectsConfiguration(key))) {
 			return;
 		}
 
+		// Skip if turning on sync is in progress
+		if (this.isTurningOnSyncInProgress()) {
+			return;
+		}
 
+		this.update(e.source !== ConfigurationTarget.DEFAULT /* do not ask to relaunch if defaults changed */);
+	}
+
+	private isTurningOnSyncInProgress(): boolean {
+		return !this.userDataSyncEnablementService.isEnabled() && this.userDataSyncService.status === SyncStatus.Syncing;
+	}
+
+	private update(askToRelaunch: boolean): void {
 		let changed = false;
 
 		function processChanged(didChange: boolean) {
@@ -90,16 +115,7 @@ export class SettingsChangeRelauncher extends Disposable implements IWorkbenchCo
 		if (isNative) {
 
 			// Titlebar style
-			processChanged((config.window.titleBarStyle === 'native' || config.window.titleBarStyle === 'custom') && this.titleBarStyle.handleChange(config.window?.titleBarStyle));
-
-			// Windows: Window Controls Overlay
-			processChanged(isWindows && this.windowControlsOverlayEnabled.handleChange(config.window?.experimental?.windowControlsOverlay?.enabled));
-
-			// Windows: Sandbox
-			processChanged(this.windowSandboxEnabled.handleChange(config.window?.experimental?.useSandbox));
-
-			// Extension Host: Utility Process
-			processChanged(this.extensionHostUtilityProcessEnabled.handleChange(config.extensions?.experimental?.useUtilityProcess));
+			processChanged((config.window.titleBarStyle === TitlebarStyle.NATIVE || config.window.titleBarStyle === TitlebarStyle.CUSTOM) && this.titleBarStyle.handleChange(config.window?.titleBarStyle));
 
 			// macOS: Native tabs
 			processChanged(isMacintosh && this.nativeTabs.handleChange(config.window?.nativeTabs));
@@ -109,6 +125,9 @@ export class SettingsChangeRelauncher extends Disposable implements IWorkbenchCo
 
 			// macOS: Click through (accept first mouse)
 			processChanged(isMacintosh && this.clickThroughInactive.handleChange(config.window?.clickThroughInactive));
+
+			// Windows/Linux: Window controls style
+			processChanged(!isMacintosh && this.controlsStyle.handleChange(config.window?.controlsStyle));
 
 			// Update mode
 			processChanged(this.updateMode.handleChange(config.update?.mode));
@@ -123,6 +142,15 @@ export class SettingsChangeRelauncher extends Disposable implements IWorkbenchCo
 
 			// Workspace trust
 			processChanged(this.workspaceTrustEnabled.handleChange(config?.security?.workspace?.trust?.enabled));
+
+			// UNC host access restrictions
+			processChanged(this.restrictUNCAccess.handleChange(config?.security?.restrictUNCAccess));
+
+			// Debug accessibility verbosity
+			processChanged(this.accessibilityVerbosityDebug.handleChange(config?.accessibility?.verbosity?.debug));
+
+			// Unified chat view
+			processChanged(this.unifiedChatView.handleChange(config.chat?.experimental?.unifiedChatView));
 		}
 
 		// Experiments
@@ -131,9 +159,10 @@ export class SettingsChangeRelauncher extends Disposable implements IWorkbenchCo
 		// Profiles
 		processChanged(this.productService.quality !== 'stable' && this.enablePPEExtensionsGallery.handleChange(config._extensionsGallery?.enablePPE));
 
-		// Notify only when changed from an event and the change
-		// was not triggerd programmatically (e.g. from experiments)
-		if (changed && e && e.source !== ConfigurationTarget.DEFAULT) {
+		// Disable Feedback
+		processChanged(this.telemetryDisableFeedback.handleChange(config.telemetry?.disableFeedback));
+
+		if (askToRelaunch && changed && this.hostService.hasFocus) {
 			this.doConfirm(
 				isNative ?
 					localize('relaunchSettingMessage', "A setting has changed that requires a restart to take effect.") :
@@ -142,19 +171,17 @@ export class SettingsChangeRelauncher extends Disposable implements IWorkbenchCo
 					localize('relaunchSettingDetail', "Press the restart button to restart {0} and enable the setting.", this.productService.nameLong) :
 					localize('relaunchSettingDetailWeb', "Press the reload button to reload {0} and enable the setting.", this.productService.nameLong),
 				isNative ?
-					localize('restart', "&&Restart") :
-					localize('restartWeb', "&&Reload"),
+					localize({ key: 'restart', comment: ['&& denotes a mnemonic'] }, "&&Restart") :
+					localize({ key: 'restartWeb', comment: ['&& denotes a mnemonic'] }, "&&Reload"),
 				() => this.hostService.restart()
 			);
 		}
 	}
 
-	private async doConfirm(message: string, detail: string, primaryButton: string, confirmed: () => void): Promise<void> {
-		if (this.hostService.hasFocus) {
-			const res = await this.dialogService.confirm({ type: 'info', message, detail, primaryButton });
-			if (res.confirmed) {
-				confirmed();
-			}
+	private async doConfirm(message: string, detail: string, primaryButton: string, confirmedFn: () => void): Promise<void> {
+		const { confirmed } = await this.dialogService.confirm({ message, detail, primaryButton });
+		if (confirmed) {
+			confirmedFn();
 		}
 	}
 }
@@ -202,7 +229,7 @@ export class WorkspaceChangeExtHostRelauncher extends Disposable implements IWor
 	) {
 		super();
 
-		this.extensionHostRestarter = this._register(new RunOnceScheduler(() => {
+		this.extensionHostRestarter = this._register(new RunOnceScheduler(async () => {
 			if (!!environmentService.extensionTestsLocationURI) {
 				return; // no restart when in tests: see https://github.com/microsoft/vscode/issues/66936
 			}
@@ -210,7 +237,10 @@ export class WorkspaceChangeExtHostRelauncher extends Disposable implements IWor
 			if (environmentService.remoteAuthority) {
 				hostService.reload(); // TODO@aeschli, workaround
 			} else if (isNative) {
-				extensionService.restartExtensionHost();
+				const stopped = await extensionService.stopExtensionHosts(localize('restartExtensionHost.reason', "Changing workspace folders"));
+				if (stopped) {
+					extensionService.startExtensionHosts();
+				}
 			}
 		}, 10));
 

@@ -3,22 +3,27 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Event } from 'vs/base/common/event';
-import { isUNC, toSlashes } from 'vs/base/common/extpath';
-import * as json from 'vs/base/common/json';
-import * as jsonEdit from 'vs/base/common/jsonEdit';
-import { FormattingOptions } from 'vs/base/common/jsonFormatter';
-import { normalizeDriveLetter } from 'vs/base/common/labels';
-import { Schemas } from 'vs/base/common/network';
-import { isAbsolute, posix } from 'vs/base/common/path';
-import { isLinux, isMacintosh, isWindows } from 'vs/base/common/platform';
-import { IExtUri, isEqualAuthority } from 'vs/base/common/resources';
-import { URI } from 'vs/base/common/uri';
-import { IWorkspaceBackupInfo, IFolderBackupInfo } from 'vs/platform/backup/common/backup';
 import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
-import { ILogService } from 'vs/platform/log/common/log';
+import { localize } from 'vs/nls';
+import { IWorkspaceFolder, IWorkspace } from 'vs/platform/workspace/common/workspace';
+import { URI, UriComponents } from 'vs/base/common/uri';
+import { isWindows, isLinux, isMacintosh } from 'vs/base/common/platform';
+import { extname, isAbsolute } from 'vs/base/common/path';
+import { isEqualAuthority, extname as resourceExtname, extUriBiasedIgnorePathCase } from 'vs/base/common/resources';
+import * as jsonEdit from 'vs/base/common/jsonEdit';
+import * as json from 'vs/base/common/json';
+import { Schemas } from 'vs/base/common/network';
+import { normalizeDriveLetter } from 'vs/base/common/labels';
+import { toSlashes } from 'vs/base/common/extpath';
+import { FormattingOptions } from 'vs/base/common/jsonFormatter';
 import { getRemoteAuthority } from 'vs/platform/remote/common/remoteHosts';
-import { IBaseWorkspace, IRawFileWorkspaceFolder, IRawUriWorkspaceFolder, IWorkspaceIdentifier, WorkspaceFolder } from 'vs/platform/workspace/common/workspace';
+import { ILogService } from 'vs/platform/log/common/log';
+import { Event } from 'vs/base/common/event';
+import { IEnvironmentService } from 'vs/platform/environment/common/environment';
+
+export const WORKSPACE_EXTENSION = 'code-workspace';
+export const WORKSPACE_FILTER = [{ name: localize('codeWorkspace', "Code Workspace"), extensions: [WORKSPACE_EXTENSION] }];
+export const UNTITLED_WORKSPACE_NAME = 'workspace.json';
 
 export const IWorkspacesService = createDecorator<IWorkspacesService>('workspacesService');
 
@@ -141,9 +146,8 @@ export function getStoredWorkspaceFolder(folderURI: URI, forceAbsolute: boolean,
 		return { name: folderName, uri: folderURI.toString(true) };
 	}
 
-	// Always prefer a relative path if possible unless
-	// prevented to make the workspace file shareable
-	// with other users
+	const extUri = extUriBiasedIgnorePathCase; // To be replaced by the UriIdentityService as parameter: #108793
+
 	let folderPath = !forceAbsolute ? extUri.relativePath(targetConfigFolderURI, folderURI) : undefined;
 	if (folderPath !== undefined) {
 		if (folderPath.length === 0) {
@@ -239,6 +243,8 @@ export function toWorkspaceFolders(configuredFolders: IStoredWorkspaceFolder[], 
  */
 export function rewriteWorkspaceFileForNewLocation(rawWorkspaceContents: string, configPathURI: URI, isFromUntitledWorkspace: boolean, targetConfigPathURI: URI, extUri: IExtUri) {
 	const storedWorkspace = doParseStoredWorkspace(configPathURI, rawWorkspaceContents);
+
+	const extUri = extUriBiasedIgnorePathCase; // To be replaced by the UriIdentityService as parameter: #108793
 
 	const sourceConfigFolder = extUri.dirname(configPathURI);
 	const targetConfigFolder = extUri.dirname(targetConfigPathURI);
@@ -364,16 +370,39 @@ export function restoreRecentlyOpened(data: RecentlyOpenedStorageData | undefine
 export function toStoreData(recents: IRecentlyOpened): RecentlyOpenedStorageData {
 	const serialized: ISerializedRecentlyOpened = { entries: [] };
 
+	const storeLabel = (label: string | undefined, uri: URI) => {
+		// Only store the label if it is provided
+		// and only if it differs from the path
+		// This gives us a chance to render the
+		// path better, e.g. use `~` for home.
+		return label && label !== uri.fsPath && label !== uri.path;
+	};
+
 	for (const recent of recents.workspaces) {
 		if (isRecentFolder(recent)) {
-			serialized.entries.push({ folderUri: recent.folderUri.toString(), label: recent.label, remoteAuthority: recent.remoteAuthority });
+			serialized.entries.push({
+				folderUri: recent.folderUri.toString(),
+				label: storeLabel(recent.label, recent.folderUri) ? recent.label : undefined,
+				remoteAuthority: recent.remoteAuthority
+			});
 		} else {
-			serialized.entries.push({ workspace: { id: recent.workspace.id, configPath: recent.workspace.configPath.toString() }, label: recent.label, remoteAuthority: recent.remoteAuthority });
+			serialized.entries.push({
+				workspace: {
+					id: recent.workspace.id,
+					configPath: recent.workspace.configPath.toString()
+				},
+				label: storeLabel(recent.label, recent.workspace.configPath) ? recent.label : undefined,
+				remoteAuthority: recent.remoteAuthority
+			});
 		}
 	}
 
 	for (const recent of recents.files) {
-		serialized.entries.push({ fileUri: recent.fileUri.toString(), label: recent.label, remoteAuthority: recent.remoteAuthority });
+		serialized.entries.push({
+			fileUri: recent.fileUri.toString(),
+			label: storeLabel(recent.label, recent.fileUri) ? recent.label : undefined,
+			remoteAuthority: recent.remoteAuthority
+		});
 	}
 
 	return serialized;

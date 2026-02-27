@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/vscode/devcontainers/repos/microsoft/vscode
+FROM mcr.microsoft.com/devcontainers/base:ubuntu@sha256:3dcb059253b2ebb44de3936620e1cff3dadcd2c1c982d579081ca8128c1eb319
 MAINTAINER Microsoft
 
 RUN apt-get install -y software-properties-common python

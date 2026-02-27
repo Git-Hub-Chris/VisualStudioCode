@@ -5,15 +5,13 @@
 
 import { spawn } from 'child_process';
 import { realpath, watch } from 'fs';
-import { timeout } from 'vs/base/common/async';
-import { Emitter, Event } from 'vs/base/common/event';
-import * as path from 'vs/base/common/path';
-import { IEnvironmentMainService } from 'vs/platform/environment/electron-main/environmentMainService';
-import { ILifecycleMainService } from 'vs/platform/lifecycle/electron-main/lifecycleMainService';
-import { ILogService } from 'vs/platform/log/common/log';
-import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
-import { AvailableForDownload, IUpdateService, State, StateType, UpdateType } from 'vs/platform/update/common/update';
-import { UpdateNotAvailableClassification } from 'vs/platform/update/electron-main/abstractUpdateService';
+import { timeout } from '../../../base/common/async.js';
+import { Emitter, Event } from '../../../base/common/event.js';
+import * as path from '../../../base/common/path.js';
+import { IEnvironmentMainService } from '../../environment/electron-main/environmentMainService.js';
+import { ILifecycleMainService } from '../../lifecycle/electron-main/lifecycleMainService.js';
+import { ILogService } from '../../log/common/log.js';
+import { AvailableForDownload, IUpdateService, State, StateType, UpdateType } from '../common/update.js';
 
 abstract class AbstractUpdateService implements IUpdateService {
 
@@ -49,6 +47,8 @@ abstract class AbstractUpdateService implements IUpdateService {
 		// Start checking for updates after 30 seconds
 		this.scheduleCheckForUpdates(30 * 1000).then(undefined, err => this.logService.error(err));
 	}
+
+	async initialize(): Promise<void> { }
 
 	private scheduleCheckForUpdates(delay = 60 * 60 * 1000): Promise<void> {
 		return timeout(delay)
@@ -145,7 +145,6 @@ export class SnapUpdateService extends AbstractUpdateService {
 		@ILifecycleMainService lifecycleMainService: ILifecycleMainService,
 		@IEnvironmentMainService environmentMainService: IEnvironmentMainService,
 		@ILogService logService: ILogService,
-		@ITelemetryService private readonly telemetryService: ITelemetryService
 	) {
 		super(lifecycleMainService, environmentMainService, logService);
 
@@ -165,15 +164,12 @@ export class SnapUpdateService extends AbstractUpdateService {
 		this.setState(State.CheckingForUpdates(false));
 		this.isUpdateAvailable().then(result => {
 			if (result) {
-				this.setState(State.Ready({ version: 'something', productVersion: 'something' }));
+				this.setState(State.Ready({ version: 'something' }));
 			} else {
-				this.telemetryService.publicLog2<{ explicit: boolean }, UpdateNotAvailableClassification>('update:notAvailable', { explicit: false });
-
 				this.setState(State.Idle(UpdateType.Snap));
 			}
 		}, err => {
 			this.logService.error(err);
-			this.telemetryService.publicLog2<{ explicit: boolean }, UpdateNotAvailableClassification>('update:notAvailable', { explicit: false });
 			this.setState(State.Idle(UpdateType.Snap, err.message || err));
 		});
 	}
