@@ -6,11 +6,15 @@
 # PRs introducing known-vulnerable packages will be blocked from merging.
 #
 # Source repository: https://github.com/actions/dependency-review-action
+#
+# Security tradeoffs for known low-score transitive dependencies are documented in
+# DEPENDENCY_SECURITY_NOTES.md at the repository root.
 name: 'Dependency Review'
 on: [pull_request]
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   dependency-review:
@@ -25,3 +29,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: 'Dependency Review'
         uses: actions/dependency-review-action@05fe4576374b728f0c523d6a13d64c25081e0803 # v4.8.3
+        with:
+          # Report scorecard and vulnerability summary in PR comments for visibility.
+          # Packages with known low scores are documented in DEPENDENCY_SECURITY_NOTES.md.
+          comment-summary-in-pr: on-failure

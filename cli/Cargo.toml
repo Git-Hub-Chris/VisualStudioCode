@@ -70,6 +70,13 @@ core-foundation = "0.10.1"
 zbus = { version = "5.4.0", default-features = false, features = ["tokio"] }
 
 [patch.crates-io]
+# Security note: russh 0.37.1 has known advisories (GHSA-7jr8-5gqg-9fqf OOM DoS,
+# GHSA-qqff-4vr4-enp6 Terrapin, GHSA-cqjm-7784-r8w9 overflow checks) that affect
+# upstream crates.io versions < 0.44.0. This project uses microsoft/vscode-russh,
+# a maintained fork that may include backported security patches not reflected in
+# the version number. Upstream russh cannot be used directly because the microsoft
+# fork contains vscode-specific modifications required by microsoft/dev-tunnels.
+# TODO: Update this patch when microsoft/vscode-russh bumps the version past 0.44.0.
 russh = { git = "https://github.com/microsoft/vscode-russh", branch = "main" }
 russh-cryptovec = { git = "https://github.com/microsoft/vscode-russh", branch = "main" }
 russh-keys = { git = "https://github.com/microsoft/vscode-russh", branch = "main" }
