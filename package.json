@@ -88,7 +88,7 @@
     "@vscode/windows-process-tree": "^0.6.3",
     "@vscode/windows-registry": "^1.2.0",
     "@xterm/addon-clipboard": "^0.3.0-beta.177",
-    "@xterm/addon-image": "^0.10.0-beta.177",
+    "@xterm/addon-image": "^0.10.0-beta.180",
     "@xterm/addon-ligatures": "^0.11.0-beta.168",
     "@xterm/addon-progress": "^0.3.0-beta.177",
     "@xterm/addon-search": "^0.17.0-beta.180",
