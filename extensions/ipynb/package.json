@@ -165,7 +165,7 @@
     "detect-indent": "^7.0.2"
   },
   "devDependencies": {
-    "@jupyterlab/nbformat": "^4.5.5",
+    "@jupyterlab/nbformat": "^4.5.6",
     "@types/markdown-it": "14.1.2"
   },
   "repository": {
