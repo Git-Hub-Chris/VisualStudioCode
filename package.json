@@ -119,7 +119,7 @@
     "@playwright/test": "^1.58.2",
     "@stylistic/eslint-plugin-ts": "^4.4.1",
     "@types/cookie": "^1.0.0",
-    "@types/debug": "^4.1.12",
+    "@types/debug": "^4.1.13",
     "@types/eslint": "^9.6.1",
     "@types/gulp-svgmin": "^1.2.5",
     "@types/http-proxy-agent": "^4.0.1",
