@@ -780,7 +780,7 @@
     "@types/dompurify": "^3.2.0",
     "@types/lodash.throttle": "^4.1.9",
     "@types/markdown-it": "14.1.2",
-    "@types/picomatch": "^4.0.2",
+    "@types/picomatch": "^4.0.3",
     "@types/vscode-notebook-renderer": "^1.72.4",
     "@types/vscode-webview": "^1.57.5",
     "@vscode/markdown-it-katex": "^1.1.2",
