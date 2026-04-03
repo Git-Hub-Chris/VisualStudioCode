@@ -90,7 +90,7 @@
     "@xterm/addon-clipboard": "^0.3.0-beta.195",
     "@xterm/addon-image": "^0.10.0-beta.196",
     "@xterm/addon-ligatures": "^0.11.0-beta.196",
-    "@xterm/addon-progress": "^0.3.0-beta.195",
+    "@xterm/addon-progress": "^0.3.0-beta.196",
     "@xterm/addon-search": "^0.17.0-beta.195",
     "@xterm/addon-serialize": "^0.15.0-beta.196",
     "@xterm/addon-unicode11": "^0.10.0-beta.195",
