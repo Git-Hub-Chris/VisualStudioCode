@@ -170,7 +170,7 @@
     "gulp-azure-storage": "^0.12.1",
     "gulp-bom": "^5.0.0",
     "gulp-buffer": "0.0.2",
-    "gulp-filter": "^9.0.1",
+    "gulp-filter": "^10.0.0",
     "gulp-flatmap": "^1.0.2",
     "gulp-gunzip": "^1.0.0",
     "gulp-gzip": "^1.4.2",
