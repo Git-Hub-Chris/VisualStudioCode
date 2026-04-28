@@ -89,7 +89,7 @@
     "@vscode/windows-registry": "^1.2.0",
     "@xterm/addon-clipboard": "^0.3.0-beta.204",
     "@xterm/addon-image": "^0.10.0-beta.199",
-    "@xterm/addon-ligatures": "^0.11.0-beta.203",
+    "@xterm/addon-ligatures": "^0.11.0-beta.204",
     "@xterm/addon-progress": "^0.3.0-beta.199",
     "@xterm/addon-search": "^0.17.0-beta.199",
     "@xterm/addon-serialize": "^0.15.0-beta.199",
