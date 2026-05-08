@@ -45,7 +45,7 @@
     "@vscode/ts-package-manager": "^0.0.2",
     "jsonc-parser": "^3.3.1",
     "semver": "7.7.4",
-    "vscode-tas-client": "^0.1.86",
+    "vscode-tas-client": "^0.2.1",
     "vscode-uri": "^3.1.0"
   },
   "devDependencies": {
