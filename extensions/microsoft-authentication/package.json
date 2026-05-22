@@ -139,11 +139,11 @@
   },
   "dependencies": {
     "@azure/ms-rest-azure-env": "^2.0.0",
-    "@azure/msal-node": "^5.1.5",
-    "@azure/msal-node-extensions": "^5.1.5",
-    "@vscode/extension-telemetry": "^1.5.1",
+    "@azure/msal-node": "^5.2.1",
+    "@azure/msal-node-extensions": "^5.2.1",
+    "@vscode/extension-telemetry": "^1.5.2",
     "keytar": "file:./packageMocks/keytar",
-    "vscode-tas-client": "^0.1.86"
+    "vscode-tas-client": "^0.2.1"
   },
   "repository": {
     "type": "git",
