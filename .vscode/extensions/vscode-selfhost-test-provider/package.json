@@ -83,7 +83,7 @@
   "dependencies": {
     "@jridgewell/trace-mapping": "^0.3.31",
     "ansi-styles": "^6.2.3",
-    "cockatiel": "^3.2.1",
+    "cockatiel": "^4.0.0",
     "istanbul-to-vscode": "^2.1.1"
   }
 }
