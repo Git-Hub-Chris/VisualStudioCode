@@ -764,7 +764,7 @@
   },
   "dependencies": {
     "@vscode/extension-telemetry": "^1.5.2",
-    "dompurify": "^3.4.5",
+    "dompurify": "^3.4.7",
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.2.0",
     "markdown-it-front-matter": "^0.2.4",
