@@ -785,7 +785,7 @@
     "@types/vscode-webview": "^1.57.5",
     "@vscode/markdown-it-katex": "^1.1.2",
     "lodash.throttle": "^4.1.1",
-    "vscode-languageserver-types": "^3.17.5",
+    "vscode-languageserver-types": "^3.18.0",
     "vscode-markdown-languageservice": "^0.4.0"
   },
   "repository": {
