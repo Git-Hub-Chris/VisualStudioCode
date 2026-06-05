@@ -31,7 +31,7 @@ dirs = "6.0.0"
 rand = "0.10.1"
 opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
 serde_bytes = "0.11.19"
-chrono = { version = "0.4.44", features = ["serde", "std", "clock"], default-features = false }
+chrono = { version = "0.4.45", features = ["serde", "std", "clock"], default-features = false }
 gethostname = "1.1.0"
 libc = "0.2.186"
 tunnels = { git = "https://github.com/microsoft/dev-tunnels", rev = "8cae9b2a24c65c6c1958f5a0e77d72b23b5c6c30", default-features = false, features = ["connections"] }
