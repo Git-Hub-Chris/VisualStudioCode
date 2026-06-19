@@ -479,7 +479,7 @@
     "deps": "npm install @vscode/emmet-helper"
   },
   "devDependencies": {
-    "@types/node": "25.x"
+    "@types/node": "26.x"
   },
   "dependencies": {
     "@emmetio/css-parser": "ramya-rao-a/css-parser#vscode",
