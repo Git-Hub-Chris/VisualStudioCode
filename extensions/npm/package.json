@@ -32,7 +32,7 @@
   },
   "devDependencies": {
     "@types/minimatch": "^6.0.0",
-    "@types/node": "25.x",
+    "@types/node": "26.x",
     "@types/which": "^3.0.4"
   },
   "main": "./out/npmMain",
