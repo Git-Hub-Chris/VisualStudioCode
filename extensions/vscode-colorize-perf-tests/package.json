@@ -22,7 +22,7 @@
     "jsonc-parser": "^3.3.1"
   },
   "devDependencies": {
-    "@types/node": "25.x"
+    "@types/node": "26.x"
   },
   "repository": {
     "type": "git",
