@@ -17,7 +17,7 @@
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "25.x"
+    "@types/node": "26.x"
   },
   "scripts": {
     "compile": "gulp compile-extension:css-language-features-server",
