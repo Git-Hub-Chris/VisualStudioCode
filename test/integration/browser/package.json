@@ -7,7 +7,7 @@
     "compile": "node ../../../node_modules/typescript/bin/tsc"
   },
   "devDependencies": {
-    "@types/node": "25.x",
+    "@types/node": "26.x",
     "@types/rimraf": "^2.0.4",
     "@types/tmp": "0.2.6",
     "rimraf": "^6.1.3",
