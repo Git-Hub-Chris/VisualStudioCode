@@ -25,7 +25,7 @@
   },
   "devDependencies": {
     "@types/ncp": "2.0.8",
-    "@types/node": "25.x",
+    "@types/node": "26.x",
     "@types/tmp": "0.2.6",
     "cpx2": "9.0.0",
     "nodemon": "^3.1.14",
