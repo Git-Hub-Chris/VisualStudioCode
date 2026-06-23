@@ -71,7 +71,7 @@
   "dependencies": {
     "@c4312/eventsource-umd": "^3.0.5",
     "@microsoft/1ds-core-js": "^4.4.2",
-    "@microsoft/1ds-post-js": "^4.4.1",
+    "@microsoft/1ds-post-js": "^4.4.2",
     "@parcel/watcher": "2.5.6",
     "@types/semver": "^7.5.8",
     "@vscode/deviceid": "^0.1.5",
