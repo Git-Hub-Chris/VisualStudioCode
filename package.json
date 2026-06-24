@@ -141,7 +141,7 @@
     "@vscode/gulp-electron": "^1.41.4",
     "@vscode/l10n-dev": "0.0.35",
     "@vscode/telemetry-extractor": "^1.20.4",
-    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.0.0",
     "@vscode/test-web": "^0.0.80",
     "@vscode/v8-heap-parser": "^0.1.0",
