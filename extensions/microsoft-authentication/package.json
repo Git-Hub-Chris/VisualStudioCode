@@ -139,7 +139,7 @@
   },
   "dependencies": {
     "@azure/ms-rest-azure-env": "^2.0.0",
-    "@azure/msal-node": "^5.3.0",
+    "@azure/msal-node": "^5.3.1",
     "@azure/msal-node-extensions": "^5.2.5",
     "@vscode/extension-telemetry": "^1.5.2",
     "keytar": "file:./packageMocks/keytar",
