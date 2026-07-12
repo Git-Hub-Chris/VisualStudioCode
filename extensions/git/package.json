@@ -3571,7 +3571,7 @@
     "byline": "^5.0.0",
     "file-type": "22.0.1",
     "jschardet": "3.1.4",
-    "picomatch": "4.0.4",
+    "picomatch": "4.0.5",
     "vscode-uri": "^3.1.0",
     "which": "7.0.0"
   },
