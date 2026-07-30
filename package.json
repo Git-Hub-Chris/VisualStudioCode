@@ -217,7 +217,7 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.63.0",
     "util": "^0.12.4",
-    "webpack": "^5.107.2",
+    "webpack": "^5.109.2",
     "webpack-cli": "^7.0.3",
     "webpack-stream": "^7.0.0",
     "xml2js": "^0.6.2",
