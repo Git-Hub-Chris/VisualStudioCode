@@ -111,7 +111,7 @@
     "build-notebook": "node ./esbuild"
   },
   "devDependencies": {
-    "@types/markdown-it": "^14.1.2",
+    "@types/markdown-it": "^14.2.0",
     "@types/vscode-notebook-renderer": "^1.72.4"
   },
   "repository": {
