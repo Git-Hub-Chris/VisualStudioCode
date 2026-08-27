@@ -5,7 +5,7 @@
   "devDependencies": {
     "@azure/core-auth": "^1.11.0",
     "@azure/cosmos": "^4",
-    "@azure/identity": "^4.13.1",
+    "@azure/identity": "^4.13.2",
     "@azure/msal-node": "^5.4.0",
     "@azure/storage-blob": "^12.33.0",
     "@electron/get": "^5.0.0",
