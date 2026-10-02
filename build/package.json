@@ -5,7 +5,7 @@
   "devDependencies": {
     "@azure/core-auth": "^1.11.0",
     "@azure/cosmos": "^4",
-    "@azure/identity": "^4.13.2",
+    "@azure/identity": "^4.13.3",
     "@azure/msal-node": "^5.4.0",
     "@azure/storage-blob": "^12.33.0",
     "@electron/get": "^5.0.0",
@@ -37,7 +37,7 @@
     "@types/xml2js": "0.4.14",
     "@vscode/iconv-lite-umd": "0.7.1",
     "@vscode/ripgrep": "^1.18.0",
-    "@vscode/vsce": "3.9.2",
+    "@vscode/vsce": "4.0.0",
     "byline": "^5.0.0",
     "debug": "^4.3.2",
     "electron-osx-sign": "^0.6.0",
