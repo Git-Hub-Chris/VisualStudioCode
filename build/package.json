@@ -47,7 +47,7 @@
     "gulp-sort": "^2.0.0",
     "jsonc-parser": "^3.3.1",
     "jws": "^4.0.1",
-    "mime": "^4.1.0",
+    "mime": "^4.1.1",
     "source-map": "0.8.0",
     "ternary-stream": "^3.0.0",
     "through2": "^5.0.7",
